@@ -13,6 +13,15 @@ All game logic runs on the server. The browser draws the state and sends orders.
 | Client          | Vite and Three.js, with the interface in plain HTML                                            |
 | Saves           | a JSON snapshot of the state                                                                   |
 
+## Packages
+
+| Package         | Contents                                                                                            |
+| --------------- | --------------------------------------------------------------------------------------------------- |
+| `packages/sim`  | the core: world generation, the tick, the per-player view; imports nothing from Node or the browser |
+| `packages/bots` | doctrines, the decision function that turns a view into commands, and the headless match runner     |
+
+Tunable numbers live in one constants object inside the state, so they can be changed at run time and are saved with the game.
+
 ## Decisions
 
 1. **The core is a pure function.** It turns a state and a list of commands into the next state. State is plain data and randomness comes from a seed. Saves, replays, tests and headless bot matches follow from this.
@@ -20,7 +29,7 @@ All game logic runs on the server. The browser draws the state and sends orders.
 3. **The server computes each player's view.** Fog and the private data of other players are cut out before anything is sent.
 4. **Time is server state.** Pause and speed are commands, not client settings.
 5. **Static data is separate from dynamic data.** The map is sent once on joining. After that the player's full view of the arena is sent every tick, so reconnecting needs only one snapshot.
-6. **The core has no notion of a planet.** It knows nodes, edges, owners and a link to a parent node. Geometry belongs to the client.
+6. **The core has no notion of a planet.** It knows nodes, edges and owners. Positions are generated with the map but only the client uses them. A link to a parent node arrives with folding in stage 2.
 7. **The client decides nothing.** It draws and interpolates between snapshots. The motion of flows is cosmetic and derived from numbers the server sends.
 
 Because orders are standing states and ticks are slow, the game needs neither client-side prediction nor lockstep synchronization.

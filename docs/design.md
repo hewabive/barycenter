@@ -37,7 +37,9 @@ Nodes of the next scale are on the map from the start. A sufficiently developed 
 | Knowledge | a field: never spent, spreads to neighbors           | science nodes                                        | output multiplier; thresholds unlock abilities such as the spaceport and interstellar edges |
 | Force     | a stock that needs energy upkeep                     | built from matter at shipyards                       | pressure, defense, holding nodes                                                            |
 
-Matter sets the speed of growth and energy sets its ceiling. When energy falls short, nodes work at reduced output and force decays.
+Matter sets the speed of growth and energy sets its ceiling. When energy falls short, nodes work at reduced output, force decays, and only power nodes keep growing.
+
+Every owned node yields a little matter and energy whatever its role.
 
 ## Nodes
 
@@ -45,7 +47,7 @@ A node has:
 
 - natural data from world generation: matter richness, energy richness and a level cap;
 - a level, raised by invested matter, with every level needing energy;
-- a role, one of extraction, power, shipyard or science, chosen on settlement and costly to change;
+- a role, one of extraction, power, shipyard or science, chosen on settlement and costly to change: a change costs levels;
 - knowledge and cohesion.
 
 ## Orders
@@ -62,25 +64,32 @@ A node has:
 | Power  | fold                 | hands a body over to self-rule                                           |
 | Power  | release              | lets a node go peacefully                                                |
 
+The dial sets how much of its building capacity a node uses and how strongly it attracts matter. A node that holds enough for its own work stops attracting, so the strongest pull is served first and the rest goes on to weaker ones.
+
+One expand order adds one step of capacity.
+
 The player does not draw routes. Orders create demand, and the network carries matter and force to it. The player's concern is bottlenecks, which are edges of low capacity. Flows must always be visible on the map.
 
 ## Conflict
 
 - There are no tactical battles.
 - Force directed at a foreign node becomes pressure. The node changes owner once pressure has exceeded its defense for long enough.
-- Pressure consumes force on both sides.
+- Pressure consumes force on both sides, the attacker's faster.
+- Pressure through an edge is limited by its capacity. A strong node has to be pressed along several edges or along a widened one.
+- An attack on an owned node is announced to everyone who sees it and takes effect only after a delay. This binds the player as much as the rivals.
 - A neutral node has a small defense of its own and is taken by the same pressure.
 - A captured node loses part of its levels.
 
 ## Fog
 
-The natural data of a node is visible only near the player's territory. Farther away only outlines are known.
+The natural data of a node is revealed next to the player's territory and stays known afterwards. Owners, levels and force are visible only next to that territory. Farther away only outlines are known.
 
 ## Rivals
 
 - Rivals follow the same rules and act through the same orders as the player.
 - Each rival is driven by a doctrine: a few parameters such as aggression, preferred direction of expansion and what it retaliates against.
-- A rival's next target is shown on the map in advance.
+- A rival's next target is shown on the map in advance, as is the force it masses at the border.
+- Stage 1 has three doctrines: aggressor, builder and opportunist.
 - Rivals fight each other as well as the player.
 - The powers of the home planet expand into space too, so rivals inside the home system are those powers and seceded colonies.
 - Powers beyond the home system grow as a function of time until first contact and do not adapt to the player.
@@ -121,7 +130,7 @@ Population, food, money, a technology tree, unit types, treaties, random events 
 Stage 1 tests whether managing flows on one arena is interesting.
 
 - One planet of about 20 regions with two rivals of different doctrines.
-- Matter, energy and force.
+- Matter, energy and force, with the roles extraction, power and shipyard.
 - Orders: development priority, role, garrison, expand, pressure.
 - Geography, fog, energy shortage, visible intentions and automatic pause.
 - Tools: a live panel for tuning constants, seeded world generation, and a headless match between bots.
