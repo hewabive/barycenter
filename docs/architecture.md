@@ -21,6 +21,7 @@ All game logic runs on the server. The browser draws the state and sends orders.
 | `packages/bots`     | doctrines, the decision function that turns a view into commands, and the headless match runner     |
 | `packages/protocol` | the messages between client and server, and the parser for what a client sends                      |
 | `packages/server`   | rooms, seats, the clock, saves and the WebSocket endpoint                                           |
+| `packages/client`   | the browser client: the globe, the panels and the connection                                        |
 
 Tunable numbers live in one constants object inside the state, so they can be changed at run time and are saved with the game.
 
@@ -32,7 +33,7 @@ Tunable numbers live in one constants object inside the state, so they can be ch
 4. **Time is server state.** Pause and speed are commands, not client settings.
 5. **Static data is separate from dynamic data.** The map is sent once on joining. After that the player's full view of the arena is sent every tick, so reconnecting needs only one snapshot.
 6. **The core has no notion of a planet.** It knows nodes, edges and owners. Positions are generated with the map but only the client uses them. A link to a parent node arrives with folding in stage 2.
-7. **The client decides nothing.** It draws and interpolates between snapshots. The motion of flows is cosmetic and derived from numbers the server sends.
+7. **The client decides nothing.** It draws the latest view. The motion of flows between ticks is cosmetic and derived from numbers the server sends, and smoothing of other values can be added without touching the server.
 
 Because orders are standing states and ticks are slow, the game needs neither client-side prediction nor lockstep synchronization.
 
@@ -66,13 +67,16 @@ Messages are JSON over one WebSocket. A client first joins a room. A room that d
 - The server listens on the local machine unless a host is given. It has no accounts yet, so a seat token is the only protection.
 - A room is saved when its last player leaves, every thousand ticks while it runs, and on shutdown. A save holds the whole state, so a restored room continues identically.
 - Live tuning is off unless the server is started with the tuning flag.
+- The server also hands out the built client, so one process and one address are enough to play.
+
+## Client
+
+- Region shapes are the Voronoi cells of the same points the core used to generate the map, so the globe needs no geometry from the server beyond those points.
+- The surface is one mesh with a color per region. Edges are lines whose width follows capacity. Flows are particles moving along the edges, and attacks are raised arcs: dashed while announced, solid once active.
+- Labels and panels are plain HTML over the canvas. A panel is rebuilt only when its structure changes; between rebuilds only its numbers are updated.
+- The seat token is kept in the browser's local storage, so reloading the page returns to the same seat.
+- In development the client runs on Vite at port 5183 and connects to the game server on port 8787.
 
 ## Deferred
 
 A database, accounts, spectators, more than one human seat per room, a delta or binary protocol, a thread per room and an interface framework. Each can be added later without changing the core.
-
-## Build order
-
-1. The core and a headless match between bots.
-2. The server and the protocol.
-3. The client with a globe.

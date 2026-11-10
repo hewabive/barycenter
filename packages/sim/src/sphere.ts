@@ -25,29 +25,36 @@ export function scatter(count: number, random: Random): Vector[] {
   return points;
 }
 
+export function hullFaces(points: Vector[]): [number, number, number][] {
+  const count = points.length;
+  const faces: [number, number, number][] = [];
+  for (let first = 0; first < count; first++) {
+    for (let second = first + 1; second < count; second++) {
+      for (let third = second + 1; third < count; third++) {
+        if (isHullFace(points, first, second, third)) {
+          faces.push([first, second, third]);
+        }
+      }
+    }
+  }
+  return faces;
+}
+
 export function neighborPairs(points: Vector[]): [number, number][] {
   const count = points.length;
   const seen = new Set<number>();
   const pairs: [number, number][] = [];
-  const add = (first: number, second: number) => {
-    const low = Math.min(first, second);
-    const high = Math.max(first, second);
+  const add = (low: number, high: number) => {
     const key = low * count + high;
     if (!seen.has(key)) {
       seen.add(key);
       pairs.push([low, high]);
     }
   };
-  for (let first = 0; first < count; first++) {
-    for (let second = first + 1; second < count; second++) {
-      for (let third = second + 1; third < count; third++) {
-        if (isHullFace(points, first, second, third)) {
-          add(first, second);
-          add(second, third);
-          add(first, third);
-        }
-      }
-    }
+  for (const [first, second, third] of hullFaces(points)) {
+    add(first, second);
+    add(second, third);
+    add(first, third);
   }
   return pairs;
 }

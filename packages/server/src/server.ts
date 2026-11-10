@@ -11,12 +11,14 @@ import {
 import { type WebSocket, WebSocketServer } from "ws";
 import { Room, type RoomOptions, unknownRival } from "./room.ts";
 import { loadSave, writeSave } from "./saves.ts";
+import { createStaticHandler } from "./static.ts";
 
 export interface ServerOptions {
   port: number;
   host: string;
   tuning: boolean;
   saves: string | null;
+  client: string | null;
   tickRate: number;
   seed: number | null;
 }
@@ -129,10 +131,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     return opened.filter((item): item is Entry => "room" in item);
   };
 
-  const http = createServer((_request, response) => {
-    response.writeHead(200, { "content-type": "text/plain" });
-    response.end("barycenter\n");
-  });
+  const http = createServer(createStaticHandler(options.client));
   const sockets = new WebSocketServer({
     server: http,
     maxPayload: MAX_PAYLOAD,

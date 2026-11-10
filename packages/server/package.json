@@ -10,7 +10,8 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "test": "node --test \"test/**/*.test.ts\"",
-    "serve": "node bin/serve.ts"
+    "serve": "node bin/serve.ts",
+    "dev": "node bin/serve.ts --tuning"
   },
   "dependencies": {
     "@barycenter/bots": "workspace:*",

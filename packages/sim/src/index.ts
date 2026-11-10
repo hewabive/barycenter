@@ -1,5 +1,6 @@
 export { ROLES } from "./commands.ts";
 export { defaultConstants } from "./constants.ts";
+export { hullFaces } from "./sphere.ts";
 export { cloneState, issue, step } from "./step.ts";
 export { retune } from "./tune.ts";
 export type {
@@ -22,6 +23,7 @@ export type {
   Vector,
   WorldMap,
 } from "./types.ts";
+export { angleBetween, cross, dot, normalize, subtract } from "./vector.ts";
 export type {
   EdgeView,
   Holding,

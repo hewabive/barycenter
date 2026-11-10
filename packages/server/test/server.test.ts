@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -15,6 +15,7 @@ const base: ServerOptions = {
   host: "127.0.0.1",
   tuning: false,
   saves: null,
+  client: null,
   tickRate: 100,
   seed: 1,
 };
@@ -219,6 +220,40 @@ test("a game survives a server restart", async () => {
       returning.close();
     } finally {
       await after.close();
+    }
+  } finally {
+    await rm(folder, { recursive: true, force: true });
+  }
+});
+
+test("the server hands out the built client and nothing outside it", async () => {
+  const folder = await mkdtemp(join(tmpdir(), "barycenter-client-"));
+  try {
+    const site = join(folder, "site");
+    await mkdir(join(site, "assets"), { recursive: true });
+    await writeFile(join(site, "index.html"), "<p>globe</p>");
+    await writeFile(join(site, "assets", "app.js"), "export {};");
+    await writeFile(join(folder, "secret.txt"), "hidden");
+
+    const server = await startServer({ ...base, client: site });
+    try {
+      const origin = `http://127.0.0.1:${server.port}`;
+      const page = await fetch(`${origin}/`);
+      assert.equal(page.headers.get("content-type"), "text/html; charset=utf-8");
+      assert.equal(await page.text(), "<p>globe</p>");
+      const script = await fetch(`${origin}/assets/app.js`);
+      assert.equal(script.headers.get("content-type"), "text/javascript; charset=utf-8");
+      assert.equal((await fetch(`${origin}/room/home`)).status, 200);
+      assert.equal((await fetch(`${origin}/assets/missing.js`)).status, 404);
+      assert.equal((await fetch(`${origin}/..%2fsecret.txt`)).status, 403);
+      assert.equal((await fetch(`${origin}/`, { method: "POST" })).status, 405);
+
+      const client = await connect(server);
+      client.send(joining("zeta"));
+      assert.equal((await client.next("welcome")).seat, 0);
+      client.close();
+    } finally {
+      await server.close();
     }
   } finally {
     await rm(folder, { recursive: true, force: true });
