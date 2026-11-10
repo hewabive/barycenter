@@ -1,0 +1,24 @@
+{
+  "name": "@barycenter/server",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test \"test/**/*.test.ts\"",
+    "serve": "node bin/serve.ts"
+  },
+  "dependencies": {
+    "@barycenter/bots": "workspace:*",
+    "@barycenter/protocol": "workspace:*",
+    "@barycenter/sim": "workspace:*",
+    "ws": "^8.22.2"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.2"
+  }
+}

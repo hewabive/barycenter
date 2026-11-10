@@ -15,7 +15,8 @@
     "lint": "biome check .",
     "format": "biome check --write .",
     "test": "pnpm -r --if-present run test",
-    "match": "pnpm --filter @barycenter/bots run match"
+    "match": "pnpm --filter @barycenter/bots run match",
+    "serve": "pnpm --filter @barycenter/server run serve"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.6",

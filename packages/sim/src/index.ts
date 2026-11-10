@@ -1,5 +1,7 @@
+export { ROLES } from "./commands.ts";
 export { defaultConstants } from "./constants.ts";
-export { cloneState, step } from "./step.ts";
+export { cloneState, issue, step } from "./step.ts";
+export { retune } from "./tune.ts";
 export type {
   Command,
   Constants,
@@ -30,5 +32,5 @@ export type {
   Status,
   View,
 } from "./view.ts";
-export { outlineOf, viewFor } from "./view.ts";
+export { eventsFor, outlineOf, viewFor } from "./view.ts";
 export { createWorld, type WorldOptions } from "./world.ts";

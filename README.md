@@ -2,7 +2,7 @@
 
 A browser space strategy sandbox in which attention stays on the frontier. Territory that has matured is handed over to self-rule and becomes a single node of a larger map: the regions of a planet, then the worlds of a star system, then neighboring stars.
 
-Status: the simulation core runs and bots play full matches against each other. There is no server or client yet.
+Status: the simulation core and the game server run, and bots play full matches against each other. There is no client yet.
 
 ## What makes it different
 
@@ -28,6 +28,12 @@ Run one bot match and print its timeline, or a series with rotating seats and a 
 
     pnpm match --seed 1 --ticks 6000
     pnpm match --seed 1 --ticks 6000 --matches 24
+
+Start the game server on `ws://127.0.0.1:8787`, with live tuning of constants enabled:
+
+    pnpm serve --tuning
+
+Other options are `--port`, `--host`, `--saves`, `--tick-rate` and `--seed`.
 
 ## License
 

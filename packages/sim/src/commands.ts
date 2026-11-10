@@ -1,6 +1,6 @@
 import type { Command, GameEvent, Rejection, Role, State } from "./types.ts";
 
-const ROLES: Role[] = ["extraction", "power", "shipyard"];
+export const ROLES: Role[] = ["extraction", "power", "shipyard"];
 const GARRISON_LIMIT = 1_000_000;
 
 export function applyCommands(state: State, commands: Command[], events: GameEvent[]): Rejection[] {

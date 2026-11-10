@@ -98,7 +98,8 @@ export function runMatch(options: MatchOptions): MatchSummary {
     const commands = [];
     for (let power = 0; power < powerCount; power++) {
       if (state.powers[power].alive && (state.tick + power) % thinkEvery === 0) {
-        commands.push(...decide(outline, viewFor(state, power), options.doctrines[power]));
+        const view = viewFor(state, power);
+        commands.push(...decide(outline, state.constants, view, options.doctrines[power]));
       }
     }
     const result = step(state, commands);

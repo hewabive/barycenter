@@ -15,10 +15,12 @@ All game logic runs on the server. The browser draws the state and sends orders.
 
 ## Packages
 
-| Package         | Contents                                                                                            |
-| --------------- | --------------------------------------------------------------------------------------------------- |
-| `packages/sim`  | the core: world generation, the tick, the per-player view; imports nothing from Node or the browser |
-| `packages/bots` | doctrines, the decision function that turns a view into commands, and the headless match runner     |
+| Package             | Contents                                                                                            |
+| ------------------- | --------------------------------------------------------------------------------------------------- |
+| `packages/sim`      | the core: world generation, the tick, the per-player view; imports nothing from Node or the browser |
+| `packages/bots`     | doctrines, the decision function that turns a view into commands, and the headless match runner     |
+| `packages/protocol` | the messages between client and server, and the parser for what a client sends                      |
+| `packages/server`   | rooms, seats, the clock, saves and the WebSocket endpoint                                           |
 
 Tunable numbers live in one constants object inside the state, so they can be changed at run time and are saved with the game.
 
@@ -34,9 +36,40 @@ Tunable numbers live in one constants object inside the state, so they can be ch
 
 Because orders are standing states and ticks are slow, the game needs neither client-side prediction nor lockstep synchronization.
 
+## Protocol
+
+Messages are JSON over one WebSocket. A client first joins a room. A room that does not exist yet is created, from its save if there is one.
+
+| From client | Meaning                                                                                          |
+| ----------- | ------------------------------------------------------------------------------------------------ |
+| `join`      | take a seat in a room; a setup with a seed and rival doctrines applies only when the room is new |
+| `orders`    | orders for the seat's own power; the server stamps the seat on them                              |
+| `time`      | pause, resume or change speed                                                                    |
+| `triggers`  | which events pause time for this seat                                                            |
+| `tune`      | change constants, where the server allows it                                                     |
+
+| From server | Meaning                                                                                          |
+| ----------- | ------------------------------------------------------------------------------------------------ |
+| `welcome`   | seat, seat token, map outline, constants, room status and the first view                         |
+| `view`      | the seat's view and the events it can see; sent after every tick and after every batch of orders |
+| `room`      | time and seats, sent when either changes                                                         |
+| `constants` | the constants after tuning                                                                       |
+| `rejected`  | orders the core refused, with reasons                                                            |
+| `error`     | a message the server could not act on                                                            |
+
+- The first join of a seat returns a secret token. Rejoining that seat requires the token, and the newer connection replaces the older one.
+- Everything a client sends is parsed field by field, and unknown fields are dropped. The core then checks ownership and ranges.
+- Messages are compressed by the WebSocket extension. A view of the first planet is about 7 KB of JSON and well under 1 KB on the wire.
+
+## Server
+
+- The server listens on the local machine unless a host is given. It has no accounts yet, so a seat token is the only protection.
+- A room is saved when its last player leaves, every thousand ticks while it runs, and on shutdown. A save holds the whole state, so a restored room continues identically.
+- Live tuning is off unless the server is started with the tuning flag.
+
 ## Deferred
 
-A database, accounts, a delta or binary protocol, a thread per room and an interface framework. Each can be added later without changing the core.
+A database, accounts, spectators, more than one human seat per room, a delta or binary protocol, a thread per room and an interface framework. Each can be added later without changing the core.
 
 ## Build order
 

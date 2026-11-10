@@ -70,8 +70,13 @@ const THREAT_MARGIN = 1.15;
 const FORCE_GROWTH = 1.25;
 const FORCE_STEP = 5;
 
-export function decide(outline: Outline, view: View, doctrine: Doctrine): Command[] {
-  const survey = look(outline, view);
+export function decide(
+  outline: Outline,
+  constants: Constants,
+  view: View,
+  doctrine: Doctrine,
+): Command[] {
+  const survey = look(outline, constants, view);
   if (survey.own.length === 0) {
     return [];
   }
@@ -86,8 +91,7 @@ export function decide(outline: Outline, view: View, doctrine: Doctrine): Comman
   ];
 }
 
-function look(outline: Outline, view: View): Survey {
-  const constants = view.constants;
+function look(outline: Outline, constants: Constants, view: View): Survey {
   const own: OwnNode[] = [];
   for (const node of view.nodes) {
     if (node.holding !== null && node.status !== null && node.nature !== null) {

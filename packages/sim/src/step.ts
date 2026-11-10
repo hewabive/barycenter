@@ -18,10 +18,15 @@ export function cloneState(state: State): State {
   };
 }
 
-export function step(previous: State, commands: Command[]): StepResult {
+export function issue(previous: State, commands: Command[]): StepResult {
   const state = cloneState(previous);
   const events: GameEvent[] = [];
   const rejections = applyCommands(state, commands, events);
+  return { state, events, rejections };
+}
+
+export function step(previous: State, commands: Command[]): StepResult {
+  const { state, events, rejections } = issue(previous, commands);
 
   distributeEnergy(state);
   const forceWanted = forceWantedBy(state);

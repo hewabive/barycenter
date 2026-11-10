@@ -30,7 +30,8 @@ test("all land is claimed in the course of a match", () => {
 
 test("a bot decides from its own view only", () => {
   const state = createWorld({ seed: 2 });
-  const commands = decide(outlineOf(state.map), viewFor(state, 1), doctrines.builder);
+  const view = viewFor(state, 1);
+  const commands = decide(outlineOf(state.map), state.constants, view, doctrines.builder);
   assert.ok(commands.length > 0);
   for (const command of commands) {
     assert.equal(command.power, 1);

@@ -1,6 +1,6 @@
 import { visibleNodes } from "./explore.ts";
 import { capacityOf, defenseOf } from "./rules.ts";
-import type { Constants, EdgeKind, Link, Role, State, Terrain, Vector, WorldMap } from "./types.ts";
+import type { EdgeKind, GameEvent, Link, Role, State, Terrain, Vector, WorldMap } from "./types.ts";
 
 export interface Outline {
   nodes: { id: number; position: Vector }[];
@@ -61,7 +61,6 @@ export interface PressureView {
 export interface View {
   tick: number;
   power: number;
-  constants: Constants;
   alive: boolean[];
   nodes: NodeView[];
   edges: EdgeView[];
@@ -144,10 +143,26 @@ export function viewFor(state: State, power: number): View {
   return {
     tick: state.tick,
     power,
-    constants: state.constants,
     alive: state.powers.map((holder) => holder.alive),
     nodes,
     edges,
     pressures,
   };
+}
+
+export function eventsFor(state: State, power: number, events: GameEvent[]): GameEvent[] {
+  const visible = visibleNodes(state, power);
+  return events.filter((event) => {
+    if (event.kind === "eliminated") {
+      return true;
+    }
+    if (event.kind === "discovered") {
+      return event.power === power;
+    }
+    if (event.kind === "captured") {
+      return event.from === power || event.to === power || visible.has(event.node);
+    }
+    const involved = event.power === power || event.target === power;
+    return involved || visible.has(event.from) || visible.has(event.to);
+  });
 }

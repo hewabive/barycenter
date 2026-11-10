@@ -25,8 +25,9 @@ Nodes of the next scale are on the map from the start. A sufficiently developed 
 
 - The game advances in ticks, and all orders resolve simultaneously.
 - The player can pause and choose among several speeds.
-- Orders are standing states that hold until changed.
-- Time pauses automatically when a rival announces an attack, a node changes owner, or a new node is discovered.
+- Orders are standing states that hold until changed. They can be given while time is paused and take effect at once.
+- Time pauses automatically when a rival announces an attack on the player, when the player gains or loses a node, and when the player discovers a new node. Each trigger can be switched off.
+- A game starts paused, and it pauses whenever no player is present.
 
 ## Resources
 
