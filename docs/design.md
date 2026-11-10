@@ -139,3 +139,12 @@ Stage 1 tests whether managing flows on one arena is interesting.
 Stage 1 succeeds if the player wants to pause and change something every minute or two, and if the reason for losing a region is always clear.
 
 Stage 2 adds knowledge, cohesion, borders and trade, gifts, the moon and folding. It tests whether the game stays manageable as it grows.
+
+## Open questions
+
+- No human has judged yet whether stage 1 passes its test.
+- The constants are preliminary. They were adjusted only until bots played sensibly, and real tuning needs play with the constants panel.
+- In a series of 24 bot matches of 6000 ticks the aggressor ended with about half of all regions and led in most matches, and the builder was the weakest. Stage 1 gives an economic lead nothing to turn into.
+- In about a fifth of those matches a single power was left. Nothing slows a leader until the brakes of stage 2 exist.
+- The late game goes quiet: a developed region cannot be taken through one edge, and bots widen edges slowly.
+- The client shows regions by number, lets values other than flows jump between ticks, and applies a change of role without asking.

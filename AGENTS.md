@@ -29,3 +29,8 @@ Barycenter is developed solo by AI agents that work with high autonomy. These ru
 - No pseudocode in documents.
 - `docs/design.md` is the source of truth for game rules and `docs/architecture.md` for technical decisions. Update them in the same commit as the change they describe.
 - Do not add other documents unless the user asks.
+
+## Verification
+
+- `pnpm check` does not open the client in a browser. After changing the client, run it in a real browser, headless if there is no display, and look at a screenshot before committing.
+- Stop only the processes you started. Other projects may be running on the same machine.
