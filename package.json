@@ -1,0 +1,23 @@
+{
+  "name": "barycenter",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A browser space strategy sandbox in which attention stays on the frontier",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@11.28.5",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "check": "pnpm run typecheck && pnpm run lint && pnpm run test",
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "test": "pnpm -r --if-present run test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.6.6",
+    "typescript": "^7.0.2"
+  }
+}
