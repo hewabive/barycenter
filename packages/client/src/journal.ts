@@ -1,4 +1,4 @@
-import { el } from "./dom.ts";
+import { button, el } from "./dom.ts";
 import type { Report } from "./model.ts";
 
 export interface Journal {
@@ -7,9 +7,19 @@ export interface Journal {
 
 const KEPT = 80;
 
-export function createJournal(root: HTMLElement, onSelect: (region: number) => void): Journal {
+export function createJournal(
+  root: HTMLElement,
+  folded: boolean,
+  onSelect: (region: number) => void,
+): Journal {
   const list = el("div", { class: "entries" });
-  root.replaceChildren(el("h3", {}, "Events"), list);
+  const header = button("Events", "Show or hide earlier events", () => {
+    root.classList.toggle("folded");
+    list.scrollTop = 0;
+  });
+  header.classList.add("fold");
+  root.classList.toggle("folded", folded);
+  root.replaceChildren(header, list);
 
   return {
     add(reports) {

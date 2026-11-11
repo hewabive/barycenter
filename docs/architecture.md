@@ -77,6 +77,10 @@ Messages are JSON over one WebSocket. A client first joins a room. A room that d
 - The surface is one mesh with a color per cell: the owner's color, brighter as the cell is built up. Dark lines separate regions and bright lines separate holdings. The line where a power presses is drawn in its color, dashed while the attack is only announced.
 - Flows are particles moving between the centers of neighboring cells. A strait is a dashed arc over the water.
 - Labels and panels are plain HTML over the canvas. A panel is rebuilt only when its structure changes; between rebuilds only its numbers are updated.
+- The globe is drawn on demand: after a new view, a camera move or a resize, and continuously only while flows are moving. A paused game with a still camera draws nothing.
+- One page serves desktop and handheld. On a narrow upright screen the panel becomes a sheet under the globe that opens on selecting a region, and on any small screen the top bar keeps time controls and totals and moves the rest into a menu. Targets grow where the pointer is coarse.
+- Dragging turns the globe at the speed of the surface under the pointer at any zoom. A tap selects only when a single pointer went down and came up in place, so a pinch never changes the selection.
+- On a handheld the client pauses the game when the page is hidden and caps the motion of flows at 30 frames a second. On returning after half a minute or more it opens a fresh connection before dropping the old one, because a suspended page can keep a dead socket that still looks open.
 - The seat token is kept in the browser's local storage, so reloading the page returns to the same seat.
 - In development the client runs on Vite at port 5183 and connects through its proxy to the game server on port 8787. Vite listens on 0.0.0.0 and proxies WebSocket connections on `/socket` to the game server, which stays on localhost.
 

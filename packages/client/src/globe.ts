@@ -81,6 +81,13 @@ interface Front {
   material: LineMaterial;
   label: HTMLElement;
   anchor: Vector3;
+  shape: string | null;
+}
+
+interface Press {
+  id: number;
+  x: number;
+  y: number;
 }
 
 const SURFACE_DEPTH = 1;
@@ -91,6 +98,9 @@ const ENERGY_UNIT = 0.3;
 const FLOW_FLOOR = 0.005;
 const FLOW_SPEED = 0.6;
 const CLICK_SLACK = 5;
+const TAP_SLACK = 12;
+const FIELD_OF_VIEW = 40;
+const FLOW_FRAME = 30;
 const HIDDEN = [0, 0, 0, 0, 0, 0];
 
 function along(from: Vector, to: Vector, share: number, radius: number, target: Vector3): void {
@@ -116,13 +126,21 @@ export function createGlobe(
 
   const scene = new Scene();
   scene.background = new Color(0x05070c);
-  const camera = new PerspectiveCamera(40, 1, 0.1, 50);
+  const camera = new PerspectiveCamera(FIELD_OF_VIEW, 1, 0.1, 50);
   camera.position.set(0, 0.9, 3.3);
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enablePan = false;
   controls.enableDamping = true;
   controls.minDistance = 1.3;
   controls.maxDistance = 6;
+
+  const coarse = window.matchMedia("(pointer: coarse)");
+  let stale = true;
+  const invalidate = () => {
+    stale = true;
+  };
+  controls.addEventListener("change", invalidate);
+  renderer.domElement.addEventListener("webglcontextrestored", invalidate);
 
   const landCount = outline.cells.length;
   const sites = [...outline.cells.map((cell) => cell.position), ...outline.oceans];
@@ -350,7 +368,7 @@ export function createGlobe(
         scene.add(line);
         const label = el("div", { class: "label pressure" });
         labels.append(label);
-        front = { line, material, label, anchor: new Vector3() };
+        front = { line, material, label, anchor: new Vector3(), shape: null };
         fronts.set(key, front);
       }
       const target = pressure.target ?? NEUTRAL;
@@ -361,28 +379,32 @@ export function createGlobe(
           owners[other] === target &&
           regionOf(other) === pressure.region,
       );
-      redraw(front.line, sides, 1.006);
+      const shape = sides.map(({ cell, side }) => `${cell}:${side}`).join(",");
+      if (shape !== front.shape) {
+        front.shape = shape;
+        redraw(front.line, sides, 1.006);
+        front.anchor.set(0, 0, 0);
+        for (const { cell, side } of sides) {
+          const corner = cells[cell].corners[side];
+          front.anchor.x += corner.x;
+          front.anchor.y += corner.y;
+          front.anchor.z += corner.z;
+        }
+        if (sides.length > 0) {
+          front.anchor.setLength(1.02);
+        }
+      }
       const active = pressure.activeAt <= current.view.tick;
       front.material.color.setHex(powerColor(pressure.power));
       if (front.material.dashed === active) {
         front.material.dashed = !active;
         front.material.needsUpdate = true;
       }
-      front.anchor.set(0, 0, 0);
-      for (const { cell, side } of sides) {
-        const corner = cells[cell].corners[side];
-        front.anchor.x += corner.x;
-        front.anchor.y += corner.y;
-        front.anchor.z += corner.z;
-      }
       const text = active
         ? `⚔ ${pressure.commit.toFixed(0)}`
         : `in ${pressure.activeAt - current.view.tick}`;
       front.label.textContent = sides.length > 0 ? text : "";
       front.label.style.color = `#${powerColor(pressure.power).toString(16).padStart(6, "0")}`;
-      if (sides.length > 0) {
-        front.anchor.setLength(1.02);
-      }
     }
     for (const [key, front] of fronts) {
       if (!wanted.has(key)) {
@@ -398,6 +420,7 @@ export function createGlobe(
 
   const draw = (current: Frame) => {
     frame = current;
+    stale = true;
     const layer = current.view.cells;
     for (let cell = 0; cell < landCount; cell++) {
       const ground = layer.ground[cell];
@@ -504,8 +527,11 @@ export function createGlobe(
       );
     }
     for (const stream of streams) {
-      stream.positions.needsUpdate = true;
       stream.geometry.setDrawRange(0, stream.used);
+      if (stream.used > 0) {
+        stream.positions.addUpdateRange(0, stream.used * 3);
+        stream.positions.needsUpdate = true;
+      }
     }
   };
 
@@ -526,29 +552,60 @@ export function createGlobe(
     label.style.transform = `translate(-50%, -50%) translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
   };
 
+  const present = () => {
+    stale = false;
+    if (frame !== null) {
+      placeFlows(frame);
+    }
+    regionLabels.forEach((label, id) => {
+      place(label, regionAnchors[id]);
+    });
+    for (const front of fronts.values()) {
+      place(front.label, front.anchor);
+    }
+    renderer.render(scene, camera);
+  };
+
   const fit = () => {
     const width = Math.max(1, stage.clientWidth);
     const height = Math.max(1, stage.clientHeight);
+    const aspect = width / height;
+    const half = Math.tan((FIELD_OF_VIEW * Math.PI) / 360);
     renderer.setSize(width, height);
-    camera.aspect = width / height;
+    camera.aspect = aspect;
+    camera.fov = (Math.atan(half / Math.min(1, aspect)) * 360) / Math.PI;
     camera.updateProjectionMatrix();
     for (const material of lineMaterials) {
       material.resolution.set(width, height);
     }
+    present();
   };
   new ResizeObserver(fit).observe(stage);
   fit();
 
   const pointer = new Vector2();
-  const pressed = new Vector2();
   const raycaster = new Raycaster();
   const ball = new Sphere(new Vector3(), 1);
   const hit = new Vector3();
+  const down = new Set<number>();
+  let press: Press | null = null;
   renderer.domElement.addEventListener("pointerdown", (event) => {
-    pressed.set(event.clientX, event.clientY);
+    down.add(event.pointerId);
+    press = down.size === 1 ? { id: event.pointerId, x: event.clientX, y: event.clientY } : null;
+  });
+  renderer.domElement.addEventListener("pointercancel", (event) => {
+    down.delete(event.pointerId);
+    press = null;
   });
   renderer.domElement.addEventListener("pointerup", (event) => {
-    if (pressed.distanceTo(pointer.set(event.clientX, event.clientY)) > CLICK_SLACK) {
+    down.delete(event.pointerId);
+    const started = press;
+    press = null;
+    if (started === null || started.id !== event.pointerId) {
+      return;
+    }
+    const slack = event.pointerType === "mouse" ? CLICK_SLACK : TAP_SLACK;
+    if (Math.hypot(event.clientX - started.x, event.clientY - started.y) > slack) {
       return;
     }
     const bounds = renderer.domElement.getBoundingClientRect();
@@ -566,24 +623,23 @@ export function createGlobe(
   });
 
   let previous = performance.now();
+  let presented = previous;
   const animate = (now: number) => {
+    requestAnimationFrame(animate);
     const elapsed = (now - previous) / 1000;
     previous = now;
+    const reach = (camera.position.length() - 1) * Math.tan((camera.fov * Math.PI) / 360);
+    controls.rotateSpeed = Math.min(1, reach / Math.PI);
     controls.update();
-    if (frame !== null) {
-      if (frame.running) {
-        phase = (phase + elapsed * FLOW_SPEED * Math.sqrt(frame.speed)) % 1;
-      }
-      placeFlows(frame);
+    const flowing = frame?.running === true && frame.view.flows.length > 0;
+    if (frame !== null && flowing) {
+      phase = (phase + elapsed * FLOW_SPEED * Math.sqrt(frame.speed)) % 1;
     }
-    regionLabels.forEach((label, id) => {
-      place(label, regionAnchors[id]);
-    });
-    for (const front of fronts.values()) {
-      place(front.label, front.anchor);
+    const due = flowing && (!coarse.matches || now - presented >= FLOW_FRAME);
+    if (stale || due) {
+      presented = now;
+      present();
     }
-    renderer.render(scene, camera);
-    requestAnimationFrame(animate);
   };
   requestAnimationFrame(animate);
 

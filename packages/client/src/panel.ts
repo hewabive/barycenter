@@ -21,6 +21,9 @@ const BRANCH_LABELS: Record<Branch, string> = {
   shipyard: "Shipyards",
 };
 
+const LEANING_HINT = "50% builds a branch as the need appears, more builds it ahead of need";
+const GARRISON_HINT = "How much force stays on the border cells of your part";
+
 function ownerChip(game: Game, owner: number | null): HTMLElement {
   if (owner === null) {
     return el("span", { class: "chip neutral" }, "neutral");
@@ -75,6 +78,7 @@ function signatureOf(game: Game, selected: number | null): string {
 
 export function createPanel(root: HTMLElement, actions: PanelActions): Panel {
   let signature = "";
+  let shown: number | null | undefined;
   let refreshers: Refresh[] = [];
   const steady: Refresh[] = [];
 
@@ -117,10 +121,7 @@ export function createPanel(root: HTMLElement, actions: PanelActions): Panel {
     leaning.append(
       el(
         "label",
-        {
-          class: "control",
-          title: "50% builds this branch as the need appears, more builds it ahead of need",
-        },
+        { class: "control", title: LEANING_HINT },
         el("span", { class: "name" }, BRANCH_LABELS[branch]),
         dial,
         value,
@@ -132,14 +133,20 @@ export function createPanel(root: HTMLElement, actions: PanelActions): Panel {
       "Built so far",
       live((game) => profileText(summarize(game.view).profile), steady),
     ),
+    el("div", { class: "hint touch" }, LEANING_HINT),
     el(
       "div",
       { class: "hint" },
       "What is built follows the land, what is short nearby and this leaning. Built levels change slowly.",
     ),
   );
-  const details = el("div", {});
-  root.replaceChildren(leaning, details);
+  leaning.classList.add("leaning");
+  const details = el("div", { class: "details" });
+  const body = el("div", { class: "body" }, leaning, details);
+  const heading = el("span", {});
+  const handle = el("button", { type: "button", class: "handle" }, heading);
+  handle.addEventListener("click", () => root.classList.toggle("folded"));
+  root.replaceChildren(handle, body);
 
   const buildOrders = (id: number): HTMLElement => {
     const section = el("section", {}, el("h3", {}, "Orders"));
@@ -174,7 +181,12 @@ export function createPanel(root: HTMLElement, actions: PanelActions): Panel {
       el("div", { class: "hint" }, "0% gives everything to the network, 100% pulls toward itself"),
     );
 
-    const garrison = el("input", { type: "number", min: "0", step: "0.5" });
+    const garrison = el("input", {
+      type: "number",
+      min: "0",
+      step: "0.5",
+      inputmode: "decimal",
+    });
     garrison.addEventListener("change", () => {
       actions.order({ kind: "garrison", region: id, value: Math.max(0, Number(garrison.value)) });
     });
@@ -186,10 +198,11 @@ export function createPanel(root: HTMLElement, actions: PanelActions): Panel {
     section.append(
       el(
         "label",
-        { class: "control", title: "How much force stays on the border cells of your part" },
+        { class: "control", title: GARRISON_HINT },
         el("span", { class: "name" }, "Garrison"),
         garrison,
       ),
+      el("div", { class: "hint touch" }, GARRISON_HINT),
       row(
         "Matter held",
         live((current) => amount(current.view.regions[id].estate?.matter ?? 0)),
@@ -465,6 +478,12 @@ export function createPanel(root: HTMLElement, actions: PanelActions): Panel {
 
   return {
     show(game, selected) {
+      if (selected !== shown) {
+        shown = selected;
+        heading.textContent = selected === null ? "Your power" : `Region ${selected}`;
+        root.classList.toggle("folded", selected === null);
+        body.scrollTop = 0;
+      }
       const next = signatureOf(game, selected);
       if (next !== signature) {
         signature = next;

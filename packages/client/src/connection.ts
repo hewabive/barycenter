@@ -21,11 +21,16 @@ interface Claim {
 
 const REPLACED = 4000;
 const RETRY_DELAYS = [500, 1000, 2000, 5000];
+const DOUBTFUL_AFTER = 30_000;
 
 export function connect(options: ConnectionOptions): Connection {
   const key = `barycenter:${options.url}:${options.room}`;
   let socket: WebSocket | null = null;
+  let abandoned: WebSocket | null = null;
   let attempt = 0;
+  let retry: ReturnType<typeof setTimeout> | null = null;
+  let hiddenAt: number | null = null;
+  let replaced = false;
 
   const remembered = (): Claim | null => {
     try {
@@ -55,6 +60,7 @@ export function connect(options: ConnectionOptions): Connection {
   };
 
   const open = () => {
+    retry = null;
     options.onStatus("connecting", "Connecting");
     const current = new WebSocket(options.url);
     socket = current;
@@ -62,9 +68,14 @@ export function connect(options: ConnectionOptions): Connection {
     current.addEventListener("open", join);
 
     current.addEventListener("message", (event) => {
+      if (socket !== current) {
+        return;
+      }
       const message = JSON.parse(String(event.data)) as ServerMessage;
       if (message.type === "welcome") {
         attempt = 0;
+        abandoned?.close();
+        abandoned = null;
         const claim: Claim = { seat: message.seat, token: message.token };
         localStorage.setItem(key, JSON.stringify(claim));
         options.onStatus("open", "");
@@ -82,15 +93,38 @@ export function connect(options: ConnectionOptions): Connection {
         return;
       }
       if (event.code === REPLACED) {
+        replaced = true;
         options.onStatus("closed", "This game was opened in another window");
         return;
       }
       options.onStatus("closed", "Connection lost, retrying");
       const delay = RETRY_DELAYS[Math.min(attempt, RETRY_DELAYS.length - 1)];
       attempt += 1;
-      setTimeout(open, delay);
+      retry = setTimeout(open, delay);
     });
   };
+
+  const revive = () => {
+    if (document.visibilityState !== "visible") {
+      hiddenAt ??= Date.now();
+      return;
+    }
+    const away = hiddenAt === null ? 0 : Date.now() - hiddenAt;
+    hiddenAt = null;
+    if (replaced) {
+      return;
+    }
+    if (retry !== null) {
+      clearTimeout(retry);
+      open();
+    } else if (away >= DOUBTFUL_AFTER && socket?.readyState === WebSocket.OPEN) {
+      abandoned = socket;
+      open();
+    }
+  };
+  document.addEventListener("visibilitychange", revive);
+  window.addEventListener("pageshow", revive);
+  window.addEventListener("online", revive);
 
   open();
   return { send };

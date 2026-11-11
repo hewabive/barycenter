@@ -84,7 +84,8 @@ const panel = createPanel(required<HTMLElement>("#panel"), {
   select: focus,
 });
 
-const journal = createJournal(required<HTMLElement>("#journal"), focus);
+const compact = window.matchMedia("(max-width: 820px), (max-height: 520px)").matches;
+const journal = createJournal(required<HTMLElement>("#journal"), compact, focus);
 
 const link = connect({
   url,
@@ -166,6 +167,13 @@ function receive(message: ServerMessage): void {
   }
   refresh();
 }
+
+const handheld = window.matchMedia("(pointer: coarse)");
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden" && handheld.matches && game?.time.paused === false) {
+    link.send({ type: "time", paused: true, speed: null });
+  }
+});
 
 window.addEventListener("keydown", (event) => {
   const target = event.target;
