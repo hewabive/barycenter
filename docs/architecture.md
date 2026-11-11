@@ -90,7 +90,7 @@ To estimate the cost, today's rules were run with three bots for 3000 ticks on f
 | 422          | 1.7 ms  | 14 KB            | 401 KB | 46 s             |
 
 - Tick time is no obstacle. At the top speed of 16 ticks a second, 422 cells take about 3% of one processor core.
-- World generation is the obstacle. Neighbors are found by testing every triple of points, in the core and again in the client, and this search must be replaced before the map grows.
+- World generation was the obstacle while neighbors were found by testing every triple of points: 46 s for the largest map above. The hull of the points is now built point by point, which gives the same neighbors and takes 15 ms for 800 points.
 - A full view every tick stays affordable, but the compact or delta encoding listed under Deferred comes closer.
 - A series of 24 bot matches grows from seconds to minutes on one thread.
 
