@@ -94,6 +94,8 @@ To estimate the cost, today's rules were run with three bots for 3000 ticks on f
 - A full view every tick stays affordable, but the compact or delta encoding listed under Deferred comes closer.
 - A series of 24 bot matches grows from seconds to minutes on one thread.
 
+Deposits and stocks are stored by kind from the start, with a single kind until matter is split in stage 4. Once kinds multiply, only the dear ones should be carried from cell to cell and the rest counted as totals per power: by estimate, thirty kinds carried in full would make a tick about ten times slower.
+
 ## Deferred
 
 A database, accounts, spectators, more than one human seat per room, a delta or binary protocol, a thread per room and an interface framework. Each can be added later without changing the core.

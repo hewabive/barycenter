@@ -151,6 +151,21 @@ Since an outside threat holds a power together, eliminating the last enemy is un
 
 Knowledge flows from a node with more to a neighbor with less, inside a power and across an open border alike, and faster when the gap and the trade volume are larger. A laggard can catch up this way but can overtake only through its own investment.
 
+## Kinds of matter
+
+Matter is a single resource only in what the player commands. Inside the simulation it is many kinds, and the player is shown what they add up to.
+
+- A cell holds deposits of several kinds.
+- Every kind fills one of a few functions, such as structure or fuel. The rules name only functions. A kind is an entry in a table: its function, the knowledge at which it is in demand and how its deposits lie on the map.
+- Each power has a price for every kind, which rises as its consumption outruns its extraction. A price is a signal inside the power and not money.
+- The value of a cell to a power is its deposits weighted by that power's prices, so the same cell is worth more to one power than to another. The same prices tell a cell what is short when it chooses what to build.
+- A shortage of a kind makes work dearer and slower. It never stops it.
+- The player sees the value of a cell and the two or three kinds that are dearest to their power at the time. All other kinds merge into the rest: a new deposit of one of them adds a little value and is not worth a war.
+- Knowledge shifts by degrees which kinds a function draws on, so eras of resources follow one another as a power grows through the scales. An old kind does not vanish: its share falls or it becomes plentiful, and it drops out of sight. A coming shift is shown before it raises a price. These are thresholds of the one knowledge value, not a technology tree.
+- Kinds that matter lie in patches and the rest lie evenly, so that there is something to contend for.
+
+Later mechanics build on prices. How well a power knows a rival's prices depends on intelligence. A threshold of knowledge makes deposits workable that gave nothing before. Trade moves a kind from where it is cheap to where it is dear.
+
 ## Balance
 
 Two brakes act on every power, rivals included: size breeds discord, and lag breeds catch-up. They make leadership more expensive, but leading must always remain better than lagging.
@@ -175,6 +190,8 @@ Stage 2 moves the simulation onto cells: regions of varying size, shared regions
 
 Stage 3 adds knowledge, cohesion, borders and trade, gifts, the moon and folding with governors. It tests whether the game stays manageable as it grows.
 
+Stage 4 splits matter into kinds with prices and values. It is not designed in detail. Until then matter has one kind, but stage 2 must already store deposits and stocks by kind so that the core is not reworked again.
+
 ## Open questions
 
 - The prototype is stage 1 as built. It simulates whole regions, and nothing of the cell level exists yet. The findings below come from that prototype.
@@ -185,5 +202,6 @@ Stage 3 adds knowledge, cohesion, borders and trade, gifts, the moon and folding
 - The client shows regions by number, lets values other than flows jump between ticks, and applies a change of role without asking.
 - Not designed on the cell level: how the capacity of an edge and the expand order follow from the cells on a boundary, and whether pressure on a shared node can single out one of the powers in it.
 - Without roles the player may have too few levers. More are to be added where play shows the need.
+- Kinds of matter: how many functions there are and which, and whether energy, force and knowledge are split in the same way. Kinds of force would be unit types and kinds of knowledge a technology tree, and both are absent so far.
 - The governor is not designed, and its logic may be simple. It is also undecided how a body is simulated when only some of the powers on it have folded.
 - Cohesion, knowledge, border and gift are stated for whole nodes and must be restated for holdings and for borders that run inside a node.
