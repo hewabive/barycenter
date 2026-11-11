@@ -45,12 +45,12 @@ Nodes of the next scale are on the map from the start. A sufficiently developed 
 | --------- | ---------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | Matter    | a stock: accumulates and moves slowly                | deposits such as mountains, asteroids and gas giants | building levels, edge capacity and force                                                    |
 | Energy    | a capacity: cannot be stored and fades with distance | bright and hot nodes, orbits close to the star       | upkeep of levels and force                                                                  |
-| Knowledge | a field: never spent, spreads to neighbors           | science nodes                                        | output multiplier; thresholds unlock abilities such as the spaceport and interstellar edges |
+| Knowledge | a field: never spent, spreads to neighbors           | the science branch                                   | output multiplier; thresholds unlock abilities such as the spaceport and interstellar edges |
 | Force     | a stock that needs energy upkeep                     | built from matter at shipyards                       | pressure, defense, holding nodes                                                            |
 
-Matter sets the speed of growth and energy sets its ceiling. When energy falls short, holdings work at reduced output, force decays, and only power holdings keep growing.
+Matter sets the speed of growth and energy sets its ceiling. When energy falls short, cells work at reduced output, force decays, and only the power branch keeps growing.
 
-Every owned cell yields a little matter and energy whatever the role of its holding.
+Every owned cell yields a little matter and energy whatever its profile.
 
 ## Nodes and cells
 
@@ -58,12 +58,17 @@ A cell has:
 
 - natural data from world generation: matter richness, energy richness and a level cap;
 - an owner;
-- a level, raised by invested matter, with every level needing energy.
+- a level, raised by invested matter, with every level needing energy;
+- a profile: the shares of its level that work in the four branches, which are extraction, power, shipyards and science.
+
+Every cell holds all four branches, and no cell is a single mine or school. A node shows the combined profile of its cells, and so does every larger unit, so specialization looks the same at every scale.
+
+The simulation decides what a cell builds from its natural data, from what is short nearby and from the leaning of its power. New levels follow that choice at once. Levels already built change branch only slowly, so a cell full of mines cannot quickly become a center of science, and the priorities of the past stay on the map.
 
 A holding has:
 
-- a role, one of extraction, power, shipyard or science, chosen on settlement and costly to change: a change costs levels;
 - a level, the sum of the levels of its cells;
+- a profile, the sum of the profiles of its cells;
 - knowledge and cohesion.
 
 Stocks of matter and force lie in cells, and the network moves them from cell to cell. The player sees them summed by holding.
@@ -75,16 +80,18 @@ Every order names a node or an edge between nodes. No order names a cell: which 
 | Target | Order                | Effect                                                                   |
 | ------ | -------------------- | ------------------------------------------------------------------------ |
 | Node   | development priority | one dial from "gives everything to the network" to "pulls toward itself" |
-| Node   | role                 | what the holding produces                                                |
 | Node   | garrison             | how much force stays in the holding                                      |
 | Node   | pressure             | directs force at the foreign cells of the node                           |
 | Edge   | expand               | raises capacity                                                          |
 | Edge   | border               | closed, or trade: exchange of surpluses and spread of knowledge          |
 | Edge   | gift                 | a flow into a foreign node, to aid an ally or to feed a rival's colony   |
+| Power  | leaning              | one dial per branch: how far that branch is built ahead of need          |
 | Power  | fold                 | hands a body over to self-rule                                           |
 | Power  | release              | lets a node go peacefully                                                |
 
-Development priority, role and garrison apply to the player's own holding in the node.
+Development priority and garrison apply to the player's own holding in the node.
+
+No order sets what a node specializes in. The leaning is the only say the player has in it: with all dials level the economy answers shortages as they appear, and a raised dial builds that branch ahead of need across the whole power.
 
 The dial sets how much of its building capacity a holding uses and how strongly it attracts matter. A holding that has enough for its own work stops attracting, so the strongest pull is served first and the rest goes on to weaker ones.
 
@@ -164,7 +171,7 @@ Stage 1 tested whether managing flows on one arena is interesting. It is built.
 
 The first play session found the simple controls right and the game too flat. Ownership is all or nothing, so a contested neutral region goes whole to one power, a war shows nothing on the map until a region falls, and little resembles the growth of real states.
 
-Stage 2 moves the simulation onto cells: regions of varying size, shared regions, borders that move inside them and flows computed from cell to cell, all under the orders of stage 1. It tests whether the game gains depth without the player gaining work. It is not started: further changes of similar weight are still being discussed, and the core should be reworked once.
+Stage 2 moves the simulation onto cells: regions of varying size, shared regions, borders that move inside them and flows computed from cell to cell. Roles give way to profiles and a leaning, and the other orders of stage 1 stay. It tests whether the game gains depth without the player gaining work. It is not started: further changes of similar weight are still being discussed, and the core should be reworked once.
 
 Stage 3 adds knowledge, cohesion, borders and trade, gifts, the moon and folding with governors. It tests whether the game stays manageable as it grows.
 
@@ -177,5 +184,6 @@ Stage 3 adds knowledge, cohesion, borders and trade, gifts, the moon and folding
 - The late game goes quiet: a developed region cannot be taken through one edge, and bots widen edges slowly.
 - The client shows regions by number, lets values other than flows jump between ticks, and applies a change of role without asking.
 - Not designed on the cell level: how the capacity of an edge and the expand order follow from the cells on a boundary, and whether pressure on a shared node can single out one of the powers in it.
+- Without roles the player may have too few levers. More are to be added where play shows the need.
 - The governor is not designed, and its logic may be simple. It is also undecided how a body is simulated when only some of the powers on it have folded.
 - Cohesion, knowledge, border and gift are stated for whole nodes and must be restated for holdings and for borders that run inside a node.
