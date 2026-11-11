@@ -6,7 +6,7 @@ function parse(value: unknown) {
   return parseClientMessage(JSON.stringify(value));
 }
 
-const join = { type: "join", protocol: 1, room: "home", seat: null, token: null, setup: null };
+const join = { type: "join", protocol: 2, room: "home", seat: null, token: null, setup: null };
 
 test("a well-formed join is accepted", () => {
   assert.deepEqual(parse(join), join);
@@ -35,36 +35,42 @@ test("orders keep only the fields the core knows", () => {
   const parsed = parse({
     type: "orders",
     orders: [
-      { kind: "dial", node: 2, value: 0.5, power: 9, extra: true },
-      { kind: "role", node: 2, role: "power" },
-      { kind: "garrison", node: 2, value: 4 },
+      { kind: "dial", region: 2, value: 0.5, power: 9, extra: true },
+      { kind: "lean", branch: "power", value: 0.8 },
+      { kind: "garrison", region: 2, value: 4 },
       { kind: "expand", edge: 3, active: true },
-      { kind: "pressure", from: 2, to: 5, active: false },
+      { kind: "pressure", region: 5, target: null, active: false },
+      { kind: "pressure", region: 5, target: 1, active: true },
     ],
   });
   assert.deepEqual(parsed, {
     type: "orders",
     orders: [
-      { kind: "dial", node: 2, value: 0.5 },
-      { kind: "role", node: 2, role: "power" },
-      { kind: "garrison", node: 2, value: 4 },
+      { kind: "dial", region: 2, value: 0.5 },
+      { kind: "lean", branch: "power", value: 0.8 },
+      { kind: "garrison", region: 2, value: 4 },
       { kind: "expand", edge: 3, active: true },
-      { kind: "pressure", from: 2, to: 5, active: false },
+      { kind: "pressure", region: 5, target: null, active: false },
+      { kind: "pressure", region: 5, target: 1, active: true },
     ],
   });
 });
 
 test("malformed orders are refused as a whole", () => {
-  const good = { kind: "dial", node: 2, value: 0.5 };
+  const good = { kind: "dial", region: 2, value: 0.5 };
   assert.equal(
-    parse({ type: "orders", orders: [good, { kind: "dial", node: "2", value: 1 }] }),
+    parse({ type: "orders", orders: [good, { kind: "dial", region: "2", value: 1 }] }),
     null,
   );
   assert.equal(
-    parse({ type: "orders", orders: [{ kind: "role", node: 2, role: "science" }] }),
+    parse({ type: "orders", orders: [{ kind: "lean", branch: "science", value: 1 }] }),
     null,
   );
-  assert.equal(parse({ type: "orders", orders: [{ kind: "teleport", node: 2 }] }), null);
+  assert.equal(
+    parse({ type: "orders", orders: [{ kind: "pressure", region: 2, active: true }] }),
+    null,
+  );
+  assert.equal(parse({ type: "orders", orders: [{ kind: "teleport", region: 2 }] }), null);
   assert.equal(parse({ type: "orders", orders: "all" }), null);
   assert.equal(parse({ type: "orders", orders: new Array(257).fill(good) }), null);
 });
@@ -77,7 +83,7 @@ test("time, triggers and tuning messages are checked", () => {
   });
   assert.deepEqual(parse({ type: "time", speed: 4 }), { type: "time", paused: null, speed: 4 });
   assert.equal(parse({ type: "time", paused: "yes" }), null);
-  const triggers = { announced: true, captured: false, discovered: true };
+  const triggers = { announced: true, territory: false, discovered: true };
   assert.deepEqual(parse({ type: "triggers", triggers }), { type: "triggers", triggers });
   assert.equal(parse({ type: "triggers", triggers: { announced: true } }), null);
   assert.deepEqual(parse({ type: "tune", constants: { buildRate: 1 } }), {
@@ -95,7 +101,7 @@ test("anything that is not a known message is refused", () => {
 });
 
 test("the server stamps the seat onto an order and strips it back", () => {
-  const order = { kind: "pressure", from: 1, to: 2, active: true } as const;
+  const order = { kind: "pressure", region: 2, target: 1, active: true } as const;
   const command = commandOf(order, 3);
   assert.deepEqual(command, { ...order, power: 3 });
   assert.deepEqual(orderOf(command), order);

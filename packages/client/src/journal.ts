@@ -7,7 +7,7 @@ export interface Journal {
 
 const KEPT = 80;
 
-export function createJournal(root: HTMLElement, onSelect: (node: number) => void): Journal {
+export function createJournal(root: HTMLElement, onSelect: (region: number) => void): Journal {
   const list = el("div", { class: "entries" });
   root.replaceChildren(el("h3", {}, "Events"), list);
 
@@ -20,10 +20,10 @@ export function createJournal(root: HTMLElement, onSelect: (node: number) => voi
           el("span", { class: "name" }, String(report.tick)),
           report.text,
         );
-        if (report.node !== null) {
-          const node = report.node;
+        if (report.region !== null) {
+          const region = report.region;
           entry.classList.add("clickable");
-          entry.addEventListener("click", () => onSelect(node));
+          entry.addEventListener("click", () => onSelect(region));
         }
         list.prepend(entry);
       }

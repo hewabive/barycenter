@@ -2,11 +2,12 @@
 
 A browser space strategy sandbox in which attention stays on the frontier. Territory that has matured is handed over to self-rule and becomes a single node of a larger map: the regions of a planet, then the worlds of a star system, then neighboring stars.
 
-Status: the first stage is playable. One player faces two bot rivals on a single planet.
+Status: the second stage is playable. One player faces two bot rivals on a single planet. The player gives orders to regions, and the game works them out on the cells each region is made of.
 
 ## What makes it different
 
 - One rule set at every scale: nodes produce, edges carry, pressure captures.
+- Orders are coarser than the world: borders run inside regions and move cell by cell without any order naming a cell.
 - Orders are standing states, and time runs in ticks at a speed the player chooses.
 - Whatever the player delegates gains a will of its own and may secede.
 - Rivals announce their intentions before they act.
@@ -27,7 +28,9 @@ Requires Node.js 24 and pnpm 11.
 Run one bot match and print its timeline, or a series with rotating seats and a summary per doctrine:
 
     pnpm match --seed 1 --ticks 6000
-    pnpm match --seed 1 --ticks 6000 --matches 24
+    pnpm match --seed 1 --ticks 6000 --matches 12
+
+Add `--set name=value,name=value` to try other constants on a match or a series.
 
 ## Playing
 
@@ -42,7 +45,7 @@ While developing, run the server and the client with live reload and open `http:
 
     pnpm dev
 
-Click a region to select it. Space pauses and resumes, and the keys 1 to 4 set the speed. The address accepts `?room=name` to keep several games apart, and `?seed=` and `?rivals=` to set up a new one.
+Click a region to select it, then settle its neutral land or press a rival from the panel. The sliders at the top of the panel set the leaning of the whole power. Space pauses and resumes, and the keys 1 to 4 set the speed. The address accepts `?room=name` to keep several games apart, and `?seed=` and `?rivals=` to set up a new one.
 
 ## License
 

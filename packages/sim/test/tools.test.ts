@@ -4,15 +4,16 @@ import { cloneState, createWorld, eventsFor, type GameEvent, issue, retune } fro
 
 test("orders can be issued without advancing time", () => {
   const state = createWorld({ seed: 1 });
-  const capital = state.powers[0].capital;
+  const home = state.map.cells[state.powers[0].capital].region;
+  const foreign = state.map.cells[state.powers[1].capital].region;
   const result = issue(state, [
-    { kind: "garrison", power: 0, node: capital, value: 4 },
-    { kind: "garrison", power: 0, node: state.powers[1].capital, value: 4 },
+    { kind: "garrison", power: 0, region: home, value: 4 },
+    { kind: "garrison", power: 0, region: foreign, value: 4 },
   ]);
   assert.equal(result.state.tick, 0);
-  assert.equal(result.state.nodes[capital].garrison, 4);
+  assert.equal(result.state.powers[0].holdings[home].garrison, 4);
   assert.equal(result.rejections.length, 1);
-  assert.equal(state.nodes[capital].garrison, 0);
+  assert.equal(state.powers[0].holdings[home].garrison, 0);
 });
 
 test("retuning replaces constants and leaves the old state alone", () => {
@@ -34,22 +35,30 @@ test("retuning refuses unknown names and values that would break the simulation"
   assert.equal(retune(state, { energyFade: 1.2 }), null);
   assert.equal(retune(state, { forceCost: 0 }), null);
   assert.equal(retune(state, { energyRounds: 2.5 }), null);
+  assert.equal(retune(state, { leanSpan: 0.5 }), null);
   assert.equal(retune(state, { buildRate: "fast" } as never), null);
 });
 
 test("a power learns only of events it can see", () => {
   const state = cloneState(createWorld({ seed: 1 }));
-  const capital = state.powers[0].capital;
-  const near = state.map.links[capital][0].node;
-  const far = state.powers[1].capital;
+  const home = state.map.cells[state.powers[0].capital].region;
+  const near = state.map.neighbors[home][0].region;
+  const far = state.map.cells[state.powers[1].capital].region;
   const events: GameEvent[] = [
-    { kind: "captured", node: near, from: null, to: 2 },
-    { kind: "captured", node: far, from: 1, to: 2 },
-    { kind: "discovered", power: 0, node: near },
-    { kind: "discovered", power: 1, node: near },
-    { kind: "announced", power: 2, from: far, to: capital, target: 0, activeAt: 15 },
-    { kind: "announced", power: 2, from: far, to: far, target: 1, activeAt: 15 },
+    { kind: "entered", power: 2, region: near },
+    { kind: "entered", power: 2, region: far },
+    { kind: "expelled", power: 1, region: far, by: 0 },
+    { kind: "discovered", power: 0, region: near },
+    { kind: "discovered", power: 1, region: near },
+    { kind: "announced", power: 2, region: far, target: 0, activeAt: 15 },
+    { kind: "announced", power: 2, region: far, target: 1, activeAt: 15 },
     { kind: "eliminated", power: 2 },
   ];
-  assert.deepEqual(eventsFor(state, 0, events), [events[0], events[2], events[4], events[6]]);
+  assert.deepEqual(eventsFor(state, 0, events), [
+    events[0],
+    events[2],
+    events[3],
+    events[5],
+    events[7],
+  ]);
 });

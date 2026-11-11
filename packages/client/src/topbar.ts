@@ -16,7 +16,7 @@ export interface Topbar {
 
 const TRIGGER_LABELS: [keyof Triggers, string][] = [
   ["announced", "attack"],
-  ["captured", "gain or loss"],
+  ["territory", "gain or loss"],
   ["discovered", "discovery"],
 ];
 
@@ -41,7 +41,7 @@ export function createTopbar(root: HTMLElement, actions: TopbarActions): Topbar 
     box.addEventListener("change", () => {
       actions.triggers({
         announced: boxes[0].box.checked,
-        captured: boxes[1].box.checked,
+        territory: boxes[1].box.checked,
         discovered: boxes[2].box.checked,
       });
     });
@@ -74,7 +74,7 @@ export function createTopbar(root: HTMLElement, actions: TopbarActions): Topbar 
       }
       tick.textContent = String(game.view.tick);
       const totals = summarize(game.view);
-      summary.textContent = `regions ${totals.nodes} · levels ${totals.levels} · force ${amount(totals.force)} · matter ${amount(totals.matter)}`;
+      summary.textContent = `regions ${totals.regions} · cells ${totals.cells} · levels ${totals.levels} · force ${amount(totals.force)} · matter ${amount(totals.matter)}`;
       seats.replaceChildren(
         ...game.seats.map((seat, power) => {
           const chip = el("span", { class: "chip" }, power === game.seat ? "you" : seat.label);

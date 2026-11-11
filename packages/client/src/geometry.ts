@@ -63,6 +63,31 @@ export function buildCells(points: Vector[]): Cell[] {
   return points.map((center, index) => ({ center, corners: sortAround(center, around[index]) }));
 }
 
+export function neighborsAcross(cells: Cell[]): number[][] {
+  const ids = new Map<Vector, number>();
+  const idOf = (corner: Vector): number => {
+    let id = ids.get(corner);
+    if (id === undefined) {
+      id = ids.size;
+      ids.set(corner, id);
+    }
+    return id;
+  };
+  const sides = new Map<string, number[]>();
+  const keys = cells.map((cell, index) =>
+    cell.corners.map((corner, side) => {
+      const from = idOf(corner);
+      const to = idOf(cell.corners[(side + 1) % cell.corners.length]);
+      const key = `${Math.min(from, to)}:${Math.max(from, to)}`;
+      sides.set(key, [...(sides.get(key) ?? []), index]);
+      return key;
+    }),
+  );
+  return keys.map((row, index) =>
+    row.map((key) => sides.get(key)?.find((other) => other !== index) ?? -1),
+  );
+}
+
 function subdivide(
   first: Vector,
   second: Vector,

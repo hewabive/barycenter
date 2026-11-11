@@ -1,6 +1,6 @@
 import type { Command, Constants, GameEvent, Outline, View } from "@barycenter/sim";
 
-export const PROTOCOL = 1;
+export const PROTOCOL = 2;
 export const SPEEDS = [1, 2, 4, 8];
 export const ROOM_NAME = /^[a-z0-9-]{1,32}$/;
 export const MAX_ORDERS = 256;
@@ -17,7 +17,7 @@ export interface Setup {
 
 export interface Triggers {
   announced: boolean;
-  captured: boolean;
+  territory: boolean;
   discovered: boolean;
 }
 
@@ -77,29 +77,40 @@ export type ServerMessage =
 export function commandOf(order: Order, power: number): Command {
   switch (order.kind) {
     case "dial":
-      return { kind: "dial", power, node: order.node, value: order.value };
-    case "role":
-      return { kind: "role", power, node: order.node, role: order.role };
+      return { kind: "dial", power, region: order.region, value: order.value };
     case "garrison":
-      return { kind: "garrison", power, node: order.node, value: order.value };
+      return { kind: "garrison", power, region: order.region, value: order.value };
+    case "lean":
+      return { kind: "lean", power, branch: order.branch, value: order.value };
     case "expand":
       return { kind: "expand", power, edge: order.edge, active: order.active };
     case "pressure":
-      return { kind: "pressure", power, from: order.from, to: order.to, active: order.active };
+      return {
+        kind: "pressure",
+        power,
+        region: order.region,
+        target: order.target,
+        active: order.active,
+      };
   }
 }
 
 export function orderOf(command: Command): Order {
   switch (command.kind) {
     case "dial":
-      return { kind: "dial", node: command.node, value: command.value };
-    case "role":
-      return { kind: "role", node: command.node, role: command.role };
+      return { kind: "dial", region: command.region, value: command.value };
     case "garrison":
-      return { kind: "garrison", node: command.node, value: command.value };
+      return { kind: "garrison", region: command.region, value: command.value };
+    case "lean":
+      return { kind: "lean", branch: command.branch, value: command.value };
     case "expand":
       return { kind: "expand", edge: command.edge, active: command.active };
     case "pressure":
-      return { kind: "pressure", from: command.from, to: command.to, active: command.active };
+      return {
+        kind: "pressure",
+        region: command.region,
+        target: command.target,
+        active: command.active,
+      };
   }
 }

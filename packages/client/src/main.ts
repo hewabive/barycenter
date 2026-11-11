@@ -53,14 +53,14 @@ const refresh = () => {
   topbar.show(game, notice);
 };
 
-const select = (node: number | null) => {
-  selected = node;
+const select = (region: number | null) => {
+  selected = region;
   refresh();
 };
 
-const focus = (node: number) => {
-  globe?.face(node);
-  select(node);
+const focus = (region: number) => {
+  globe?.face(region);
+  select(region);
 };
 
 const topbar = createTopbar(required<HTMLElement>("#topbar"), {
@@ -96,10 +96,11 @@ const link = connect({
 
 function attention(current: Game, events: GameEvent[]): GameEvent | undefined {
   const me = current.seat;
+  const { announced, territory } = current.triggers;
   return events.find(
     (event) =>
-      (event.kind === "announced" && event.target === me) ||
-      (event.kind === "captured" && (event.to === me || event.from === me)),
+      (announced && event.kind === "announced" && event.target === me) ||
+      (territory && (event.kind === "entered" || event.kind === "expelled") && event.power === me),
   );
 }
 
@@ -147,8 +148,8 @@ function receive(message: ServerMessage): void {
     const urgent = attention(game, message.events);
     if (urgent !== undefined) {
       notice = report(game, urgent).text;
-      if (urgent.kind === "captured" && urgent.to === game.seat) {
-        selected = urgent.node;
+      if (urgent.kind === "entered") {
+        selected = urgent.region;
       }
     }
   } else if (message.type === "room") {

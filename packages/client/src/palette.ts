@@ -7,9 +7,10 @@ export const MOUNTAIN = 0x7b6c5c;
 export const BORDER = 0x0a0d13;
 export const SELECTION = 0xffffff;
 
-export const EDGE_COLORS = { land: 0xcfd4dc, pass: 0xd98b4a, strait: 0x5fb9de };
-export const EDGE_EXPANDING = 0xfff4a8;
-export const EDGE_UNKNOWN = 0x3a3f4a;
+export const REGION_BORDER = 0x05070c;
+export const HOLDING_BORDER = 0xf2f5fa;
+export const STRAIT = 0x5fb9de;
+export const EXPANDING = 0xfff4a8;
 
 export const MATTER = 0xffa64d;
 export const ENERGY = 0xfff27a;

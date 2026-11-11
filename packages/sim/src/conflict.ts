@@ -1,128 +1,174 @@
-import { capacityOf, defenseOf, EPSILON } from "./rules.ts";
+import type { Lane } from "./front.ts";
+import { capacityOf, cellsOf, defenseOf, EPSILON, FULL_SIEGE, holds } from "./rules.ts";
 import type { GameEvent, State } from "./types.ts";
 
-export function resolveConflict(state: State, events: GameEvent[]): void {
-  const { constants, nodes } = state;
+export function resolveConflict(
+  state: State,
+  lanes: Lane[],
+  posts: number[],
+  events: GameEvent[],
+): void {
+  const { constants, cells } = state;
   const powerCount = state.powers.length;
-
-  const sharing = new Map<number, number>();
-  const active = state.pressures.filter((pressure) => pressure.activeAt <= state.tick);
   for (const pressure of state.pressures) {
     pressure.commit = 0;
   }
-  for (const pressure of active) {
-    sharing.set(pressure.from, (sharing.get(pressure.from) ?? 0) + 1);
-  }
-  for (const pressure of active) {
-    const source = nodes[pressure.from];
-    const available = Math.max(0, source.force - source.garrison);
-    const limit = capacityOf(state, pressure.edge) * constants.pressurePerCapacity;
-    pressure.commit = Math.min(available / (sharing.get(pressure.from) ?? 1), limit);
-  }
 
-  const totals = nodes.map(() => new Array<number>(powerCount).fill(0));
-  for (const pressure of active) {
-    totals[pressure.to][pressure.power] += pressure.commit;
-  }
-  const defense = nodes.map((_, id) => defenseOf(state, id));
-
-  for (const pressure of active) {
-    const total = totals[pressure.to][pressure.power];
-    if (total <= EPSILON) {
-      continue;
+  const active = lanes.filter((lane) => state.pressures[lane.pressure].activeAt <= state.tick);
+  const walls = new Map<number, number>();
+  const origins = new Map<number, number[]>();
+  active.forEach((lane, index) => {
+    if (!walls.has(lane.to)) {
+      walls.set(lane.to, defenseOf(state, lane.to));
     }
-    const engaged = Math.min(total, defense[pressure.to]) * constants.attrition;
-    const source = nodes[pressure.from];
-    source.force = Math.max(0, source.force - (engaged * pressure.commit) / total);
-  }
+    origins.set(lane.from, [...(origins.get(lane.from) ?? []), index]);
+  });
+  const wallOf = (cell: number) => walls.get(cell) ?? 0;
 
-  for (let target = 0; target < nodes.length; target++) {
-    const node = nodes[target];
-    let garrisonLoss = 0;
-    for (let power = 0; power < powerCount; power++) {
-      const total = totals[target][power];
-      if (total > defense[target]) {
-        node.siege[power] += constants.siegeRate * Math.min(total / defense[target] - 1, 1);
-      } else {
-        node.siege[power] = Math.max(0, node.siege[power] - constants.siegeDecay);
+  const commits = new Array<number>(active.length).fill(0);
+  for (const [origin, indices] of origins) {
+    let available = Math.max(0, cells[origin].force - posts[origin]);
+    indices.sort(
+      (left, right) =>
+        wallOf(active[left].to) - wallOf(active[right].to) || active[left].to - active[right].to,
+    );
+    let engaged = false;
+    for (const index of indices) {
+      const lane = active[index];
+      const wall = wallOf(lane.to);
+      const limit = capacityOf(state, lane.joint) * constants.pressurePerCapacity;
+      const given = Math.min(available, limit, FULL_SIEGE * wall);
+      if (given <= EPSILON || (engaged && given <= wall)) {
+        continue;
       }
-      garrisonLoss +=
-        Math.min(total, defense[target]) * constants.attrition * constants.defenderLossShare;
+      commits[index] = given;
+      available -= given;
+      engaged = true;
     }
-    node.force = Math.max(0, node.force - garrisonLoss);
   }
 
-  for (let target = 0; target < nodes.length; target++) {
-    const siege = nodes[target].siege;
+  const totals = new Map<number, number[]>();
+  const tally = () => {
+    totals.clear();
+    active.forEach((lane, index) => {
+      let row = totals.get(lane.to);
+      if (row === undefined) {
+        row = new Array<number>(powerCount).fill(0);
+        totals.set(lane.to, row);
+      }
+      row[state.pressures[lane.pressure].power] += commits[index];
+    });
+  };
+  tally();
+  active.forEach((lane, index) => {
+    const power = state.pressures[lane.pressure].power;
+    const hopeless = (totals.get(lane.to)?.[power] ?? 0) <= wallOf(lane.to);
+    if (cells[lane.to].owner === null && hopeless) {
+      commits[index] = 0;
+    }
+  });
+  tally();
+  active.forEach((lane, index) => {
+    state.pressures[lane.pressure].commit += commits[index];
+  });
+
+  active.forEach((lane, index) => {
+    const total = totals.get(lane.to)?.[state.pressures[lane.pressure].power] ?? 0;
+    if (total <= EPSILON) {
+      return;
+    }
+    const engaged = Math.min(total, wallOf(lane.to)) * constants.attrition;
+    const source = cells[lane.from];
+    source.force = Math.max(0, source.force - (engaged * commits[index]) / total);
+  });
+
+  const fallen: [cell: number, winner: number][] = [];
+  cells.forEach((cell, target) => {
+    const row = totals.get(target);
+    const wall = wallOf(target);
+    let loss = 0;
     let winner = -1;
     for (let power = 0; power < powerCount; power++) {
-      if (siege[power] >= 1 && (winner < 0 || siege[power] > siege[winner])) {
+      const total = row?.[power] ?? 0;
+      if (total > wall) {
+        cell.siege[power] += constants.siegeRate * Math.min(total / wall - 1, FULL_SIEGE - 1);
+      } else if (cell.siege[power] > 0) {
+        cell.siege[power] = Math.max(0, cell.siege[power] - constants.siegeDecay);
+      }
+      loss += Math.min(total, wall) * constants.attrition * constants.defenderLossShare;
+      if (cell.siege[power] >= 1 && (winner < 0 || cell.siege[power] > cell.siege[winner])) {
         winner = power;
       }
     }
+    cell.force = Math.max(0, cell.force - loss);
     if (winner >= 0) {
-      capture(state, target, winner, events);
+      fallen.push([target, winner]);
     }
+  });
+
+  for (const [target, winner] of fallen) {
+    capture(state, target, winner, events);
+  }
+  if (fallen.length > 0) {
+    state.pressures = state.pressures.filter(
+      (pressure) =>
+        state.powers[pressure.power].alive &&
+        cellsOf(state, pressure.region, pressure.target).length > 0,
+    );
   }
 }
 
 function capture(state: State, target: number, winner: number, events: GameEvent[]): void {
   const { constants } = state;
-  const node = state.nodes[target];
-  const loser = node.owner;
+  const cell = state.cells[target];
+  const loser = cell.owner;
+  const region = state.map.cells[target].region;
+  const entering = !holds(state, winner, region);
 
-  node.owner = winner;
-  node.level = Math.round(node.level * (1 - constants.captureLevelLoss));
-  node.progress = 0;
-  node.force = 0;
-  node.dial = constants.defaultDial;
-  node.garrison = 0;
-  node.supply = 1;
-  node.siege.fill(0);
-  events.push({ kind: "captured", node: target, from: loser, to: winner });
+  const kept = Math.round(cell.level * (1 - constants.captureLevelLoss));
+  const scale = cell.level > 0 ? kept / cell.level : 0;
+  cell.branches = cell.branches.map((built) => built * scale);
+  cell.level = kept;
+  cell.owner = winner;
+  cell.progress = 0;
+  cell.force = 0;
+  cell.supply = 1;
+  cell.siege.fill(0);
 
-  state.pressures = state.pressures.filter(
-    (pressure) => pressure.to !== target && pressure.from !== target,
-  );
-  for (const link of state.map.links[target]) {
-    const edge = state.edges[link.edge];
-    if (edge.expanding === null) {
-      continue;
-    }
-    const route = state.map.edges[link.edge];
-    const stillTouches =
-      state.nodes[route.a].owner === edge.expanding ||
-      state.nodes[route.b].owner === edge.expanding;
-    if (!stillTouches) {
-      edge.expanding = null;
-    }
+  if (entering) {
+    events.push({ kind: "entered", power: winner, region });
   }
-
-  if (loser !== null) {
-    relocateCapital(state, loser, events);
+  if (state.map.regions[region].cells.every((member) => state.cells[member].owner === winner)) {
+    events.push({ kind: "secured", power: winner, region });
   }
+  if (loser === null) {
+    return;
+  }
+  if (!holds(state, loser, region)) {
+    state.powers[loser].holdings[region] = { dial: constants.defaultDial, garrison: 0 };
+    events.push({ kind: "expelled", power: loser, region, by: winner });
+  }
+  relocateCapital(state, loser, events);
 }
 
 function relocateCapital(state: State, power: number, events: GameEvent[]): void {
   const holder = state.powers[power];
-  if (state.nodes[holder.capital].owner === power) {
+  if (state.cells[holder.capital].owner === power) {
     return;
   }
   let successor = -1;
-  for (let node = 0; node < state.nodes.length; node++) {
-    const candidate = state.nodes[node];
+  state.cells.forEach((candidate, cell) => {
     if (candidate.owner !== power) {
-      continue;
+      return;
     }
-    if (successor < 0 || candidate.level > state.nodes[successor].level) {
-      successor = node;
+    if (successor < 0 || candidate.level > state.cells[successor].level) {
+      successor = cell;
     }
-  }
+  });
   if (successor >= 0) {
     holder.capital = successor;
     return;
   }
   holder.alive = false;
-  state.pressures = state.pressures.filter((pressure) => pressure.power !== power);
   events.push({ kind: "eliminated", power });
 }

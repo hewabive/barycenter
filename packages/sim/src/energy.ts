@@ -9,52 +9,52 @@ import {
 import type { State } from "./types.ts";
 
 export function distributeEnergy(state: State): void {
-  const { constants, nodes } = state;
-  for (const edge of state.edges) {
-    edge.energyFlow = 0;
+  const { constants, cells } = state;
+  for (const joint of state.joints) {
+    joint.energyFlow = 0;
   }
 
-  const need = nodes.map((node, id) => (node.owner === null ? 0 : energyNeedOf(state, id)));
-  const surplus = new Array<number>(nodes.length).fill(0);
-  const deficit = new Array<number>(nodes.length).fill(0);
-  for (let node = 0; node < nodes.length; node++) {
-    if (nodes[node].owner === null) {
+  const need = cells.map((cell, id) => (cell.owner === null ? 0 : energyNeedOf(state, id)));
+  const surplus = new Array<number>(cells.length).fill(0);
+  const deficit = new Array<number>(cells.length).fill(0);
+  for (let cell = 0; cell < cells.length; cell++) {
+    if (cells[cell].owner === null) {
       continue;
     }
-    const balance = energyProductionOf(state, node) - need[node];
-    surplus[node] = Math.max(0, balance);
-    deficit[node] = Math.max(0, -balance);
+    const balance = energyProductionOf(state, cell) - need[cell];
+    surplus[cell] = Math.max(0, balance);
+    deficit[cell] = Math.max(0, -balance);
   }
 
   for (let round = 0; round < constants.energyRounds; round++) {
     const shortage = deficit.map((missing) => (missing > EPSILON ? 1 : 0));
     const potential = spread(state, shortage, constants.energyFade);
-    const arrivals = new Array<number>(nodes.length).fill(0);
+    const arrivals = new Array<number>(cells.length).fill(0);
     let moved = false;
-    for (let node = 0; node < nodes.length; node++) {
-      if (surplus[node] <= EPSILON) {
+    for (let cell = 0; cell < cells.length; cell++) {
+      if (surplus[cell] <= EPSILON) {
         continue;
       }
-      const link = bestLink(state, node, potential);
+      const link = bestLink(state, cell, potential);
       if (link === null) {
         continue;
       }
-      arrivals[link.node] += surplus[node] * constants.energyFade;
-      state.edges[link.edge].energyFlow += signedFlow(state, link.edge, node, surplus[node]);
-      surplus[node] = 0;
+      arrivals[link.cell] += surplus[cell] * constants.energyFade;
+      state.joints[link.joint].energyFlow += signedFlow(state, link.joint, cell, surplus[cell]);
+      surplus[cell] = 0;
       moved = true;
     }
     if (!moved) {
       break;
     }
-    for (let node = 0; node < nodes.length; node++) {
-      const used = Math.min(deficit[node], arrivals[node]);
-      deficit[node] -= used;
-      surplus[node] += arrivals[node] - used;
+    for (let cell = 0; cell < cells.length; cell++) {
+      const used = Math.min(deficit[cell], arrivals[cell]);
+      deficit[cell] -= used;
+      surplus[cell] += arrivals[cell] - used;
     }
   }
 
-  for (let node = 0; node < nodes.length; node++) {
-    nodes[node].supply = need[node] > EPSILON ? 1 - deficit[node] / need[node] : 1;
+  for (let cell = 0; cell < cells.length; cell++) {
+    cells[cell].supply = need[cell] > EPSILON ? 1 - deficit[cell] / need[cell] : 1;
   }
 }

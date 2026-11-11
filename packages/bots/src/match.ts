@@ -12,7 +12,8 @@ export interface MatchOptions {
 }
 
 export interface Standing {
-  nodes: number;
+  cells: number;
+  regions: number;
   levels: number;
   force: number;
   matter: number;
@@ -30,10 +31,11 @@ export interface MatchSummary {
   doctrines: string[];
   standings: Standing[];
   eliminatedAt: (number | null)[];
-  landTaken: number[];
-  conquests: number[];
-  losses: number[];
-  lateConquests: number;
+  settled: number[];
+  seized: number[];
+  ceded: number[];
+  lateSeized: number;
+  sharedRegions: number;
   attacks: number;
   lateAttacks: number;
   rejections: number;
@@ -44,26 +46,30 @@ const LATE_SHARE = 2 / 3;
 
 export function standingsOf(state: State): Standing[] {
   const standings = state.powers.map(() => ({
-    nodes: 0,
+    cells: 0,
+    regions: 0,
     levels: 0,
     force: 0,
     matter: 0,
     supply: 0,
   }));
-  for (const node of state.nodes) {
-    if (node.owner === null) {
-      continue;
+  const present = state.powers.map(() => new Set<number>());
+  state.cells.forEach((cell, id) => {
+    if (cell.owner === null) {
+      return;
     }
-    const standing = standings[node.owner];
-    standing.nodes += 1;
-    standing.levels += node.level;
-    standing.force += node.force;
-    standing.matter += node.matter;
-    standing.supply += node.supply;
-  }
-  for (const standing of standings) {
-    standing.supply = standing.nodes > 0 ? standing.supply / standing.nodes : 0;
-  }
+    const standing = standings[cell.owner];
+    standing.cells += 1;
+    standing.levels += cell.level;
+    standing.force += cell.force;
+    standing.matter += cell.stock.reduce((sum, amount) => sum + amount, 0);
+    standing.supply += cell.supply;
+    present[cell.owner].add(state.map.cells[id].region);
+  });
+  standings.forEach((standing, power) => {
+    standing.regions = present[power].size;
+    standing.supply = standing.cells > 0 ? standing.supply / standing.cells : 0;
+  });
   return standings;
 }
 
@@ -84,10 +90,11 @@ export function runMatch(options: MatchOptions): MatchSummary {
     doctrines: options.doctrines.map((doctrine) => doctrine.name),
     standings: [],
     eliminatedAt: options.doctrines.map(() => null),
-    landTaken: options.doctrines.map(() => 0),
-    conquests: options.doctrines.map(() => 0),
-    losses: options.doctrines.map(() => 0),
-    lateConquests: 0,
+    settled: options.doctrines.map(() => 0),
+    seized: options.doctrines.map(() => 0),
+    ceded: options.doctrines.map(() => 0),
+    lateSeized: 0,
+    sharedRegions: 0,
     attacks: 0,
     lateAttacks: 0,
     rejections: 0,
@@ -103,6 +110,22 @@ export function runMatch(options: MatchOptions): MatchSummary {
       }
     }
     const result = step(state, commands);
+    const late = result.state.tick > options.ticks * LATE_SHARE;
+    result.state.cells.forEach((cell, id) => {
+      const before = state.cells[id].owner;
+      if (cell.owner === null || cell.owner === before) {
+        return;
+      }
+      if (before === null) {
+        summary.settled[cell.owner] += 1;
+        return;
+      }
+      summary.seized[cell.owner] += 1;
+      summary.ceded[before] += 1;
+      if (late) {
+        summary.lateSeized += 1;
+      }
+    });
     state = result.state;
     summary.rejections += result.rejections.length;
 
@@ -111,18 +134,8 @@ export function runMatch(options: MatchOptions): MatchSummary {
         summary.eliminatedAt[event.power] = state.tick;
       } else if (event.kind === "announced") {
         summary.attacks += 1;
-        if (state.tick > options.ticks * LATE_SHARE) {
+        if (late) {
           summary.lateAttacks += 1;
-        }
-      } else if (event.kind === "captured") {
-        if (event.from === null) {
-          summary.landTaken[event.to] += 1;
-          continue;
-        }
-        summary.conquests[event.to] += 1;
-        summary.losses[event.from] += 1;
-        if (state.tick > options.ticks * LATE_SHARE) {
-          summary.lateConquests += 1;
         }
       }
     }
@@ -135,6 +148,11 @@ export function runMatch(options: MatchOptions): MatchSummary {
   }
 
   summary.ticks = state.tick;
+  summary.sharedRegions = state.map.regions.filter((region) => {
+    const holders = new Set(region.cells.map((cell) => state.cells[cell].owner));
+    holders.delete(null);
+    return holders.size > 1;
+  }).length;
   summary.standings = standingsOf(state);
   return summary;
 }

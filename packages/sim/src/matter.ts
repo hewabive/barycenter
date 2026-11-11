@@ -1,95 +1,163 @@
 import {
+  addTo,
   bestLink,
   capacityOf,
+  dialOf,
   EPSILON,
   expansionCostOf,
+  heldOf,
   levelCostOf,
-  matterProductionOf,
+  matterYieldOf,
   outputOf,
+  POWER,
+  SHIPYARD,
   signedFlow,
   spread,
+  takeFrom,
 } from "./rules.ts";
 import type { State } from "./types.ts";
 
-interface Usage {
-  expanding: number[];
-  shipyard: number;
-  build: number;
-  total: number;
+export interface Work {
+  edge: number;
+  rate: number;
 }
 
-function usageOf(state: State, node: number, forceWanted: boolean[]): Usage {
+export interface MatterField {
+  reserve: number[];
+  potential: number[];
+}
+
+export function worksOf(state: State): Work[][] {
+  const { cells, map } = state;
+  const works: Work[][] = cells.map(() => []);
+  state.edges.forEach((edge, id) => {
+    const builder = edge.expanding;
+    if (builder === null) {
+      return;
+    }
+    const crew = new Set<number>();
+    for (const joint of map.edges[id].joints) {
+      for (const cell of [map.joints[joint].a, map.joints[joint].b]) {
+        if (cells[cell].owner === builder) {
+          crew.add(cell);
+        }
+      }
+    }
+    if (crew.size === 0) {
+      edge.expanding = null;
+      return;
+    }
+    for (const cell of crew) {
+      works[cell].push({ edge: id, rate: state.constants.expandRate / crew.size });
+    }
+  });
+  return works;
+}
+
+function shipyardUse(state: State, cell: number, forceWanted: boolean[]): number {
   const { constants } = state;
-  const current = state.nodes[node];
-  const owner = current.owner;
-  if (owner === null) {
-    return { expanding: [], shipyard: 0, build: 0, total: 0 };
+  const current = state.cells[cell];
+  if (current.owner === null || !forceWanted[current.owner]) {
+    return 0;
   }
-  const expanding = state.map.links[node]
-    .filter((link) => state.edges[link.edge].expanding === owner)
-    .map((link) => link.edge);
-  const shipyard =
-    current.role === "shipyard" && forceWanted[owner]
-      ? current.level *
-        constants.shipyardRate *
-        constants.forceCost *
-        outputOf(constants, current.supply)
-      : 0;
-  const powered = current.role === "power" || current.supply >= 1 - EPSILON;
-  const canGrow = current.role !== null && current.level < state.map.nodes[node].levelCap;
-  const build = canGrow && powered ? constants.buildRate : 0;
-  return {
-    expanding,
-    shipyard,
-    build,
-    total: expanding.length * constants.expandRate + shipyard + build,
-  };
+  const output = outputOf(constants, current.supply);
+  return current.branches[SHIPYARD] * constants.shipyardRate * constants.forceCost * output;
+}
+
+function canGrow(state: State, cell: number): boolean {
+  return state.cells[cell].level < state.map.cells[cell].levelCap;
+}
+
+function worksUse(works: Work[]): number {
+  let sum = 0;
+  for (const work of works) {
+    sum += work.rate;
+  }
+  return sum;
+}
+
+export function matterFieldOf(state: State, works: Work[][], forceWanted: boolean[]): MatterField {
+  const { constants, cells } = state;
+  const reserve = cells.map((cell, id) => {
+    if (cell.owner === null) {
+      return 0;
+    }
+    const build = canGrow(state, id) ? constants.buildRate : 0;
+    const total = worksUse(works[id]) + shipyardUse(state, id, forceWanted) + build;
+    return dialOf(state, id) * total * constants.reserveTicks;
+  });
+  const attraction = cells.map((cell, id) =>
+    heldOf(cell.stock) < reserve[id] ? dialOf(state, id) : 0,
+  );
+  return { reserve, potential: spread(state, attraction, constants.matterReach) };
 }
 
 export function produceMatter(state: State): void {
-  for (let node = 0; node < state.nodes.length; node++) {
-    if (state.nodes[node].owner !== null) {
-      state.nodes[node].matter += matterProductionOf(state, node);
+  state.cells.forEach((cell, id) => {
+    if (cell.owner === null) {
+      return;
     }
-  }
+    const yielded = matterYieldOf(state, id);
+    const deposits = state.map.cells[id].deposits;
+    for (let kind = 0; kind < cell.stock.length; kind++) {
+      cell.stock[kind] += deposits[kind] * yielded;
+    }
+  });
 }
 
-export function spendMatter(state: State, forceWanted: boolean[]): void {
+export function spendMatter(
+  state: State,
+  works: Work[][],
+  forceWanted: boolean[],
+  wants: number[][],
+): void {
   const { constants } = state;
-  for (let node = 0; node < state.nodes.length; node++) {
-    const current = state.nodes[node];
-    const usage = usageOf(state, node, forceWanted);
-    if (usage.total <= 0) {
-      continue;
+  state.cells.forEach((current, id) => {
+    if (current.owner === null) {
+      return;
     }
-    let budget = Math.min(current.matter, current.dial * usage.total);
+    const short = current.supply < 1 - EPSILON;
+    const pace = short ? wants[id][POWER] : 1;
+    const build = canGrow(state, id) ? constants.buildRate * pace : 0;
+    const shipyard = shipyardUse(state, id, forceWanted);
+    const total = worksUse(works[id]) + shipyard + build;
+    if (total <= 0) {
+      return;
+    }
+    let budget = Math.min(heldOf(current.stock), dialOf(state, id) * total);
     const take = (limit: number) => {
       const spent = Math.min(budget, limit);
       budget -= spent;
-      current.matter -= spent;
+      takeFrom(current.stock, spent);
       return spent;
     };
 
-    for (const edge of usage.expanding) {
-      advanceExpansion(state, edge, take(constants.expandRate));
+    for (const work of works[id]) {
+      advanceExpansion(state, work.edge, take(work.rate));
     }
-    current.force += take(usage.shipyard) / constants.forceCost;
-    current.progress += take(usage.build);
+    current.force += take(shipyard) / constants.forceCost;
+    current.progress += take(build);
 
-    const cap = state.map.nodes[node].levelCap;
+    const cap = state.map.cells[id].levelCap;
     while (current.level < cap && current.progress >= levelCostOf(constants, current.level)) {
       current.progress -= levelCostOf(constants, current.level);
       current.level += 1;
+      for (let branch = 0; branch < current.branches.length; branch++) {
+        current.branches[branch] += short ? (branch === POWER ? 1 : 0) : wants[id][branch];
+      }
     }
     if (current.level >= cap) {
-      current.matter += current.progress;
+      current.stock[0] += current.progress;
       current.progress = 0;
     }
-  }
+  });
 }
 
 function advanceExpansion(state: State, edge: number, spent: number): void {
   const current = state.edges[edge];
+  if (current.expanding === null) {
+    return;
+  }
   current.progress += spent;
   const cost = expansionCostOf(state.constants, current.expansions);
   if (current.progress < cost) {
@@ -100,36 +168,34 @@ function advanceExpansion(state: State, edge: number, spent: number): void {
   current.expanding = null;
 }
 
-export function routeMatter(state: State, forceWanted: boolean[]): void {
-  const { constants, nodes } = state;
-  for (const edge of state.edges) {
-    edge.matterFlow = 0;
+export function routeMatter(state: State, field: MatterField): void {
+  const { cells } = state;
+  for (const joint of state.joints) {
+    joint.matterFlow = 0;
   }
-
-  const reserve = nodes.map((node, id) => {
-    const usage = usageOf(state, id, forceWanted);
-    return node.dial * usage.total * constants.reserveTicks;
-  });
-  const attraction = nodes.map((node, id) => (node.matter < reserve[id] ? node.dial : 0));
-  const potential = spread(state, attraction, constants.matterReach);
-
-  const arrivals = new Array<number>(nodes.length).fill(0);
-  for (let node = 0; node < nodes.length; node++) {
-    const current = nodes[node];
-    const spare = current.matter - reserve[node];
+  const arrivals: number[][] = cells.map(() => []);
+  for (let cell = 0; cell < cells.length; cell++) {
+    const current = cells[cell];
+    const spare = heldOf(current.stock) - field.reserve[cell];
     if (current.owner === null || spare <= EPSILON) {
       continue;
     }
-    const link = bestLink(state, node, potential);
+    const link = bestLink(state, cell, field.potential);
     if (link === null) {
       continue;
     }
-    const amount = Math.min(spare, capacityOf(state, link.edge));
-    current.matter -= amount;
-    arrivals[link.node] += amount;
-    state.edges[link.edge].matterFlow += signedFlow(state, link.edge, node, amount);
+    const amount = Math.min(spare, capacityOf(state, link.joint));
+    const moved = takeFrom(current.stock, amount);
+    if (arrivals[link.cell].length === 0) {
+      arrivals[link.cell] = moved;
+    } else {
+      addTo(arrivals[link.cell], moved);
+    }
+    state.joints[link.joint].matterFlow += signedFlow(state, link.joint, cell, amount);
   }
-  for (let node = 0; node < nodes.length; node++) {
-    nodes[node].matter += arrivals[node];
+  for (let cell = 0; cell < cells.length; cell++) {
+    if (arrivals[cell].length > 0) {
+      addTo(cells[cell].stock, arrivals[cell]);
+    }
   }
 }

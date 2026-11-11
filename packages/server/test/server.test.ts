@@ -73,7 +73,7 @@ function connect(server: RunningServer): Promise<Client> {
 }
 
 function joining(room: string, seat: number | null = null, token: string | null = null) {
-  return { type: "join", protocol: 1, room, seat, token, setup: null } as const;
+  return { type: "join", protocol: 2, room, seat, token, setup: null } as const;
 }
 
 async function viewAt(client: Client, tick: number) {
@@ -111,14 +111,14 @@ test("orders sent over the socket reach the game", async () => {
     const client = await connect(server);
     client.send(joining("beta"));
     const welcome = await client.next("welcome");
-    const capital = welcome.view.nodes.findIndex((node) => node.holding !== null);
+    const home = welcome.view.regions.findIndex((region) => region.estate !== null);
 
-    client.send({ type: "orders", orders: [{ kind: "garrison", node: capital, value: 3.5 }] });
+    client.send({ type: "orders", orders: [{ kind: "garrison", region: home, value: 3.5 }] });
     const updated = await client.next("view");
-    assert.equal(updated.view.nodes[capital].holding?.garrison, 3.5);
+    assert.equal(updated.view.regions[home].estate?.garrison, 3.5);
 
-    const foreign = welcome.view.nodes.findIndex((node) => node.status === null);
-    client.send({ type: "orders", orders: [{ kind: "garrison", node: foreign, value: 1 }] });
+    const foreign = welcome.view.regions.findIndex((region) => region.estate === null);
+    client.send({ type: "orders", orders: [{ kind: "garrison", region: foreign, value: 1 }] });
     assert.equal((await client.next("rejected")).rejections.length, 1);
     client.close();
   } finally {
@@ -196,7 +196,7 @@ test("a game survives a server restart", async () => {
     const welcome = await client.next("welcome");
     client.send({
       type: "triggers",
-      triggers: { announced: false, captured: false, discovered: false },
+      triggers: { announced: false, territory: false, discovered: false },
     });
     client.send({ type: "time", paused: false, speed: 1 });
     await viewAt(client, 20);
@@ -221,6 +221,28 @@ test("a game survives a server restart", async () => {
     } finally {
       await after.close();
     }
+  } finally {
+    await rm(folder, { recursive: true, force: true });
+  }
+});
+
+test("a save from another format is set aside and a fresh game starts", async () => {
+  const folder = await mkdtemp(join(tmpdir(), "barycenter-saves-"));
+  try {
+    await writeFile(join(folder, "eta.json"), JSON.stringify({ version: 1, state: { tick: 9 } }));
+    const server = await startServer({ ...base, saves: folder });
+    try {
+      const client = await connect(server);
+      client.send(joining("eta"));
+      assert.equal((await client.next("welcome")).view.tick, 0);
+      client.close();
+    } finally {
+      await server.close();
+    }
+    const kept = JSON.parse(await readFile(join(folder, "eta.unsupported.json"), "utf8"));
+    assert.equal(kept.state.tick, 9);
+    const saved = JSON.parse(await readFile(join(folder, "eta.json"), "utf8"));
+    assert.equal(saved.version, 2);
   } finally {
     await rm(folder, { recursive: true, force: true });
   }

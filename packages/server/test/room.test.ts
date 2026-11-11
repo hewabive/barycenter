@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { ServerMessage } from "@barycenter/protocol";
+import type { Order, ServerMessage } from "@barycenter/protocol";
+import type { View } from "@barycenter/sim";
 import { Room, type RoomOptions } from "../src/index.ts";
 
 type Sent = { seat: number; message: ServerMessage };
@@ -35,8 +36,23 @@ function seated(overrides: Partial<RoomOptions> = {}) {
   return { ...context, token: joined.token };
 }
 
-function capitalOf(room: Room, seat: number): number {
-  return room.save().state.powers[seat].capital;
+function homeOf(room: Room, seat: number): number {
+  const state = room.save().state;
+  return state.map.cells[state.powers[seat].capital].region;
+}
+
+function settle(room: Room): void {
+  const welcome = room.welcome(0);
+  assert.ok(welcome.type === "welcome");
+  const view: View = welcome.view;
+  const orders: Order[] = [];
+  for (const region of view.regions) {
+    const neutral = region.holdings?.find((holding) => holding.owner === null);
+    if (neutral !== undefined && neutral.contact > 0) {
+      orders.push({ kind: "pressure", region: region.id, target: null, active: true });
+    }
+  }
+  room.handle(0, { type: "orders", orders });
 }
 
 test("the first player takes the open seat and receives a secret token", () => {
@@ -69,13 +85,15 @@ test("the welcome carries the map, the constants and the first view", () => {
   assert.equal(welcome.seat, 0);
   assert.equal(welcome.view.power, 0);
   assert.equal(welcome.time.paused, true);
-  assert.equal(welcome.outline.nodes.length, welcome.view.nodes.length);
+  assert.equal(welcome.outline.cells.length, welcome.view.cells.owner.length);
+  assert.equal(welcome.outline.regions.length, welcome.view.regions.length);
   assert.deepEqual(
     welcome.seats.map((seat) => seat.label),
     ["human", "aggressor", "builder"],
   );
-  for (const node of welcome.view.nodes) {
-    assert.equal(node.holding !== null, node.status?.owner === 0);
+  for (const region of welcome.view.regions) {
+    const held = region.holdings?.some((holding) => holding.owner === 0) ?? false;
+    assert.equal(region.estate !== null, held);
   }
 });
 
@@ -107,82 +125,72 @@ test("a long stall is not replayed as a burst of ticks", () => {
 
 test("orders take effect while the room is paused", () => {
   const { room, last } = seated();
-  const capital = capitalOf(room, 0);
-  room.handle(0, { type: "orders", orders: [{ kind: "dial", node: capital, value: 0.25 }] });
+  const home = homeOf(room, 0);
+  room.handle(0, { type: "orders", orders: [{ kind: "dial", region: home, value: 0.25 }] });
   const view = last("view").view;
   assert.equal(view.tick, 0);
-  assert.equal(view.nodes[capital].holding?.dial, 0.25);
+  assert.equal(view.regions[home].estate?.dial, 0.25);
 });
 
-test("an order for a rival's node is rejected and changes nothing", () => {
+test("an order for a rival's region is rejected and changes nothing", () => {
   const { room, last } = seated();
-  const foreign = capitalOf(room, 1);
+  const foreign = homeOf(room, 1);
   const before = JSON.stringify(room.save().state);
-  room.handle(0, { type: "orders", orders: [{ kind: "garrison", node: foreign, value: 9 }] });
-  assert.equal(last("rejected").rejections[0].reason, "node is not owned");
+  room.handle(0, { type: "orders", orders: [{ kind: "garrison", region: foreign, value: 9 }] });
+  assert.equal(last("rejected").rejections[0].reason, "region is not held");
   assert.equal(JSON.stringify(room.save().state), before);
 });
 
-test("time pauses when the player takes a node", () => {
+test("time pauses when the player enters a new region", () => {
   const { room, last } = seated();
-  const state = room.save().state;
-  const capital = state.powers[0].capital;
-  const target = state.map.links[capital][0].node;
-  room.handle(0, {
-    type: "orders",
-    orders: [{ kind: "pressure", from: capital, to: target, active: true }],
-  });
+  const home = homeOf(room, 0);
   room.handle(0, { type: "time", paused: false, speed: 8 });
-  for (let second = 0; second < 60 && room.running; second++) {
+  for (let second = 0; second < 240 && room.running; second++) {
+    settle(room);
     room.pump(1000);
   }
   assert.equal(room.running, false);
   assert.deepEqual(last("room").time, { paused: true, speed: 8, pausedFor: 0 });
-  const captured = last("view").events.find((event) => event.kind === "captured");
-  assert.deepEqual(captured, { kind: "captured", node: target, from: null, to: 0 });
+  const entered = last("view").events.find((event) => event.kind === "entered");
+  assert.ok(entered && entered.kind === "entered");
+  assert.equal(entered.power, 0);
+  assert.notEqual(entered.region, home);
 });
 
 test("a trigger that is switched off does not pause time", () => {
   const { room, sent } = seated();
-  const state = room.save().state;
-  const capital = state.powers[0].capital;
-  const target = state.map.links[capital][0].node;
   room.handle(0, {
     type: "triggers",
-    triggers: { announced: false, captured: false, discovered: false },
-  });
-  room.handle(0, {
-    type: "orders",
-    orders: [{ kind: "pressure", from: capital, to: target, active: true }],
+    triggers: { announced: false, territory: false, discovered: false },
   });
   room.handle(0, { type: "time", paused: false, speed: 8 });
-  for (let second = 0; second < 20; second++) {
+  const entered = () =>
+    sent.some(
+      ({ message }) =>
+        message.type === "view" &&
+        message.events.some((event) => event.kind === "entered" && event.power === 0),
+    );
+  for (let second = 0; second < 240 && !entered(); second++) {
+    settle(room);
     room.pump(1000);
   }
+  assert.ok(entered());
   assert.equal(room.running, true);
-  const taken = sent.some(
-    ({ message }) =>
-      message.type === "view" &&
-      message.events.some(
-        (event) => event.kind === "captured" && event.node === target && event.to === 0,
-      ),
-  );
-  assert.ok(taken);
 });
 
 test("bots play their seats while time runs", () => {
   const { room } = seated();
   room.handle(0, {
     type: "triggers",
-    triggers: { announced: false, captured: false, discovered: false },
+    triggers: { announced: false, territory: false, discovered: false },
   });
   room.handle(0, { type: "time", paused: false, speed: 8 });
   for (let second = 0; second < 40; second++) {
     room.pump(1000);
   }
-  const nodes = room.save().state.nodes;
-  assert.ok(nodes.filter((node) => node.owner === 1).length > 1);
-  assert.ok(nodes.filter((node) => node.owner === 2).length > 1);
+  const { cells, constants } = room.save().state;
+  assert.ok(cells.filter((cell) => cell.owner === 1).length > constants.startCells);
+  assert.ok(cells.filter((cell) => cell.owner === 2).length > constants.startCells);
 });
 
 test("a room without players stops", () => {

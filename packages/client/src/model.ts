@@ -1,5 +1,5 @@
 import type { SeatInfo, TimeState, Triggers } from "@barycenter/protocol";
-import type { Constants, GameEvent, NodeView, Outline, View } from "@barycenter/sim";
+import type { Constants, GameEvent, Outline, PressureView, View } from "@barycenter/sim";
 
 export interface Game {
   room: string;
@@ -17,33 +17,41 @@ export interface Game {
 export interface Report {
   tick: number;
   text: string;
-  node: number | null;
+  region: number | null;
   urgent: boolean;
 }
 
 export interface Summary {
-  nodes: number;
+  regions: number;
+  cells: number;
   levels: number;
   force: number;
   matter: number;
+  profile: number[];
 }
 
 export function summarize(view: View): Summary {
-  const summary = { nodes: 0, levels: 0, force: 0, matter: 0 };
-  for (const node of view.nodes) {
-    if (node.holding !== null && node.status !== null) {
-      summary.nodes += 1;
-      summary.levels += node.status.level;
-      summary.force += node.status.force;
-      summary.matter += node.holding.matter;
+  const summary: Summary = { regions: 0, cells: 0, levels: 0, force: 0, matter: 0, profile: [] };
+  for (const region of view.regions) {
+    const mine = region.holdings?.find((holding) => holding.owner === view.power);
+    if (region.estate === null || mine === undefined) {
+      continue;
     }
+    summary.regions += 1;
+    summary.cells += mine.cells;
+    summary.levels += mine.level;
+    summary.force += mine.force;
+    summary.matter += region.estate.matter;
+    mine.profile.forEach((built, branch) => {
+      summary.profile[branch] = (summary.profile[branch] ?? 0) + built;
+    });
   }
   return summary;
 }
 
 export function nameOf(game: Game, power: number | null): string {
   if (power === null) {
-    return "nobody";
+    return "neutral land";
   }
   return power === game.seat ? "you" : (game.seats[power]?.label ?? `power ${power}`);
 }
@@ -52,40 +60,45 @@ function capitalized(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-export function isMine(game: Game, node: NodeView): boolean {
-  return node.status?.owner === game.seat;
-}
-
 export function report(game: Game, event: GameEvent): Report {
   const tick = game.view.tick;
   const me = game.seat;
   if (event.kind === "eliminated") {
-    const text = `${capitalized(nameOf(game, event.power))} lost the last region`;
-    return { tick, text, node: null, urgent: event.power === me };
+    const text = `${capitalized(nameOf(game, event.power))} lost the last cell`;
+    return { tick, text, region: null, urgent: event.power === me };
   }
+  const who = capitalized(nameOf(game, event.power));
+  const region = event.region;
   if (event.kind === "discovered") {
-    return { tick, text: `Discovered region ${event.node}`, node: event.node, urgent: false };
+    return { tick, text: `Discovered region ${region}`, region, urgent: false };
   }
-  if (event.kind === "captured") {
-    const taker = capitalized(nameOf(game, event.to));
-    const text =
-      event.from === null
-        ? `${taker} settled region ${event.node}`
-        : `${taker} took region ${event.node} from ${nameOf(game, event.from)}`;
-    return { tick, text, node: event.node, urgent: event.from === me || event.to === me };
+  if (event.kind === "entered") {
+    return { tick, text: `${who} entered region ${region}`, region, urgent: false };
   }
-  const attacker = capitalized(nameOf(game, event.power));
+  if (event.kind === "secured") {
+    const verb = event.power === me ? "hold" : "holds";
+    return { tick, text: `${who} ${verb} all of region ${region}`, region, urgent: false };
+  }
+  if (event.kind === "expelled") {
+    const verb = event.power === me ? "were" : "was";
+    const text = `${who} ${verb} driven out of region ${region} by ${nameOf(game, event.by)}`;
+    return { tick, text, region, urgent: event.power === me };
+  }
   const wait = Math.max(0, event.activeAt - tick);
-  const text = `${attacker} will press region ${event.to} of ${nameOf(game, event.target)} from region ${event.from} in ${wait} ticks`;
-  return { tick, text, node: event.to, urgent: event.target === me };
+  const text = `${who} will press ${nameOf(game, event.target)} in region ${region} in ${wait} ticks`;
+  return { tick, text, region, urgent: event.target === me };
 }
 
-export function reachOf(game: Game, edge: number): number {
-  return (game.view.edges[edge].capacity ?? 0) * game.constants.pressurePerCapacity;
-}
-
-export function levelCostOf(game: Game, level: number): number {
-  return game.constants.levelCost * (level + 1);
+export function pressureOn(
+  game: Game,
+  power: number,
+  region: number,
+  target: number | null,
+): PressureView | undefined {
+  return game.view.pressures.find(
+    (pressure) =>
+      pressure.power === power && pressure.region === region && pressure.target === target,
+  );
 }
 
 export function expansionCostOf(game: Game, expansions: number): number {

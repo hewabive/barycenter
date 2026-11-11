@@ -21,6 +21,10 @@ export async function loadSave(folder: string, room: string): Promise<SavedRoom 
   return JSON.parse(text) as SavedRoom;
 }
 
+export async function setAside(folder: string, room: string): Promise<void> {
+  await rename(pathOf(folder, room), join(folder, `${room}.unsupported.json`));
+}
+
 export async function writeSave(folder: string, room: string, saved: SavedRoom): Promise<void> {
   await mkdir(folder, { recursive: true });
   const target = pathOf(folder, room);

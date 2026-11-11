@@ -5,7 +5,7 @@ export interface Doctrine {
   aggression: number;
   caution: number;
   matterBias: number;
-  shipyardShare: number;
+  lean: number[];
   frontage: number;
   retaliation: Retaliation;
 }
@@ -16,8 +16,8 @@ export const doctrines: Record<string, Doctrine> = {
     aggression: 0.9,
     caution: 0.3,
     matterBias: 0.6,
-    shipyardShare: 0.25,
-    frontage: 2,
+    lean: [0.5, 0.5, 0.7],
+    frontage: 3,
     retaliation: "weakest",
   },
   builder: {
@@ -25,8 +25,8 @@ export const doctrines: Record<string, Doctrine> = {
     aggression: 0.25,
     caution: 0.9,
     matterBias: 0.5,
-    shipyardShare: 0.2,
-    frontage: 2,
+    lean: [0.6, 0.55, 0.4],
+    frontage: 3,
     retaliation: "attacker",
   },
   opportunist: {
@@ -34,7 +34,7 @@ export const doctrines: Record<string, Doctrine> = {
     aggression: 0.55,
     caution: 0.6,
     matterBias: 0.4,
-    shipyardShare: 0.2,
+    lean: [0.5, 0.5, 0.5],
     frontage: 3,
     retaliation: "strongest",
   },

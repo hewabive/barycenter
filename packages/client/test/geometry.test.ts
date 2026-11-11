@@ -1,13 +1,23 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createWorld, dot, outlineOf, type Vector } from "@barycenter/sim";
-import { arc, areaOf, buildCells, nearest, outlineOfCell, triangulate } from "../src/geometry.ts";
+import {
+  arc,
+  areaOf,
+  buildCells,
+  nearest,
+  neighborsAcross,
+  outlineOfCell,
+  triangulate,
+} from "../src/geometry.ts";
 
 function pointsOf(seed: number): { points: Vector[]; land: number; pairs: Set<string> } {
   const outline = outlineOf(createWorld({ seed }).map);
-  const points = [...outline.nodes.map((node) => node.position), ...outline.oceans];
-  const pairs = new Set(outline.edges.map((edge) => `${edge.a}-${edge.b}`));
-  return { points, land: outline.nodes.length, pairs };
+  const points = [...outline.cells.map((cell) => cell.position), ...outline.oceans];
+  const pairs = new Set(
+    outline.joints.map((joint) => `${Math.min(joint.a, joint.b)}-${Math.max(joint.a, joint.b)}`),
+  );
+  return { points, land: outline.cells.length, pairs };
 }
 
 function lengthOf(vector: Vector): number {
@@ -45,28 +55,23 @@ test("every point of a cell is closest to that cell's center", () => {
   });
 });
 
-test("land cells that share a border are joined by a land edge or a pass", () => {
+test("every side of a cell has one neighbor, and land neighbors are joined", () => {
   const { points, land, pairs } = pointsOf(3);
   const cells = buildCells(points);
-  const keyOf = (corner: Vector) =>
-    `${corner.x.toFixed(6)},${corner.y.toFixed(6)},${corner.z.toFixed(6)}`;
-  const owners = new Map<string, number[]>();
-  cells.forEach((cell, index) => {
-    for (const corner of cell.corners) {
-      owners.set(keyOf(corner), [...(owners.get(keyOf(corner)) ?? []), index]);
-    }
-  });
+  const across = neighborsAcross(cells);
   let shared = 0;
-  for (let a = 0; a < land; a++) {
-    for (let b = a + 1; b < land; b++) {
-      const common = cells[a].corners.filter((corner) => owners.get(keyOf(corner))?.includes(b));
-      if (common.length >= 2) {
+  across.forEach((row, cell) => {
+    assert.equal(row.length, cells[cell].corners.length);
+    for (const other of row) {
+      assert.ok(other >= 0 && other !== cell);
+      assert.ok(across[other].includes(cell));
+      if (cell < other && other < land) {
         shared += 1;
-        assert.ok(pairs.has(`${a}-${b}`), `${a}-${b}`);
+        assert.ok(pairs.has(`${cell}-${other}`), `${cell}-${other}`);
       }
     }
-  }
-  assert.ok(shared > 10);
+  });
+  assert.ok(shared > 100);
 });
 
 test("triangles subdivide a cell without leaving the sphere", () => {

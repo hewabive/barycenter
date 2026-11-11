@@ -1,22 +1,21 @@
-import type {
-  Command,
-  Constants,
-  EdgeView,
-  Holding,
-  Nature,
-  Outline,
-  PressureView,
-  Role,
-  Status,
-  View,
+import {
+  BRANCHES,
+  type Command,
+  type Constants,
+  type Estate,
+  type HoldingView,
+  type Outline,
+  type PressureView,
+  type RegionView,
+  type View,
 } from "@barycenter/sim";
 import type { Doctrine } from "./doctrine.ts";
 
-interface OwnNode {
+interface Own {
   id: number;
-  nature: Nature;
-  status: Status;
-  holding: Holding;
+  region: RegionView;
+  estate: Estate;
+  mine: HoldingView;
 }
 
 interface Survey {
@@ -24,21 +23,15 @@ interface Survey {
   view: View;
   constants: Constants;
   me: number;
-  own: OwnNode[];
-  campaigns: Map<number, PressureView[]>;
+  own: Own[];
+  campaigns: Map<string, PressureView>;
   totalForce: number;
   forceBudget: number;
 }
 
-interface Source {
-  from: number;
-  edge: number;
-  reach: number;
-}
-
 interface Option {
-  to: number;
-  sources: Source[];
+  region: number;
+  target: number | null;
   score: number;
   required: number;
 }
@@ -56,15 +49,15 @@ interface Guard {
   routine: Map<number, number>;
 }
 
-const PLANNED_LEVEL = 2;
-const ENERGY_MARGIN = 1.15;
+const POWER_BRANCH = BRANCHES.indexOf("power");
 const FORCE_BUDGET_SHARE = 0.8;
+const LEAN_STEP = 0.02;
 const DIAL_STEP = 0.05;
 const GARRISON_STEP = 0.5;
 const GRAB_RATIO = 2;
 const HOLD_RATIO = 1.2;
 const RETREAT_RATIO = 0.7;
-const FUTILE_RATIO = 1.05;
+const STRIKE_WIDTH = 2;
 const SATURATION = 0.95;
 const THREAT_MARGIN = 1.15;
 const FORCE_GROWTH = 1.25;
@@ -83,69 +76,53 @@ export function decide(
   const guard = assessGuard(survey, doctrine);
   const plan = planPressure(survey, doctrine, guard);
   return [
-    ...assignRoles(survey, doctrine),
+    ...setLean(survey, doctrine),
     ...setDials(survey, doctrine, plan),
     ...setGarrisons(survey, guard, plan),
     ...plan.commands,
-    ...expandEdges(survey, doctrine, plan),
+    ...expandEdges(survey, plan),
   ];
 }
 
+function keyOf(region: number, target: number | null): string {
+  return `${region}:${target ?? "neutral"}`;
+}
+
 function look(outline: Outline, constants: Constants, view: View): Survey {
-  const own: OwnNode[] = [];
-  for (const node of view.nodes) {
-    if (node.holding !== null && node.status !== null && node.nature !== null) {
-      own.push({ id: node.id, nature: node.nature, status: node.status, holding: node.holding });
-    }
-  }
+  const me = view.power;
+  const own: Own[] = [];
   let spareEnergy = 0;
-  for (const node of own) {
-    const generation = node.status.role === "power" ? constants.energyRate * node.status.level : 0;
-    spareEnergy += node.nature.energyRichness * (constants.baseEnergy + generation);
-    spareEnergy -= constants.upkeepPerLevel * node.status.level;
+  for (const region of view.regions) {
+    const mine = region.holdings?.find((holding) => holding.owner === me);
+    if (region.estate === null || region.nature === null || mine === undefined) {
+      continue;
+    }
+    own.push({ id: region.id, region, estate: region.estate, mine });
+    const generation =
+      constants.baseEnergy * mine.cells + constants.energyRate * mine.profile[POWER_BRANCH];
+    spareEnergy += region.nature.energyRichness * generation;
+    spareEnergy -= constants.upkeepPerLevel * mine.level;
   }
-  const campaigns = new Map<number, PressureView[]>();
+  const campaigns = new Map<string, PressureView>();
   for (const pressure of view.pressures) {
-    if (pressure.power === view.power) {
-      campaigns.set(pressure.to, [...(campaigns.get(pressure.to) ?? []), pressure]);
+    if (pressure.power === me) {
+      campaigns.set(keyOf(pressure.region, pressure.target), pressure);
     }
   }
   return {
     outline,
     view,
     constants,
-    me: view.power,
+    me,
     own,
     campaigns,
-    totalForce: own.reduce((sum, node) => sum + node.status.force, 0),
+    totalForce: own.reduce((sum, holding) => sum + holding.mine.force, 0),
     forceBudget: Math.max(0, (spareEnergy * FORCE_BUDGET_SHARE) / constants.upkeepPerForce),
   };
 }
 
-function ownerOf(survey: Survey, node: number): number | null | undefined {
-  return survey.view.nodes[node].status?.owner;
-}
-
-function isRival(survey: Survey, node: number): boolean {
-  const owner = ownerOf(survey, node);
-  return owner !== undefined && owner !== null && owner !== survey.me;
-}
-
-function reachOf(survey: Survey, edge: EdgeView): number {
-  return (edge.capacity ?? 0) * survey.constants.pressurePerCapacity;
-}
-
-function reachBetween(survey: Survey, from: number, to: number): number {
-  const link = survey.outline.links[from].find((candidate) => candidate.node === to);
-  return link === undefined ? 0 : reachOf(survey, survey.view.edges[link.edge]);
-}
-
 function marginOf(doctrine: Doctrine): number {
   return 2.4 - 0.8 * doctrine.aggression;
-}
-
-function desiredForce(survey: Survey, doctrine: Doctrine): number {
-  return survey.own.length * (2 + 3 * doctrine.aggression + 3 * doctrine.caution);
 }
 
 function total(values: Map<number, number>): number {
@@ -156,45 +133,45 @@ function total(values: Map<number, number>): number {
   return sum;
 }
 
+function foreignIn(survey: Survey, region: number, target: number | null): HoldingView | undefined {
+  return survey.view.regions[region].holdings?.find((holding) => holding.owner === target);
+}
+
 function assessGuard(survey: Survey, doctrine: Doctrine): Guard {
-  const { constants, own, me, view, outline } = survey;
-  const attacking = new Set<number>();
-  for (const orders of survey.campaigns.values()) {
-    for (const order of orders) {
-      attacking.add(order.from);
-    }
-  }
+  const { own, me, view } = survey;
   const guard: Guard = { urgent: new Map(), routine: new Map() };
-  for (const node of own) {
-    let hostile = 0;
-    let bordersRival = false;
-    for (const link of outline.links[node.id]) {
-      if (isRival(survey, link.node)) {
-        bordersRival = true;
-        hostile += view.nodes[link.node].status?.force ?? 0;
-      }
+  for (const holding of own) {
+    if (holding.estate.exposure === 0) {
+      continue;
     }
-    let threat = 0;
-    for (const pressure of view.pressures) {
-      if (pressure.to === node.id && pressure.power !== me) {
-        const massed = view.nodes[pressure.from].status?.force ?? 0;
-        threat += Math.min(massed, reachBetween(survey, node.id, pressure.from));
-      }
-    }
-    if (threat > 0) {
-      const walls = constants.defenseBase + constants.defensePerLevel * node.status.level;
-      const needed = (threat * THREAT_MARGIN - walls) / constants.defensePerForce;
-      guard.urgent.set(node.id, Math.max(1, needed));
-    } else if (bordersRival) {
-      const share = attacking.has(node.id) ? 1 - doctrine.aggression : 1;
-      guard.routine.set(node.id, (1 + doctrine.caution * 0.5 * hostile) * share);
+    const threatened = view.pressures.some(
+      (pressure) => pressure.target === me && pressure.region === holding.id,
+    );
+    if (threatened) {
+      guard.urgent.set(holding.id, Math.max(1, holding.estate.hostile * THREAT_MARGIN));
+    } else {
+      guard.routine.set(holding.id, 1 + doctrine.caution * 0.5 * holding.estate.hostile);
     }
   }
   return guard;
 }
 
+function stagingGround(survey: Survey, region: number): number | null {
+  if (survey.view.regions[region].estate !== null) {
+    return region;
+  }
+  let best: Own | null = null;
+  for (const neighbor of survey.outline.neighbors[region]) {
+    const holding = survey.own.find((candidate) => candidate.id === neighbor.region);
+    if (holding !== undefined && (best === null || holding.mine.force > best.mine.force)) {
+      best = holding;
+    }
+  }
+  return best?.id ?? null;
+}
+
 function planPressure(survey: Survey, doctrine: Doctrine, guard: Guard): Plan {
-  const { own, me, view, outline } = survey;
+  const { me, view } = survey;
   const plan: Plan = {
     commands: [],
     staging: new Map(),
@@ -207,22 +184,26 @@ function planPressure(survey: Survey, doctrine: Doctrine, guard: Guard): Plan {
   let landGrabs = 0;
   let attacks = 0;
 
-  for (const [to, orders] of survey.campaigns) {
-    const status = view.nodes[to].status;
-    if (status === null) {
+  for (const pressure of survey.campaigns.values()) {
+    const holding = foreignIn(survey, pressure.region, pressure.target);
+    const neutral = pressure.target === null;
+    const futile =
+      holding === undefined ||
+      holding.contact === 0 ||
+      (!neutral && Math.min(uncommitted, holding.reach) < holding.defense * RETREAT_RATIO);
+    if (futile) {
+      plan.commands.push({
+        kind: "pressure",
+        power: me,
+        region: pressure.region,
+        target: pressure.target,
+        active: false,
+      });
       continue;
     }
-    const neutral = status.owner === null;
-    const reach = orders.reduce((sum, order) => sum + reachBetween(survey, order.from, to), 0);
-    const floor = status.defense * (neutral ? FUTILE_RATIO : RETREAT_RATIO);
-    if (Math.min(uncommitted, reach) < floor) {
-      for (const order of orders) {
-        plan.commands.push({ kind: "pressure", power: me, from: order.from, to, active: false });
-      }
-      continue;
-    }
-    uncommitted -= status.defense * HOLD_RATIO;
-    plan.committed += status.defense * HOLD_RATIO;
+    const held = holding.defense * (neutral ? 1 : HOLD_RATIO);
+    uncommitted -= held;
+    plan.committed += held;
     plan.active = true;
     if (neutral) {
       landGrabs += 1;
@@ -231,79 +212,75 @@ function planPressure(survey: Survey, doctrine: Doctrine, guard: Guard): Plan {
     }
   }
 
-  const holdings = new Map<number, number>();
-  for (const node of view.nodes) {
-    const owner = node.status?.owner;
-    if (owner !== undefined && owner !== null) {
-      holdings.set(owner, (holdings.get(owner) ?? 0) + 1);
+  const sizes = new Map<number, number>();
+  for (const region of view.regions) {
+    for (const holding of region.holdings ?? []) {
+      if (holding.owner !== null) {
+        sizes.set(holding.owner, (sizes.get(holding.owner) ?? 0) + holding.cells);
+      }
     }
   }
   const aggressors = new Set(
-    view.pressures.filter((pressure) => pressure.power !== me).map((pressure) => pressure.power),
+    view.pressures.filter((pressure) => pressure.target === me).map((pressure) => pressure.power),
   );
-
-  const approaches = new Map<number, Source[]>();
-  for (const node of own) {
-    for (const link of outline.links[node.id]) {
-      if (ownerOf(survey, link.node) === me || survey.campaigns.has(link.node)) {
-        continue;
-      }
-      const reach = reachOf(survey, view.edges[link.edge]);
-      const source = { from: node.id, edge: link.edge, reach };
-      approaches.set(link.node, [...(approaches.get(link.node) ?? []), source]);
-    }
-  }
 
   const grabs: Option[] = [];
   const strikes: Option[] = [];
   const blocked: Option[] = [];
-  for (const [to, sources] of approaches) {
-    const target = view.nodes[to];
-    if (target.status === null || target.nature === null) {
+  for (const region of view.regions) {
+    if (region.holdings === null || region.nature === null) {
       continue;
     }
-    sources.sort((left, right) => right.reach - left.reach || left.from - right.from);
     const worth =
-      doctrine.matterBias * target.nature.matterRichness +
-      (1 - doctrine.matterBias) * target.nature.energyRichness +
-      0.05 * target.nature.levelCap;
-    const owner = target.status.owner;
-    if (owner === null) {
-      const required = target.status.defense * GRAB_RATIO;
-      if (sources[0].reach >= required) {
-        grabs.push({ to, sources: [sources[0]], score: worth, required });
+      doctrine.matterBias * region.nature.deposits.reduce((sum, value) => sum + value, 0) +
+      (1 - doctrine.matterBias) * region.nature.energyRichness;
+    for (const holding of region.holdings) {
+      const taken = survey.campaigns.has(keyOf(region.id, holding.owner));
+      if (holding.owner === me || holding.contact === 0 || taken) {
+        continue;
       }
-      continue;
-    }
-    const required = target.status.defense * marginOf(doctrine);
-    const needed: Source[] = [];
-    let reach = 0;
-    for (const source of sources) {
-      if (reach >= required) {
-        break;
+      if (holding.owner === null) {
+        const started = region.estate === null ? 0 : 1;
+        grabs.push({
+          region: region.id,
+          target: null,
+          score: worth + started,
+          required: holding.defense * GRAB_RATIO,
+        });
+        continue;
       }
-      needed.push(source);
-      reach += source.reach;
-    }
-    const size = holdings.get(owner) ?? 1;
-    let weight = 1;
-    if (doctrine.retaliation === "attacker" && aggressors.has(owner)) {
-      weight = 3;
-    } else if (doctrine.retaliation === "strongest") {
-      weight = 1 + size / 5;
-    } else if (doctrine.retaliation === "weakest") {
-      weight = 1 + 1 / size;
-    }
-    const score = (weight * (worth + 0.2 * target.status.level)) / target.status.defense;
-    if (reach >= required) {
-      strikes.push({ to, sources: needed, score, required });
-    } else {
-      blocked.push({ to, sources, score, required });
+      const required = holding.defense * marginOf(doctrine) * STRIKE_WIDTH;
+      const size = sizes.get(holding.owner) ?? 1;
+      let weight = 1;
+      if (doctrine.retaliation === "attacker" && aggressors.has(holding.owner)) {
+        weight = 3;
+      } else if (doctrine.retaliation === "strongest") {
+        weight = 1 + size / 40;
+      } else if (doctrine.retaliation === "weakest") {
+        weight = 1 + 8 / size;
+      }
+      const density = holding.level / holding.cells;
+      const option = {
+        region: region.id,
+        target: holding.owner,
+        score: (weight * (worth + 0.3 * density)) / holding.defense,
+        required,
+      };
+      if (holding.reach >= holding.defense * marginOf(doctrine)) {
+        strikes.push(option);
+      } else {
+        blocked.push(option);
+      }
     }
   }
 
   const pursue = (options: Option[], slots: number, mayStage: boolean) => {
-    options.sort((left, right) => right.score - left.score || left.to - right.to);
+    options.sort(
+      (left, right) =>
+        right.score - left.score ||
+        left.region - right.region ||
+        (left.target ?? -1) - (right.target ?? -1),
+    );
     let taken = 0;
     for (const option of options) {
       if (taken >= slots) {
@@ -311,8 +288,9 @@ function planPressure(survey: Survey, doctrine: Doctrine, guard: Guard): Plan {
       }
       if (uncommitted < option.required) {
         const affordable = guarded + option.required <= survey.forceBudget;
-        if (mayStage && !plan.active && plan.staging.size === 0 && affordable) {
-          plan.staging.set(option.sources[0].from, option.required);
+        const ground = stagingGround(survey, option.region);
+        if (mayStage && !plan.active && plan.staging.size === 0 && affordable && ground !== null) {
+          plan.staging.set(ground, option.required);
         }
         return;
       }
@@ -320,15 +298,13 @@ function planPressure(survey: Survey, doctrine: Doctrine, guard: Guard): Plan {
       uncommitted -= option.required;
       plan.committed += option.required;
       plan.active = true;
-      for (const source of option.sources) {
-        plan.commands.push({
-          kind: "pressure",
-          power: me,
-          from: source.from,
-          to: option.to,
-          active: true,
-        });
-      }
+      plan.commands.push({
+        kind: "pressure",
+        power: me,
+        region: option.region,
+        target: option.target,
+        active: true,
+      });
     }
   };
   pursue(grabs, doctrine.frontage - landGrabs, true);
@@ -336,48 +312,27 @@ function planPressure(survey: Survey, doctrine: Doctrine, guard: Guard): Plan {
   pursue(strikes, (doctrine.aggression > 0.7 ? 2 : 1) - attacks, ambitious);
 
   if (ambitious && strikes.length === 0 && attacks === 0) {
-    blocked.sort((left, right) => right.score - left.score || left.to - right.to);
+    blocked.sort((left, right) => right.score - left.score || left.region - right.region);
     const goal = blocked.find((option) => guarded + option.required <= survey.forceBudget);
     if (goal !== undefined) {
-      plan.widening.add(goal.sources[0].edge);
+      for (const neighbor of survey.outline.neighbors[goal.region]) {
+        if (view.regions[neighbor.region].estate !== null) {
+          plan.widening.add(neighbor.edge);
+        }
+      }
     }
   }
   return plan;
 }
 
-function assignRoles(survey: Survey, doctrine: Doctrine): Command[] {
-  const { constants, own, me } = survey;
+function setLean(survey: Survey, doctrine: Doctrine): Command[] {
   const commands: Command[] = [];
-  let extractors = own.filter((node) => node.status.role === "extraction").length;
-  let shipyards = own.filter((node) => node.status.role === "shipyard").length;
-  let produced = 0;
-  let needed = constants.upkeepPerForce * desiredForce(survey, doctrine);
-  for (const node of own) {
-    const cap = node.nature.levelCap;
-    const generation = node.status.role === "power" ? constants.energyRate * cap : 0;
-    produced += node.nature.energyRichness * (constants.baseEnergy + generation);
-    needed += constants.upkeepPerLevel * cap;
-  }
-  const wantedShipyards = Math.max(1, Math.round(own.length * doctrine.shipyardShare));
-
-  for (const node of own) {
-    if (node.status.role !== null) {
-      continue;
+  BRANCHES.forEach((branch, index) => {
+    const value = doctrine.lean[index];
+    if (Math.abs(value - survey.view.lean[index]) > LEAN_STEP) {
+      commands.push({ kind: "lean", power: survey.me, branch, value });
     }
-    let role: Role = "extraction";
-    if (extractors === 0) {
-      extractors += 1;
-    } else if (produced < needed * ENERGY_MARGIN) {
-      role = "power";
-      produced += node.nature.energyRichness * constants.energyRate * node.nature.levelCap;
-    } else if (shipyards < wantedShipyards) {
-      role = "shipyard";
-      shipyards += 1;
-    } else {
-      extractors += 1;
-    }
-    commands.push({ kind: "role", power: me, node: node.id, role });
-  }
+  });
   return commands;
 }
 
@@ -387,28 +342,22 @@ function setDials(survey: Survey, doctrine: Doctrine, plan: Plan): Command[] {
   const forceWanted =
     plan.active ||
     plan.staging.size > 0 ||
-    own.some((node) => node.status.force < node.holding.garrison);
-  const tight = survey.forceBudget < desiredForce(survey, doctrine);
+    own.some((holding) => holding.mine.force < holding.estate.garrison);
 
-  for (const node of own) {
-    if (node.status.role === null) {
-      continue;
-    }
-    const cap = node.nature.levelCap;
-    const level = node.status.level;
-    const held = tight && node.status.role !== "power" && level >= PLANNED_LEVEL;
-    let dial = 0;
-    if (level < cap && !held) {
-      dial = level < PLANNED_LEVEL ? 1 : 0.4 + 0.5 * (1 - level / cap);
-    }
-    if (node.status.role === "shipyard" && forceWanted) {
+  for (const holding of own) {
+    const cap = holding.estate.levelCap;
+    const level = holding.mine.level;
+    let dial = level < cap ? 0.5 + 0.5 * (1 - level / cap) : 0;
+    if (forceWanted) {
       dial = Math.max(dial, 0.5 + 0.5 * doctrine.aggression);
     }
-    if (outline.links[node.id].some((link) => view.edges[link.edge].expanding === me)) {
+    if (
+      outline.neighbors[holding.id].some((neighbor) => view.edges[neighbor.edge].expanding === me)
+    ) {
       dial = Math.max(dial, 0.6);
     }
-    if (Math.abs(dial - node.holding.dial) > DIAL_STEP) {
-      commands.push({ kind: "dial", power: me, node: node.id, value: dial });
+    if (Math.abs(dial - holding.estate.dial) > DIAL_STEP) {
+      commands.push({ kind: "dial", power: me, region: holding.id, value: dial });
     }
   }
   return commands;
@@ -421,58 +370,33 @@ function setGarrisons(survey: Survey, guard: Guard, plan: Plan): Command[] {
   for (const tier of [guard.urgent, guard.routine]) {
     const asked = total(tier);
     const scale = asked > pool && asked > 0 ? pool / asked : 1;
-    for (const [node, value] of tier) {
-      wanted.set(node, value * scale);
+    for (const [region, value] of tier) {
+      wanted.set(region, value * scale);
     }
     pool = Math.max(0, pool - asked * scale);
   }
 
   const commands: Command[] = [];
-  for (const node of survey.own) {
-    const target = (wanted.get(node.id) ?? 0) + (plan.staging.get(node.id) ?? 0);
+  for (const holding of survey.own) {
+    const target = (wanted.get(holding.id) ?? 0) + (plan.staging.get(holding.id) ?? 0);
     const value = Math.round(target / GARRISON_STEP) * GARRISON_STEP;
-    if (Math.abs(value - node.holding.garrison) >= GARRISON_STEP) {
-      commands.push({ kind: "garrison", power: survey.me, node: node.id, value });
+    if (Math.abs(value - holding.estate.garrison) >= GARRISON_STEP) {
+      commands.push({ kind: "garrison", power: survey.me, region: holding.id, value });
     }
   }
   return commands;
 }
 
-function expandEdges(survey: Survey, doctrine: Doctrine, plan: Plan): Command[] {
-  const { constants, me, view, outline } = survey;
+function expandEdges(survey: Survey, plan: Plan): Command[] {
+  const { constants, me, view } = survey;
   const commands: Command[] = [];
-  const wanted = new Set(plan.widening);
-
-  for (const [to, orders] of survey.campaigns) {
-    const status = view.nodes[to].status;
-    if (status === null || status.owner === null) {
-      continue;
-    }
-    const reach = orders.reduce((sum, order) => sum + reachBetween(survey, order.from, to), 0);
-    if (reach >= status.defense * marginOf(doctrine)) {
-      continue;
-    }
-    for (const order of orders) {
-      const link = outline.links[order.from].find((candidate) => candidate.node === to);
-      if (link !== undefined) {
-        wanted.add(link.edge);
-      }
-    }
-  }
-
   for (const edge of view.edges) {
     if (edge.capacity === null || edge.expansions === null) {
       continue;
     }
-    const route = outline.edges[edge.id];
-    const internal = ownerOf(survey, route.a) === me && ownerOf(survey, route.b) === me;
-    const load = Math.max(
-      Math.abs(edge.matterFlow),
-      Math.abs(edge.forceFlow) / constants.forcePerCapacity,
-    );
     const expandable = edge.expansions < constants.maxExpansions;
-    const needed = wanted.has(edge.id) || (internal && load >= SATURATION * edge.capacity);
-    if (needed && expandable && edge.expanding === null) {
+    const needed = plan.widening.has(edge.id) || edge.load >= SATURATION;
+    if (needed && expandable && edge.open && edge.expanding === null) {
       commands.push({ kind: "expand", power: me, edge: edge.id, active: true });
     }
   }

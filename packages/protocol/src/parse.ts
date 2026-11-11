@@ -1,4 +1,4 @@
-import { type Constants, ROLES, type Role } from "@barycenter/sim";
+import { BRANCHES, type Branch, type Constants } from "@barycenter/sim";
 import {
   type ClientMessage,
   MAX_ORDERS,
@@ -23,30 +23,31 @@ function isBoolean(value: unknown): value is boolean {
   return typeof value === "boolean";
 }
 
-function isRole(value: unknown): value is Role {
-  return ROLES.some((role) => role === value);
+function isBranch(value: unknown): value is Branch {
+  return BRANCHES.some((branch) => branch === value);
 }
 
 function parseOrder(value: unknown): Order | null {
   if (!isFields(value)) {
     return null;
   }
-  const { kind, node, edge, from, to, active, role } = value;
+  const { kind, region, edge, target, active, branch } = value;
   const amount = value.value;
-  if (kind === "dial" && isNumber(node) && isNumber(amount)) {
-    return { kind, node, value: amount };
+  if (kind === "dial" && isNumber(region) && isNumber(amount)) {
+    return { kind, region, value: amount };
   }
-  if (kind === "garrison" && isNumber(node) && isNumber(amount)) {
-    return { kind, node, value: amount };
+  if (kind === "garrison" && isNumber(region) && isNumber(amount)) {
+    return { kind, region, value: amount };
   }
-  if (kind === "role" && isNumber(node) && isRole(role)) {
-    return { kind, node, role };
+  if (kind === "lean" && isBranch(branch) && isNumber(amount)) {
+    return { kind, branch, value: amount };
   }
   if (kind === "expand" && isNumber(edge) && isBoolean(active)) {
     return { kind, edge, active };
   }
-  if (kind === "pressure" && isNumber(from) && isNumber(to) && isBoolean(active)) {
-    return { kind, from, to, active };
+  const targeted = target === null || isNumber(target);
+  if (kind === "pressure" && isNumber(region) && targeted && isBoolean(active)) {
+    return { kind, region, target, active };
   }
   return null;
 }
@@ -89,11 +90,11 @@ function parseTriggers(value: unknown): Triggers | null {
   if (!isFields(value)) {
     return null;
   }
-  const { announced, captured, discovered } = value;
-  if (!isBoolean(announced) || !isBoolean(captured) || !isBoolean(discovered)) {
+  const { announced, territory, discovered } = value;
+  if (!isBoolean(announced) || !isBoolean(territory) || !isBoolean(discovered)) {
     return null;
   }
-  return { announced, captured, discovered };
+  return { announced, territory, discovered };
 }
 
 function parseConstants(value: unknown): Partial<Constants> | null {

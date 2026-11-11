@@ -55,7 +55,7 @@ interface Seat {
   triggers: Triggers;
 }
 
-const SAVE_VERSION = 1;
+const SAVE_VERSION = 2;
 const THINK_EVERY = 5;
 const MAX_BURST = 32;
 
@@ -67,8 +67,8 @@ function fires(triggers: Triggers, event: GameEvent, power: number): boolean {
   if (event.kind === "announced") {
     return triggers.announced && event.target === power;
   }
-  if (event.kind === "captured") {
-    return triggers.captured && (event.from === power || event.to === power);
+  if (event.kind === "entered" || event.kind === "expelled") {
+    return triggers.territory && event.power === power;
   }
   if (event.kind === "discovered") {
     return triggers.discovered && event.power === power;
@@ -105,17 +105,18 @@ export class Room {
         label: rival ?? "human",
         token: saved?.tokens[index] ?? null,
         connected: false,
-        triggers: { announced: true, captured: true, discovered: true },
+        triggers: { announced: true, territory: true, discovered: true },
       };
     });
   }
 
   static restore(saved: SavedRoom, tuning: boolean, sink: Sink): Room | null {
+    if (saved.version !== SAVE_VERSION) {
+      return null;
+    }
     const powers = saved.options.humans + saved.options.rivals.length;
     const consistent =
-      saved.version === SAVE_VERSION &&
-      saved.state.powers.length === powers &&
-      unknownRival(saved.options.rivals) === null;
+      saved.state.powers.length === powers && unknownRival(saved.options.rivals) === null;
     return consistent ? new Room({ ...saved.options, tuning }, sink, saved) : null;
   }
 

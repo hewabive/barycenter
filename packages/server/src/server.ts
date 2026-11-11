@@ -10,7 +10,7 @@ import {
 } from "@barycenter/protocol";
 import { type WebSocket, WebSocketServer } from "ws";
 import { Room, type RoomOptions, unknownRival } from "./room.ts";
-import { loadSave, writeSave } from "./saves.ts";
+import { loadSave, setAside, writeSave } from "./saves.ts";
 import { createStaticHandler } from "./static.ts";
 
 export interface ServerOptions {
@@ -89,7 +89,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           return { room, sockets, savedAt: room.tick };
         }
         if (saved !== null) {
-          return { error: "saved room has an unsupported format" };
+          await setAside(options.saves, id);
         }
       } catch {
         return { error: "saved room could not be read" };

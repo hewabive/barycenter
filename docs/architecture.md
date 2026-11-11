@@ -32,8 +32,9 @@ Tunable numbers live in one constants object inside the state, so they can be ch
 3. **The server computes each player's view.** Fog and the private data of other players are cut out before anything is sent.
 4. **Time is server state.** Pause and speed are commands, not client settings.
 5. **Static data is separate from dynamic data.** The map is sent once on joining. After that the player's full view of the arena is sent every tick, so reconnecting needs only one snapshot.
-6. **The core has no notion of a planet.** It knows nodes, edges and owners. Positions are generated with the map but only the client uses them. A link from a unit to the one that contains it arrives with cells in stage 2.
-7. **The client decides nothing.** It draws the latest view. The motion of flows between ticks is cosmetic and derived from numbers the server sends, and smoothing of other values can be added without touching the server.
+6. **The core has no notion of a planet.** It knows cells and the joints between neighboring cells, regions that group cells, edges that group the joints between two regions, and owners. Positions are generated with the map but only the client uses them.
+7. **Rules run on cells and orders name regions.** A view therefore has two layers: a summary per region, from which bots decide and panels are drawn, and compact lists per cell and per flow, from which the globe is drawn.
+8. **The client decides nothing.** It draws the latest view. The motion of flows between ticks is cosmetic and derived from numbers the server sends, and smoothing of other values can be added without touching the server.
 
 Because orders are standing states and ticks are slow, the game needs neither client-side prediction nor lockstep synchronization.
 
@@ -60,39 +61,32 @@ Messages are JSON over one WebSocket. A client first joins a room. A room that d
 
 - The first join of a seat returns a secret token. Rejoining that seat requires the token, and the newer connection replaces the older one.
 - Everything a client sends is parsed field by field, and unknown fields are dropped. The core then checks ownership and ranges.
-- Messages are compressed by the WebSocket extension. A view of the first planet is about 7 KB of JSON and well under 1 KB on the wire.
+- Messages are compressed by the WebSocket extension. A view of the first planet is 12 to 18 KB of JSON and 2 to 4 KB on the wire. The map sent on joining is 45 KB and 9 KB on the wire.
 
 ## Server
 
 - The server listens on the local machine unless a host is given. It has no accounts yet, so a seat token is the only protection.
 - A room is saved when its last player leaves, every thousand ticks while it runs, and on shutdown. A save holds the whole state, so a restored room continues identically.
+- A save written by another version of the format is set aside under another name, and a fresh game starts in its place.
 - Live tuning is off unless the server is started with the tuning flag.
 - The server also hands out the built client, so one process and one address are enough to play.
 
 ## Client
 
-- Region shapes are the Voronoi cells of the same points the core used to generate the map, so the globe needs no geometry from the server beyond those points.
-- The surface is one mesh with a color per region. Edges are lines whose width follows capacity. Flows are particles moving along the edges, and attacks are raised arcs: dashed while announced, solid once active.
+- Cell shapes are the Voronoi cells of the same points the core used to generate the map, so the globe needs no geometry from the server beyond those points.
+- The surface is one mesh with a color per cell: the owner's color, brighter as the cell is built up. Dark lines separate regions and bright lines separate holdings. The line where a power presses is drawn in its color, dashed while the attack is only announced.
+- Flows are particles moving between the centers of neighboring cells. A strait is a dashed arc over the water.
 - Labels and panels are plain HTML over the canvas. A panel is rebuilt only when its structure changes; between rebuilds only its numbers are updated.
 - The seat token is kept in the browser's local storage, so reloading the page returns to the same seat.
 - In development the client runs on Vite at port 5183 and connects through its proxy to the game server on port 8787. Vite listens on 0.0.0.0 and proxies WebSocket connections on `/socket` to the game server, which stays on localhost.
 
 ## Cell level
 
-Planned for stage 2 and not built. The core will run its rules on cells, each linked to the region that contains it. Orders, the view the bots decide from and the panels stay per region, and cells reach the client as a compact layer for drawing.
-
-To estimate the cost, today's rules were run with three bots for 3000 ticks on finer maps:
-
-| Land cells   | Tick    | View, compressed | Save   | World generation |
-| ------------ | ------- | ---------------- | ------ | ---------------- |
-| 21, as today | 0.05 ms | 1.5 KB           | 18 KB  | 7 ms             |
-| 211          | 0.7 ms  | 10 KB            | 194 KB | 3 s              |
-| 422          | 1.7 ms  | 14 KB            | 401 KB | 46 s             |
-
-- Tick time is no obstacle. At the top speed of 16 ticks a second, 422 cells take about 3% of one processor core.
-- World generation was the obstacle while neighbors were found by testing every triple of points: 46 s for the largest map above. The hull of the points is now built point by point, which gives the same neighbors and takes 15 ms for 800 points.
-- A full view every tick stays affordable, but the compact or delta encoding listed under Deferred comes closer.
-- A series of 24 bot matches grows from seconds to minutes on one thread.
+- A map is made from 400 points on the sphere: about 250 land cells, joined into regions by growing them outward from seeds at uneven speeds, with mountains slowing the growth so that ranges tend to become borders.
+- Neighbors come from the hull of the points, built point by point: 6 ms for 400 points and 15 ms for 800. Testing every triple of points took 46 s for 680.
+- With 250 cells a tick takes 0.8 ms and the three bots another 0.1 ms. At the top speed of 16 ticks a second this is under 2% of one processor core. A save is about 215 KB.
+- A series of 12 bot matches of 6000 ticks takes about 50 s on one thread. The match runner accepts changed constants, so a tuning idea can be tried on a whole series.
+- A full view every tick stays affordable, but the compact or delta encoding listed under Deferred comes closer as maps grow.
 
 Deposits and stocks are stored by kind from the start, with a single kind until matter is split in stage 4. Once kinds multiply, only the dear ones should be carried from cell to cell and the rest counted as totals per power: by estimate, thirty kinds carried in full would make a tick about ten times slower.
 

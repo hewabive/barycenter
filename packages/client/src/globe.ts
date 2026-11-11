@@ -1,11 +1,18 @@
-import type { Constants, NodeView, Outline, Vector, View } from "@barycenter/sim";
+import {
+  type Constants,
+  GROUND,
+  NEUTRAL,
+  type Outline,
+  UNSEEN,
+  type Vector,
+  type View,
+} from "@barycenter/sim";
 import {
   BufferGeometry,
   Color,
   DoubleSide,
   Float32BufferAttribute,
   LineBasicMaterial,
-  LineLoop,
   LineSegments,
   Mesh,
   MeshBasicMaterial,
@@ -23,21 +30,24 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { Line2 } from "three/addons/lines/Line2.js";
 import { LineGeometry } from "three/addons/lines/LineGeometry.js";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
+import { LineSegments2 } from "three/addons/lines/LineSegments2.js";
+import { LineSegmentsGeometry } from "three/addons/lines/LineSegmentsGeometry.js";
 import { el } from "./dom.ts";
-import { arc, buildCells, nearest, outlineOfCell, triangulate } from "./geometry.ts";
+import { arc, buildCells, nearest, neighborsAcross, triangulate } from "./geometry.ts";
 import {
   BORDER,
-  EDGE_COLORS,
-  EDGE_EXPANDING,
-  EDGE_UNKNOWN,
   ENERGY,
+  EXPANDING,
   FORCE,
+  HOLDING_BORDER,
   MATTER,
   MOUNTAIN,
   OCEAN,
   PLAIN,
   powerColor,
+  REGION_BORDER,
   SELECTION,
+  STRAIT,
   UNEXPLORED,
 } from "./palette.ts";
 
@@ -52,7 +62,7 @@ export interface Frame {
 
 export interface Globe {
   draw(frame: Frame): void;
-  face(node: number): void;
+  face(region: number): void;
 }
 
 interface Stream {
@@ -61,75 +71,42 @@ interface Stream {
   used: number;
 }
 
-interface Campaign {
-  line: Line2;
+interface Side {
+  cell: number;
+  side: number;
+}
+
+interface Front {
+  line: LineSegments2;
   material: LineMaterial;
-  path: Vector[];
   label: HTMLElement;
   anchor: Vector3;
-  active: boolean;
-  commit: number;
 }
 
-const SURFACE_DEPTH = 2;
-const EDGE_STEPS = 16;
-const PRESSURE_STEPS = 20;
-const PARTICLES = 6;
+const SURFACE_DEPTH = 1;
+const STRAIT_STEPS = 12;
+const PARTICLES = 3;
+const STREAM_ROOM = 6000;
 const ENERGY_UNIT = 0.3;
 const FLOW_FLOOR = 0.005;
-const FLOW_SPEED = 0.35;
+const FLOW_SPEED = 0.6;
 const CLICK_SLACK = 5;
-const ROLE_GLYPHS = { extraction: "E", power: "P", shipyard: "S" };
+const HIDDEN = [0, 0, 0, 0, 0, 0];
 
-function flat(points: Vector[]): number[] {
-  const values: number[] = [];
-  for (const point of points) {
-    values.push(point.x, point.y, point.z);
-  }
-  return values;
-}
-
-function along(path: Vector[], share: number, target: Vector3): void {
-  const scaled = share * (path.length - 1);
-  const index = Math.min(Math.floor(scaled), path.length - 2);
-  const blend = scaled - index;
-  const from = path[index];
-  const to = path[index + 1];
-  target.set(
-    from.x + (to.x - from.x) * blend,
-    from.y + (to.y - from.y) * blend,
-    from.z + (to.z - from.z) * blend,
-  );
-}
-
-function labelOf(node: NodeView, seat: number): { text: string; tone: string } {
-  if (node.nature === null) {
-    return { text: "", tone: "dim" };
-  }
-  const matter = node.nature.matterRichness.toFixed(1);
-  const energy = node.nature.energyRichness.toFixed(1);
-  const land = `${node.id} · M${matter} E${energy}`;
-  if (node.status === null) {
-    return { text: land, tone: "dim" };
-  }
-  if (node.status.owner === null) {
-    return { text: land, tone: "plain" };
-  }
-  if (node.status.owner === seat && node.status.role === null) {
-    return { text: `${node.id} · choose a role`, tone: "alert" };
-  }
-  const glyph = node.status.role === null ? "–" : ROLE_GLYPHS[node.status.role];
-  const force = node.status.force >= 0.5 ? ` ⚔${node.status.force.toFixed(0)}` : "";
-  const short = node.status.supply < 0.99;
-  const supply = short ? ` ⚡${Math.round(node.status.supply * 100)}%` : "";
-  const text = `${node.id} · ${glyph}${node.status.level}${force}${supply}`;
-  return { text, tone: short ? "alert" : "plain" };
+function along(from: Vector, to: Vector, share: number, radius: number, target: Vector3): void {
+  target
+    .set(
+      from.x + (to.x - from.x) * share,
+      from.y + (to.y - from.y) * share,
+      from.z + (to.z - from.z) * share,
+    )
+    .setLength(radius);
 }
 
 export function createGlobe(
   stage: HTMLElement,
   outline: Outline,
-  onPick: (node: number | null) => void,
+  onPick: (region: number | null) => void,
 ): Globe {
   const renderer = new WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -144,12 +121,14 @@ export function createGlobe(
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enablePan = false;
   controls.enableDamping = true;
-  controls.minDistance = 1.5;
+  controls.minDistance = 1.3;
   controls.maxDistance = 6;
 
-  const sites = [...outline.nodes.map((node) => node.position), ...outline.oceans];
+  const landCount = outline.cells.length;
+  const sites = [...outline.cells.map((cell) => cell.position), ...outline.oceans];
   const cells = buildCells(sites);
-  const landCount = outline.nodes.length;
+  const across = neighborsAcross(cells);
+  const regionOf = (cell: number) => (cell < landCount ? outline.cells[cell].region : -1);
   const lineMaterials: LineMaterial[] = [];
 
   const ranges: { start: number; count: number }[] = [];
@@ -157,7 +136,9 @@ export function createGlobe(
   for (const cell of cells) {
     const vertices = triangulate(cell, SURFACE_DEPTH);
     ranges.push({ start: surfacePositions.length / 3, count: vertices.length });
-    surfacePositions.push(...flat(vertices));
+    for (const vertex of vertices) {
+      surfacePositions.push(vertex.x, vertex.y, vertex.z);
+    }
   }
   const surface = new BufferGeometry();
   surface.setAttribute("position", new Float32BufferAttribute(surfacePositions, 3));
@@ -178,36 +159,105 @@ export function createGlobe(
     paint(cell, cell < landCount ? UNEXPLORED : OCEAN, 1);
   }
 
-  const borderPositions: number[] = [];
-  for (const cell of cells) {
-    const loop = outlineOfCell(cell, 3, 1.002);
-    loop.forEach((point, index) => {
-      const next = loop[(index + 1) % loop.length];
-      borderPositions.push(point.x, point.y, point.z, next.x, next.y, next.z);
-    });
-  }
-  const borders = new BufferGeometry();
-  borders.setAttribute("position", new Float32BufferAttribute(borderPositions, 3));
-  scene.add(new LineSegments(borders, new LineBasicMaterial({ color: BORDER })));
+  const trace = (sides: Side[], radius: number): number[] => {
+    const values: number[] = [];
+    for (const { cell, side } of sides) {
+      const corners = cells[cell].corners;
+      const from = corners[side];
+      const to = corners[(side + 1) % corners.length];
+      values.push(
+        from.x * radius,
+        from.y * radius,
+        from.z * radius,
+        to.x * radius,
+        to.y * radius,
+        to.z * radius,
+      );
+    }
+    return values;
+  };
+  const sidesWhere = (accept: (cell: number, other: number) => boolean): Side[] => {
+    const found: Side[] = [];
+    for (let cell = 0; cell < landCount; cell++) {
+      across[cell].forEach((other, side) => {
+        if (accept(cell, other)) {
+          found.push({ cell, side });
+        }
+      });
+    }
+    return found;
+  };
 
-  const selection = new LineLoop(new BufferGeometry(), new LineBasicMaterial({ color: SELECTION }));
-  selection.visible = false;
-  scene.add(selection);
+  const thin = sidesWhere((cell, other) => other > cell && other < landCount);
+  const thinLines = new BufferGeometry();
+  thinLines.setAttribute("position", new Float32BufferAttribute(trace(thin, 1.001), 3));
+  scene.add(
+    new LineSegments(
+      thinLines,
+      new LineBasicMaterial({ color: BORDER, transparent: true, opacity: 0.4 }),
+    ),
+  );
 
-  const edges = outline.edges.map((edge) => {
-    const path = arc(sites[edge.a], sites[edge.b], EDGE_STEPS, 1.006, 0.018);
-    const geometry = new LineGeometry();
-    geometry.setPositions(flat(path));
-    const material = new LineMaterial({ color: EDGE_UNKNOWN, linewidth: 1 });
+  const fatLine = (color: number, width: number): LineSegments2 => {
+    const material = new LineMaterial({ color, linewidth: width });
     lineMaterials.push(material);
-    const line = new Line2(geometry, material);
+    const line = new LineSegments2(new LineSegmentsGeometry(), material);
+    line.visible = false;
+    line.frustumCulled = false;
     scene.add(line);
-    return { path, line, material };
-  });
+    return line;
+  };
+  const redraw = (line: LineSegments2, sides: Side[], radius: number) => {
+    line.geometry.dispose();
+    line.geometry = new LineSegmentsGeometry();
+    line.visible = sides.length > 0;
+    line.geometry.setPositions(sides.length > 0 ? trace(sides, radius) : HIDDEN);
+    line.computeLineDistances();
+  };
+
+  const regionBorders = fatLine(REGION_BORDER, 2.5);
+  redraw(
+    regionBorders,
+    sidesWhere(
+      (cell, other) => other >= landCount || (other > cell && regionOf(other) !== regionOf(cell)),
+    ),
+    1.002,
+  );
+  const holdingBorders = fatLine(HOLDING_BORDER, 2);
+  const works = fatLine(EXPANDING, 4);
+  const selection = fatLine(SELECTION, 3);
+
+  const adjacent = new Set<number>();
+  for (let cell = 0; cell < landCount; cell++) {
+    for (const other of across[cell]) {
+      if (other >= 0 && other < landCount) {
+        adjacent.add(cell * landCount + other);
+      }
+    }
+  }
+  const straits = outline.joints
+    .filter((joint) => joint.edge !== null && !adjacent.has(joint.a * landCount + joint.b))
+    .map((joint) => {
+      const path = arc(sites[joint.a], sites[joint.b], STRAIT_STEPS, 1.004, 0.02);
+      const geometry = new LineGeometry();
+      geometry.setPositions(path.flatMap((point) => [point.x, point.y, point.z]));
+      const material = new LineMaterial({
+        color: STRAIT,
+        linewidth: 2,
+        dashSize: 0.02,
+        gapSize: 0.01,
+      });
+      material.dashed = true;
+      lineMaterials.push(material);
+      const line = new Line2(geometry, material);
+      line.computeLineDistances();
+      line.visible = false;
+      scene.add(line);
+      return { edge: joint.edge ?? 0, line, material };
+    });
 
   const createStream = (color: number, size: number): Stream => {
-    const capacity = (outline.edges.length + 64) * PARTICLES;
-    const positions = new Float32BufferAttribute(new Float32Array(capacity * 3), 3);
+    const positions = new Float32BufferAttribute(new Float32Array(STREAM_ROOM * 3), 3);
     const geometry = new BufferGeometry();
     geometry.setAttribute("position", positions);
     geometry.setDrawRange(0, 0);
@@ -219,129 +269,201 @@ export function createGlobe(
     scene.add(points);
     return { positions, geometry, used: 0 };
   };
-  const matterStream = createStream(MATTER, 7);
-  const energyStream = createStream(ENERGY, 4);
-  const forceStream = createStream(FORCE, 7);
+  const matterStream = createStream(MATTER, 5);
+  const energyStream = createStream(ENERGY, 3);
+  const forceStream = createStream(FORCE, 6);
 
-  const nodeLabels = outline.nodes.map(() => {
+  const regionLabels = outline.regions.map(() => {
     const label = el("div", { class: "label" });
     labels.append(label);
     return label;
   });
-  const nodeAnchors = outline.nodes.map(
-    (node) => new Vector3(node.position.x, node.position.y, node.position.z),
-  );
-  const campaigns = new Map<string, Campaign>();
+  const regionAnchors = outline.regions.map((region) => {
+    const center = sites[region.center];
+    return new Vector3(center.x, center.y, center.z);
+  });
+  const fronts = new Map<string, Front>();
 
   let frame: Frame | null = null;
   let shownSelection: number | null = null;
+  let shownOwners = "";
+  let shownWorks = "";
   let phase = 0;
   let faced = false;
 
-  const face = (node: number) => {
-    const site = sites[node];
+  const face = (region: number) => {
     const distance = camera.position.length();
-    camera.position.set(site.x, site.y, site.z).multiplyScalar(distance);
+    camera.position.copy(regionAnchors[region]).setLength(distance);
     controls.update();
   };
 
-  const select = (node: number | null) => {
-    if (node === shownSelection) {
+  const select = (region: number | null) => {
+    if (region === shownSelection) {
       return;
     }
-    shownSelection = node;
-    selection.visible = node !== null;
-    if (node !== null) {
-      const loop = outlineOfCell(cells[node], 4, 1.004);
-      selection.geometry.dispose();
-      selection.geometry = new BufferGeometry();
-      selection.geometry.setAttribute("position", new Float32BufferAttribute(flat(loop), 3));
-    }
+    shownSelection = region;
+    redraw(
+      selection,
+      region === null
+        ? []
+        : sidesWhere((cell, other) => regionOf(cell) === region && regionOf(other) !== region),
+      1.005,
+    );
   };
 
-  const syncCampaigns = (current: Frame) => {
+  const labelOf = (current: Frame, id: number): { text: string; tone: string } => {
+    const region = current.view.regions[id];
+    if (region.nature === null) {
+      return { text: "", tone: "dim" };
+    }
+    if (region.holdings === null) {
+      return { text: String(id), tone: "dim" };
+    }
+    const mine = region.holdings.find((holding) => holding.owner === current.seat);
+    if (mine === undefined || region.estate === null) {
+      const massed = region.holdings.reduce(
+        (sum, holding) => sum + (holding.owner === null ? 0 : holding.force),
+        0,
+      );
+      return { text: massed >= 0.5 ? `${id} · ⚔${massed.toFixed(0)}` : String(id), tone: "plain" };
+    }
+    const force = mine.force >= 0.5 ? ` ⚔${mine.force.toFixed(0)}` : "";
+    const short = region.estate.supply < 0.99;
+    const supply = short ? ` ⚡${Math.round(region.estate.supply * 100)}%` : "";
+    const text = `${id} · ${mine.level}/${region.estate.levelCap}${force}${supply}`;
+    return { text, tone: short ? "alert" : "plain" };
+  };
+
+  const syncFronts = (current: Frame) => {
+    const owners = current.view.cells.owner;
     const wanted = new Set<string>();
     for (const pressure of current.view.pressures) {
-      const key = `${pressure.from}>${pressure.to}`;
+      const key = `${pressure.power}>${pressure.region}:${pressure.target}`;
       wanted.add(key);
-      let campaign = campaigns.get(key);
-      if (campaign === undefined) {
-        const path = arc(sites[pressure.from], sites[pressure.to], PRESSURE_STEPS, 1.01, 0.14);
-        const geometry = new LineGeometry();
-        geometry.setPositions(flat(path));
-        const material = new LineMaterial({ linewidth: 3, dashSize: 0.03, gapSize: 0.03 });
+      let front = fronts.get(key);
+      if (front === undefined) {
+        const material = new LineMaterial({ linewidth: 5, dashSize: 0.012, gapSize: 0.012 });
         material.resolution.set(stage.clientWidth, stage.clientHeight);
         lineMaterials.push(material);
-        const line = new Line2(geometry, material);
-        line.computeLineDistances();
+        const line = new LineSegments2(new LineSegmentsGeometry(), material);
+        line.frustumCulled = false;
         scene.add(line);
         const label = el("div", { class: "label pressure" });
         labels.append(label);
-        const anchor = new Vector3();
-        along(path, 0.6, anchor);
-        campaign = { line, material, path, label, anchor, active: false, commit: 0 };
-        campaigns.set(key, campaign);
+        front = { line, material, label, anchor: new Vector3() };
+        fronts.set(key, front);
       }
+      const target = pressure.target ?? NEUTRAL;
+      const sides = sidesWhere(
+        (cell, other) =>
+          other < landCount &&
+          owners[cell] === pressure.power &&
+          owners[other] === target &&
+          regionOf(other) === pressure.region,
+      );
+      redraw(front.line, sides, 1.006);
       const active = pressure.activeAt <= current.view.tick;
-      campaign.material.color.setHex(powerColor(pressure.power));
-      if (campaign.material.dashed === active) {
-        campaign.material.dashed = !active;
-        campaign.material.needsUpdate = true;
+      front.material.color.setHex(powerColor(pressure.power));
+      if (front.material.dashed === active) {
+        front.material.dashed = !active;
+        front.material.needsUpdate = true;
       }
-      campaign.active = active;
-      campaign.commit = pressure.commit;
-      campaign.label.textContent = active
+      front.anchor.set(0, 0, 0);
+      for (const { cell, side } of sides) {
+        const corner = cells[cell].corners[side];
+        front.anchor.x += corner.x;
+        front.anchor.y += corner.y;
+        front.anchor.z += corner.z;
+      }
+      const text = active
         ? `⚔ ${pressure.commit.toFixed(0)}`
         : `in ${pressure.activeAt - current.view.tick}`;
-      campaign.label.style.color = `#${powerColor(pressure.power).toString(16).padStart(6, "0")}`;
+      front.label.textContent = sides.length > 0 ? text : "";
+      front.label.style.color = `#${powerColor(pressure.power).toString(16).padStart(6, "0")}`;
+      if (sides.length > 0) {
+        front.anchor.setLength(1.02);
+      }
     }
-    for (const [key, campaign] of campaigns) {
+    for (const [key, front] of fronts) {
       if (!wanted.has(key)) {
-        scene.remove(campaign.line);
-        campaign.line.geometry.dispose();
-        campaign.material.dispose();
-        lineMaterials.splice(lineMaterials.indexOf(campaign.material), 1);
-        campaign.label.remove();
-        campaigns.delete(key);
+        scene.remove(front.line);
+        front.line.geometry.dispose();
+        front.material.dispose();
+        lineMaterials.splice(lineMaterials.indexOf(front.material), 1);
+        front.label.remove();
+        fronts.delete(key);
       }
     }
   };
 
   const draw = (current: Frame) => {
     frame = current;
-    current.view.nodes.forEach((node, id) => {
-      const label = labelOf(node, current.seat);
-      nodeLabels[id].textContent = label.text;
-      nodeLabels[id].className = `label ${label.tone}`;
-      if (node.nature === null) {
-        paint(id, UNEXPLORED, 1);
-        return;
+    const layer = current.view.cells;
+    for (let cell = 0; cell < landCount; cell++) {
+      const ground = layer.ground[cell];
+      if (ground === GROUND.unknown) {
+        paint(cell, UNEXPLORED, 1);
+        continue;
       }
-      const ground = node.nature.terrain === "mountain" ? MOUNTAIN : PLAIN;
-      if (node.status === null) {
-        paint(id, ground, 0.45);
-      } else if (node.status.owner === null) {
-        paint(id, ground, 1);
+      const soil = ground === GROUND.mountain ? MOUNTAIN : PLAIN;
+      const owner = layer.owner[cell];
+      if (owner === UNSEEN) {
+        paint(cell, soil, 0.45);
+      } else if (owner === NEUTRAL) {
+        paint(cell, soil, 1);
       } else {
-        const growth = node.status.level / node.nature.levelCap;
-        paint(id, powerColor(node.status.owner), 0.45 + 0.55 * growth);
+        const growth = layer.cap[cell] > 0 ? layer.level[cell] / layer.cap[cell] : 0;
+        paint(cell, powerColor(owner), 0.4 + 0.6 * growth);
       }
-    });
+    }
 
-    current.view.edges.forEach((edge, id) => {
-      const { material, line } = edges[id];
-      line.visible = edge.kind !== null;
-      if (edge.kind === null || edge.capacity === null) {
-        return;
-      }
-      material.color.setHex(edge.expanding === null ? EDGE_COLORS[edge.kind] : EDGE_EXPANDING);
-      material.linewidth = 0.8 + 0.9 * edge.capacity;
-    });
+    const owners = layer.owner.join(",");
+    if (owners !== shownOwners) {
+      shownOwners = owners;
+      redraw(
+        holdingBorders,
+        sidesWhere((cell, other) => {
+          if (other <= cell || other >= landCount) {
+            return false;
+          }
+          const here = layer.owner[cell];
+          const there = layer.owner[other];
+          return here !== there && (here >= 0 || there >= 0);
+        }),
+        1.004,
+      );
+    }
 
-    syncCampaigns(current);
+    const expanding = current.view.edges
+      .filter((edge) => edge.expanding !== null)
+      .map((edge) => edge.id);
+    if (expanding.join(",") !== shownWorks) {
+      shownWorks = expanding.join(",");
+      const pairs = new Set(expanding.map((id) => `${outline.edges[id].a}:${outline.edges[id].b}`));
+      redraw(
+        works,
+        sidesWhere(
+          (cell, other) => other < landCount && pairs.has(`${regionOf(cell)}:${regionOf(other)}`),
+        ),
+        1.005,
+      );
+    }
+    for (const strait of straits) {
+      const edge = current.view.edges[strait.edge];
+      strait.line.visible = edge.kind !== null;
+      strait.material.color.setHex(edge.expanding === null ? STRAIT : EXPANDING);
+      strait.material.linewidth = 1.5 + 0.5 * (edge.expansions ?? 0);
+    }
+
+    current.view.regions.forEach((_, id) => {
+      const label = labelOf(current, id);
+      regionLabels[id].textContent = label.text;
+      regionLabels[id].className = `label ${label.tone}`;
+    });
+    syncFronts(current);
     select(current.selected);
     if (!faced) {
-      const home = current.view.nodes.find((node) => node.holding !== null);
+      const home = current.view.regions.find((region) => region.estate !== null);
       if (home !== undefined) {
         face(home.id);
         faced = true;
@@ -350,43 +472,38 @@ export function createGlobe(
   };
 
   const spot = new Vector3();
-  const emit = (stream: Stream, path: Vector[], signed: number, load: number, shift: number) => {
+  const emit = (stream: Stream, joint: number, signed: number, load: number, shift: number) => {
     if (Math.abs(signed) < FLOW_FLOOR) {
       return;
     }
+    const { a, b } = outline.joints[joint];
     const count = Math.max(1, Math.min(PARTICLES, Math.ceil(load * PARTICLES)));
-    for (let particle = 0; particle < count; particle++) {
+    for (let particle = 0; particle < count && stream.used < STREAM_ROOM; particle++) {
       const share = (phase + shift + particle / count) % 1;
-      along(path, signed > 0 ? share : 1 - share, spot);
+      along(sites[a], sites[b], signed > 0 ? share : 1 - share, 1.008, spot);
       stream.positions.setXYZ(stream.used, spot.x, spot.y, spot.z);
       stream.used += 1;
     }
   };
 
   const placeFlows = (current: Frame) => {
-    for (const stream of [matterStream, energyStream, forceStream]) {
+    const streams = [matterStream, energyStream, forceStream];
+    for (const stream of streams) {
       stream.used = 0;
     }
-    const forceUnit = current.constants.forcePerCapacity;
-    current.view.edges.forEach((edge, id) => {
-      const capacity = edge.capacity ?? 1;
-      const path = edges[id].path;
-      emit(matterStream, path, edge.matterFlow, Math.abs(edge.matterFlow) / capacity, 0);
-      emit(energyStream, path, edge.energyFlow, Math.abs(edge.energyFlow) / ENERGY_UNIT, 0.33);
+    const { landCapacity, forcePerCapacity } = current.constants;
+    for (const flow of current.view.flows) {
+      emit(matterStream, flow.joint, flow.matter, Math.abs(flow.matter) / landCapacity, 0);
+      emit(energyStream, flow.joint, flow.energy, Math.abs(flow.energy) / ENERGY_UNIT, 0.33);
       emit(
         forceStream,
-        path,
-        edge.forceFlow,
-        Math.abs(edge.forceFlow) / (capacity * forceUnit),
+        flow.joint,
+        flow.force,
+        Math.abs(flow.force) / (landCapacity * forcePerCapacity),
         0.66,
       );
-    });
-    for (const campaign of campaigns.values()) {
-      if (campaign.active) {
-        emit(forceStream, campaign.path, campaign.commit, campaign.commit / 20, 0);
-      }
     }
-    for (const stream of [matterStream, energyStream, forceStream]) {
+    for (const stream of streams) {
       stream.positions.needsUpdate = true;
       stream.geometry.setDrawRange(0, stream.used);
     }
@@ -397,7 +514,7 @@ export function createGlobe(
   const place = (label: HTMLElement, anchor: Vector3) => {
     const distance = camera.position.length();
     outward.copy(camera.position).divideScalar(distance);
-    const facing = anchor.dot(outward) / anchor.length();
+    const facing = anchor.dot(outward) / Math.max(anchor.length(), 1e-6);
     if (label.textContent === "" || facing < 1 / distance + 0.03) {
       label.style.display = "none";
       return;
@@ -445,7 +562,7 @@ export function createGlobe(
       return;
     }
     const cell = nearest(sites, { x: hit.x, y: hit.y, z: hit.z });
-    onPick(cell < landCount ? cell : null);
+    onPick(cell < landCount ? regionOf(cell) : null);
   });
 
   let previous = performance.now();
@@ -459,11 +576,11 @@ export function createGlobe(
       }
       placeFlows(frame);
     }
-    nodeLabels.forEach((label, id) => {
-      place(label, nodeAnchors[id]);
+    regionLabels.forEach((label, id) => {
+      place(label, regionAnchors[id]);
     });
-    for (const campaign of campaigns.values()) {
-      place(campaign.label, campaign.anchor);
+    for (const front of fronts.values()) {
+      place(front.label, front.anchor);
     }
     renderer.render(scene, camera);
     requestAnimationFrame(animate);

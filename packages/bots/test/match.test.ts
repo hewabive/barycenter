@@ -15,8 +15,8 @@ test("every doctrine settles neutral land and issues only valid commands", () =>
   for (const seed of [1, 2, 3]) {
     const summary = runMatch({ seed, doctrines: lineup, ticks: 1500 });
     assert.equal(summary.rejections, 0, `seed ${seed}`);
-    summary.landTaken.forEach((taken, power) => {
-      assert.ok(taken > 0, `seed ${seed}, ${summary.doctrines[power]}`);
+    summary.settled.forEach((cells, power) => {
+      assert.ok(cells > 0, `seed ${seed}, ${summary.doctrines[power]}`);
     });
   }
 });
@@ -24,8 +24,16 @@ test("every doctrine settles neutral land and issues only valid commands", () =>
 test("all land is claimed in the course of a match", () => {
   const summary = runMatch({ seed: 4, doctrines: lineup, ticks: 3000 });
   const world = createWorld({ seed: 4 });
-  const held = summary.standings.reduce((sum, standing) => sum + standing.nodes, 0);
-  assert.equal(held, world.map.nodes.length);
+  const held = summary.standings.reduce((sum, standing) => sum + standing.cells, 0);
+  assert.equal(held, world.map.cells.length);
+});
+
+test("wars move borders cell by cell and leave regions shared", () => {
+  const summary = runMatch({ seed: 1, doctrines: lineup, ticks: 3000 });
+  const seized = summary.seized.reduce((sum, cells) => sum + cells, 0);
+  assert.ok(summary.attacks > 0);
+  assert.ok(seized > 0);
+  assert.ok(summary.sharedRegions > 0);
 });
 
 test("a bot decides from its own view only", () => {

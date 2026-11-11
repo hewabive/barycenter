@@ -2,30 +2,35 @@ import { defaultConstants } from "./constants.ts";
 import { explore } from "./explore.ts";
 import { createRandom, type Random } from "./random.ts";
 import { neighborPairs, scatter } from "./sphere.ts";
-import type {
-  Constants,
-  EdgeKind,
-  Link,
-  MapEdge,
-  MapNode,
-  NodeState,
-  State,
-  Vector,
+import {
+  BRANCHES,
+  type CellState,
+  type Constants,
+  KINDS,
+  type Link,
+  type MapCell,
+  type MapEdge,
+  type MapJoint,
+  type MapRegion,
+  type Neighbor,
+  type State,
+  type Vector,
 } from "./types.ts";
 import { angleBetween, dot, normalize } from "./vector.ts";
 
 export interface WorldOptions {
   seed: number;
   powers?: number;
-  cells?: number;
+  points?: number;
+  regions?: number;
   landShare?: number;
   constants?: Constants;
 }
 
-interface EdgeDraft {
+interface Draft {
   a: number;
   b: number;
-  kind: EdgeKind;
+  strait: boolean;
 }
 
 interface Crossing {
@@ -35,55 +40,103 @@ interface Crossing {
 }
 
 const MOUNTAIN_SHARE = 0.18;
+const MOUNTAIN_STEP = 2.5;
 const EXTRA_STRAITS = 2;
-const WAVES = 4;
-const CAPITAL_LEVEL_CAP = 8;
+const WAVES = 6;
+const RIPPLE = 0.7;
+const GRAIN = 0.5;
+const CAPITAL_LEVEL_CAP = 5;
+const START_MIX = [0.4, 0.3, 0.3];
 
 export function createWorld(options: WorldOptions): State {
   const constants = options.constants ?? defaultConstants;
   const powerCount = options.powers ?? 3;
-  const cellCount = options.cells ?? 34;
+  const pointCount = options.points ?? 400;
+  const regionCount = options.regions ?? 22;
   const landShare = options.landShare ?? 0.62;
   const random = createRandom(options.seed);
 
-  const points = scatter(cellCount, random);
+  const points = scatter(pointCount, random);
   const pairs = neighborPairs(points);
   const elevationRank = rank(elevationField(points, random));
-  const oceanCount = Math.round(cellCount * (1 - landShare));
-  const landCount = cellCount - oceanCount;
+  const oceanCount = Math.round(pointCount * (1 - landShare));
+  const landCount = pointCount - oceanCount;
 
-  const nodeOfCell = new Array<number>(cellCount).fill(-1);
-  const nodes: MapNode[] = [];
+  const cellOfPoint = new Array<number>(pointCount).fill(-1);
+  const cells: MapCell[] = [];
   const oceans: Vector[] = [];
-  for (let cell = 0; cell < cellCount; cell++) {
-    if (elevationRank[cell] < oceanCount) {
-      oceans.push(points[cell]);
+  for (let point = 0; point < pointCount; point++) {
+    if (elevationRank[point] < oceanCount) {
+      oceans.push(points[point]);
       continue;
     }
-    const height = (elevationRank[cell] - oceanCount) / Math.max(1, landCount - 1);
-    nodeOfCell[cell] = nodes.length;
-    nodes.push(describeNode(nodes.length, points[cell], height, random));
+    const height = (elevationRank[point] - oceanCount) / Math.max(1, landCount - 1);
+    cellOfPoint[point] = cells.length;
+    cells.push(describeCell(cells.length, points[point], height, random));
   }
 
-  const drafts = connect(pairs, nodeOfCell, nodes);
-  const edges: MapEdge[] = drafts.map((draft, id) => ({
-    id,
-    a: draft.a,
-    b: draft.b,
-    kind: draft.kind,
-    baseCapacity: capacityOfKind(constants, draft.kind),
-  }));
-  const links: Link[][] = nodes.map(() => []);
+  const land: Draft[] = [];
+  const shores: number[][] = cellOfPoint.map(() => []);
+  for (const [first, second] of pairs) {
+    const a = cellOfPoint[first];
+    const b = cellOfPoint[second];
+    if (a >= 0 && b >= 0) {
+      land.push({ a, b, strait: false });
+    } else if (a >= 0) {
+      shores[second].push(a);
+    } else if (b >= 0) {
+      shores[first].push(b);
+    }
+  }
+
+  const regions = partition(cells, land, regionCount, random);
+  const drafts = [...land, ...straits(cells, land, shores)];
+
+  const edges: MapEdge[] = [];
+  const edgeOf = new Map<number, number>();
+  const joints: MapJoint[] = drafts.map((draft, id) => {
+    const from = cells[draft.a];
+    const to = cells[draft.b];
+    if (from.region === to.region) {
+      return { id, a: draft.a, b: draft.b, kind: "land", edge: null };
+    }
+    const low = Math.min(from.region, to.region);
+    const high = Math.max(from.region, to.region);
+    const key = low * regions.length + high;
+    let edge = edgeOf.get(key);
+    if (edge === undefined) {
+      edge = edges.length;
+      edgeOf.set(key, edge);
+      edges.push({ id: edge, a: low, b: high, joints: [] });
+    }
+    edges[edge].joints.push(id);
+    const pass = from.terrain === "mountain" || to.terrain === "mountain";
+    return {
+      id,
+      a: draft.a,
+      b: draft.b,
+      kind: draft.strait ? "strait" : pass ? "pass" : "land",
+      edge,
+    };
+  });
+
+  const links: Link[][] = cells.map(() => []);
+  for (const joint of joints) {
+    links[joint.a].push({ cell: joint.b, joint: joint.id });
+    links[joint.b].push({ cell: joint.a, joint: joint.id });
+  }
+  const neighbors: Neighbor[][] = regions.map(() => []);
   for (const edge of edges) {
-    links[edge.a].push({ node: edge.b, edge: edge.id });
-    links[edge.b].push({ node: edge.a, edge: edge.id });
+    neighbors[edge.a].push({ region: edge.b, edge: edge.id });
+    neighbors[edge.b].push({ region: edge.a, edge: edge.id });
   }
 
-  const capitals = placeCapitals(links, nodes, powerCount);
+  const capitals = placeCapitals(cells, regions, neighbors, powerCount, constants.startCells);
   for (const capital of capitals) {
-    nodes[capital] = {
-      ...nodes[capital],
-      matterRichness: 1,
+    cells[capital] = {
+      ...cells[capital],
+      terrain: "plain",
+      deposits: KINDS.map(() => 1),
       energyRichness: 1,
       levelCap: CAPITAL_LEVEL_CAP,
     };
@@ -92,55 +145,44 @@ export function createWorld(options: WorldOptions): State {
   const state: State = {
     tick: 0,
     constants,
-    map: { seed: options.seed, nodes, edges, links, oceans },
-    nodes: nodes.map(() => emptyNode(constants, powerCount)),
-    edges: edges.map(() => ({
-      expansions: 0,
-      progress: 0,
-      expanding: null,
-      matterFlow: 0,
-      forceFlow: 0,
-      energyFlow: 0,
-    })),
+    map: { seed: options.seed, cells, regions, joints, edges, links, neighbors, oceans },
+    cells: cells.map(() => emptyCell(powerCount)),
+    joints: joints.map(() => ({ matterFlow: 0, forceFlow: 0, energyFlow: 0 })),
+    edges: edges.map(() => ({ expansions: 0, progress: 0, expanding: null })),
     powers: capitals.map((capital) => ({
       alive: true,
       capital,
-      explored: new Array<boolean>(nodes.length).fill(false),
+      explored: new Array<boolean>(regions.length).fill(false),
+      lean: BRANCHES.map(() => constants.defaultLean),
+      holdings: regions.map(() => ({ dial: constants.defaultDial, garrison: 0 })),
     })),
     pressures: [],
   };
   capitals.forEach((capital, power) => {
-    const node = state.nodes[capital];
-    node.owner = power;
-    node.level = constants.startLevel;
-    node.role = "shipyard";
-    node.matter = constants.startMatter;
-    node.force = constants.startForce;
+    for (const cell of startCells(state, capital, constants.startCells)) {
+      state.cells[cell].owner = power;
+    }
+    const seat = state.cells[capital];
+    seat.level = Math.min(constants.startLevel, cells[capital].levelCap);
+    seat.branches = START_MIX.map((share) => share * seat.level);
+    seat.stock[0] = constants.startMatter;
+    seat.force = constants.startForce;
   });
   explore(state, []);
   return state;
 }
 
-function emptyNode(constants: Constants, powerCount: number): NodeState {
+function emptyCell(powerCount: number): CellState {
   return {
     owner: null,
     level: 0,
-    role: null,
     progress: 0,
-    matter: 0,
+    branches: BRANCHES.map(() => 0),
+    stock: KINDS.map(() => 0),
     force: 0,
-    dial: constants.defaultDial,
-    garrison: 0,
     supply: 1,
     siege: new Array<number>(powerCount).fill(0),
   };
-}
-
-function capacityOfKind(constants: Constants, kind: EdgeKind): number {
-  if (kind === "land") {
-    return constants.landCapacity;
-  }
-  return kind === "pass" ? constants.passCapacity : constants.straitCapacity;
 }
 
 function elevationField(points: Vector[], random: Random): number[] {
@@ -150,16 +192,18 @@ function elevationField(points: Vector[], random: Random): number[] {
       y: random.next() - 0.5,
       z: random.next() - 0.5,
     }),
-    frequency: 1.5 + 2 * random.next(),
+    frequency: (1.5 + 2 * random.next()) * (1 + RIPPLE * index),
     phase: 2 * Math.PI * random.next(),
     amplitude: 1 / (index + 1),
   }));
-  return points.map((point) =>
-    waves.reduce(
-      (sum, wave) =>
-        sum + wave.amplitude * Math.sin(wave.frequency * dot(point, wave.direction) + wave.phase),
-      0,
-    ),
+  return points.map(
+    (point) =>
+      waves.reduce(
+        (sum, wave) =>
+          sum + wave.amplitude * Math.sin(wave.frequency * dot(point, wave.direction) + wave.phase),
+        0,
+      ) +
+      GRAIN * (random.next() - 0.5),
   );
 }
 
@@ -172,16 +216,17 @@ function rank(values: number[]): number[] {
   return ranks;
 }
 
-function describeNode(id: number, position: Vector, height: number, random: Random): MapNode {
+function describeCell(id: number, position: Vector, height: number, random: Random): MapCell {
   const mountain = height > 1 - MOUNTAIN_SHARE;
   const sunlight = 1 - Math.abs(position.y);
   return {
     id,
     position,
+    region: -1,
     terrain: mountain ? "mountain" : "plain",
-    matterRichness: richness(0.4 + 0.9 * height + (random.next() - 0.5) * 0.4),
+    deposits: KINDS.map(() => richness(0.4 + 0.9 * height + (random.next() - 0.5) * 0.4)),
     energyRichness: richness(0.4 + 0.9 * sunlight + (random.next() - 0.5) * 0.5),
-    levelCap: mountain ? 4 : 5 + Math.floor(random.next() * 3),
+    levelCap: mountain ? 2 : 2 + Math.floor(random.next() * 3),
   };
 }
 
@@ -189,55 +234,157 @@ function richness(value: number): number {
   return Math.round(Math.max(0.2, Math.min(1.6, value)) * 100) / 100;
 }
 
-function connect(pairs: [number, number][], nodeOfCell: number[], nodes: MapNode[]): EdgeDraft[] {
-  const keyOf = (a: number, b: number) => Math.min(a, b) * nodes.length + Math.max(a, b);
-  const drafts: EdgeDraft[] = [];
-  const joined = new Set<number>();
-  const groups = createGroups(nodes.length);
-  const shores: number[][] = nodeOfCell.map(() => []);
+function adjacencyOf(count: number, drafts: Draft[]): number[][] {
+  const adjacency: number[][] = Array.from({ length: count }, () => []);
+  for (const draft of drafts) {
+    adjacency[draft.a].push(draft.b);
+    adjacency[draft.b].push(draft.a);
+  }
+  return adjacency;
+}
 
-  for (const [first, second] of pairs) {
-    const a = nodeOfCell[first];
-    const b = nodeOfCell[second];
-    if (a >= 0 && b >= 0) {
-      const pass = nodes[a].terrain === "mountain" || nodes[b].terrain === "mountain";
-      drafts.push({ a, b, kind: pass ? "pass" : "land" });
-      joined.add(keyOf(a, b));
-      groups.join(a, b);
-    } else if (a >= 0) {
-      shores[second].push(a);
-    } else if (b >= 0) {
-      shores[first].push(b);
+function hops(adjacency: number[][], origin: number): number[] {
+  const distance = new Array<number>(adjacency.length).fill(Number.POSITIVE_INFINITY);
+  distance[origin] = 0;
+  const queue = [origin];
+  for (let head = 0; head < queue.length; head++) {
+    const current = queue[head];
+    for (const next of adjacency[current]) {
+      if (distance[next] === Number.POSITIVE_INFINITY) {
+        distance[next] = distance[current] + 1;
+        queue.push(next);
+      }
     }
+  }
+  return distance;
+}
+
+function partition(cells: MapCell[], land: Draft[], wanted: number, random: Random): MapRegion[] {
+  const adjacency = adjacencyOf(cells.length, land);
+  const average = cells.length / Math.max(1, wanted);
+  const seen = new Array<boolean>(cells.length).fill(false);
+  const seeds: number[] = [];
+
+  for (let start = 0; start < cells.length; start++) {
+    if (seen[start]) {
+      continue;
+    }
+    const island = [start];
+    seen[start] = true;
+    for (let head = 0; head < island.length; head++) {
+      for (const next of adjacency[island[head]]) {
+        if (!seen[next]) {
+          seen[next] = true;
+          island.push(next);
+        }
+      }
+    }
+    const count = Math.max(1, Math.round(island.length / average));
+    const first = island[Math.floor(random.next() * island.length)];
+    const nearest = hops(adjacency, first);
+    seeds.push(first);
+    for (let placed = 1; placed < count; placed++) {
+      let best = -1;
+      for (const cell of island) {
+        if (nearest[cell] > 0 && (best < 0 || nearest[cell] > nearest[best])) {
+          best = cell;
+        }
+      }
+      if (best < 0) {
+        break;
+      }
+      seeds.push(best);
+      const reach = hops(adjacency, best);
+      for (const cell of island) {
+        nearest[cell] = Math.min(nearest[cell], reach[cell]);
+      }
+    }
+  }
+
+  const pace = seeds.map(() => 0.6 + random.next());
+  const cost = new Array<number>(cells.length).fill(Number.POSITIVE_INFINITY);
+  const settled = new Array<boolean>(cells.length).fill(false);
+  seeds.forEach((seed, region) => {
+    cost[seed] = 0;
+    cells[seed].region = region;
+  });
+  for (let round = 0; round < cells.length; round++) {
+    let current = -1;
+    for (let cell = 0; cell < cells.length; cell++) {
+      if (!settled[cell] && (current < 0 || cost[cell] < cost[current])) {
+        current = cell;
+      }
+    }
+    settled[current] = true;
+    const region = cells[current].region;
+    for (const next of adjacency[current]) {
+      const step = cells[next].terrain === "mountain" ? MOUNTAIN_STEP : 1;
+      const reached = cost[current] + step / pace[region];
+      if (!settled[next] && reached < cost[next]) {
+        cost[next] = reached;
+        cells[next].region = region;
+      }
+    }
+  }
+
+  return seeds.map((_, id) => {
+    const members = cells.filter((cell) => cell.region === id).map((cell) => cell.id);
+    const middle = normalize(
+      members.reduce(
+        (sum, cell) => ({
+          x: sum.x + cells[cell].position.x,
+          y: sum.y + cells[cell].position.y,
+          z: sum.z + cells[cell].position.z,
+        }),
+        { x: 0, y: 0, z: 0 },
+      ),
+    );
+    let center = members[0];
+    for (const cell of members) {
+      if (dot(cells[cell].position, middle) > dot(cells[center].position, middle)) {
+        center = cell;
+      }
+    }
+    return { id, cells: members, center };
+  });
+}
+
+function straits(cells: MapCell[], land: Draft[], shores: number[][]): Draft[] {
+  const keyOf = (a: number, b: number) => Math.min(a, b) * cells.length + Math.max(a, b);
+  const joined = new Set<number>();
+  const groups = createGroups(cells.length);
+  for (const draft of land) {
+    joined.add(keyOf(draft.a, draft.b));
+    groups.join(draft.a, draft.b);
   }
 
   const crossings: Crossing[] = [];
   const offered = new Set<number>();
-  const offer = (a: number, b: number) => {
-    const key = keyOf(a, b);
-    if (a === b || joined.has(key) || offered.has(key)) {
-      return;
-    }
-    offered.add(key);
-    crossings.push({
-      a: Math.min(a, b),
-      b: Math.max(a, b),
-      distance: angleBetween(nodes[a].position, nodes[b].position),
-    });
-  };
   for (const shore of shores) {
     for (let first = 0; first < shore.length; first++) {
       for (let second = first + 1; second < shore.length; second++) {
-        offer(shore[first], shore[second]);
+        const a = shore[first];
+        const b = shore[second];
+        const key = keyOf(a, b);
+        if (a === b || joined.has(key) || offered.has(key)) {
+          continue;
+        }
+        offered.add(key);
+        crossings.push({
+          a: Math.min(a, b),
+          b: Math.max(a, b),
+          distance: angleBetween(cells[a].position, cells[b].position),
+        });
       }
     }
   }
   crossings.sort(byDistance);
 
+  const drafts: Draft[] = [];
   const spare: Crossing[] = [];
   for (const crossing of crossings) {
     if (groups.join(crossing.a, crossing.b)) {
-      drafts.push({ a: crossing.a, b: crossing.b, kind: "strait" });
+      drafts.push({ a: crossing.a, b: crossing.b, strait: true });
       joined.add(keyOf(crossing.a, crossing.b));
     } else {
       spare.push(crossing);
@@ -246,24 +393,39 @@ function connect(pairs: [number, number][], nodeOfCell: number[], nodes: MapNode
 
   if (groups.count() > 1) {
     const remote: Crossing[] = [];
-    for (let a = 0; a < nodes.length; a++) {
-      for (let b = a + 1; b < nodes.length; b++) {
-        if (!joined.has(keyOf(a, b))) {
-          remote.push({ a, b, distance: angleBetween(nodes[a].position, nodes[b].position) });
+    for (let a = 0; a < cells.length; a++) {
+      for (let b = a + 1; b < cells.length; b++) {
+        if (!groups.same(a, b)) {
+          remote.push({ a, b, distance: angleBetween(cells[a].position, cells[b].position) });
         }
       }
     }
     remote.sort(byDistance);
     for (const crossing of remote) {
       if (groups.join(crossing.a, crossing.b)) {
-        drafts.push({ a: crossing.a, b: crossing.b, kind: "strait" });
+        drafts.push({ a: crossing.a, b: crossing.b, strait: true });
         joined.add(keyOf(crossing.a, crossing.b));
       }
     }
   }
 
-  for (const crossing of spare.slice(0, EXTRA_STRAITS)) {
-    drafts.push({ a: crossing.a, b: crossing.b, kind: "strait" });
+  const bridged = new Set<number>();
+  const pairOf = (ends: { a: number; b: number }) =>
+    keyOf(cells[ends.a].region, cells[ends.b].region);
+  for (const draft of [...land, ...drafts]) {
+    bridged.add(pairOf(draft));
+  }
+  let extra = 0;
+  for (const crossing of spare) {
+    if (extra >= EXTRA_STRAITS) {
+      break;
+    }
+    if (cells[crossing.a].region === cells[crossing.b].region || bridged.has(pairOf(crossing))) {
+      continue;
+    }
+    bridged.add(pairOf(crossing));
+    drafts.push({ a: crossing.a, b: crossing.b, strait: true });
+    extra += 1;
   }
   return drafts;
 }
@@ -294,32 +456,40 @@ function createGroups(size: number) {
       groups -= 1;
       return true;
     },
+    same: (first: number, second: number) => find(first) === find(second),
     count: () => groups,
   };
 }
 
-function hops(links: Link[][], origin: number): number[] {
-  const distance = new Array<number>(links.length).fill(Number.POSITIVE_INFINITY);
-  distance[origin] = 0;
-  const queue = [origin];
-  for (let head = 0; head < queue.length; head++) {
-    const node = queue[head];
-    for (const link of links[node]) {
-      if (distance[link.node] === Number.POSITIVE_INFINITY) {
-        distance[link.node] = distance[node] + 1;
-        queue.push(link.node);
-      }
+function seatOf(cells: MapCell[], region: MapRegion): number {
+  if (cells[region.center].terrain === "plain") {
+    return region.center;
+  }
+  let best = region.center;
+  let bestAngle = Number.POSITIVE_INFINITY;
+  for (const cell of region.cells) {
+    const angle = angleBetween(cells[cell].position, cells[region.center].position);
+    if (cells[cell].terrain === "plain" && angle < bestAngle) {
+      best = cell;
+      bestAngle = angle;
     }
   }
-  return distance;
+  return best;
 }
 
-function placeCapitals(links: Link[][], nodes: MapNode[], count: number): number[] {
-  const distances = nodes.map((node) => hops(links, node.id));
-  const open = nodes
-    .filter((node) => node.terrain === "plain" && links[node.id].length >= 2)
-    .map((node) => node.id);
-  const candidates = open.length >= count ? open : nodes.map((node) => node.id);
+function placeCapitals(
+  cells: MapCell[],
+  regions: MapRegion[],
+  neighbors: Neighbor[][],
+  count: number,
+  roomNeeded: number,
+): number[] {
+  const adjacency = neighbors.map((list) => list.map((neighbor) => neighbor.region));
+  const distances = regions.map((region) => hops(adjacency, region.id));
+  const roomy = regions
+    .filter((region) => region.cells.length >= roomNeeded && neighbors[region.id].length >= 2)
+    .map((region) => region.id);
+  const candidates = roomy.length >= count ? roomy : regions.map((region) => region.id);
 
   let best: number[] = candidates.slice(0, count);
   let bestSpread = -1;
@@ -350,5 +520,22 @@ function placeCapitals(links: Link[][], nodes: MapNode[], count: number): number
     }
   };
   search(0);
-  return best;
+  return best.map((region) => seatOf(cells, regions[region]));
+}
+
+function startCells(state: State, capital: number, wanted: number): number[] {
+  const { map } = state;
+  const region = map.cells[capital].region;
+  const taken = [capital];
+  const seen = new Set(taken);
+  for (let head = 0; head < taken.length && taken.length < wanted; head++) {
+    for (const link of map.links[taken[head]]) {
+      const inside = map.cells[link.cell].region === region && map.joints[link.joint].edge === null;
+      if (inside && !seen.has(link.cell) && taken.length < wanted) {
+        seen.add(link.cell);
+        taken.push(link.cell);
+      }
+    }
+  }
+  return taken;
 }
