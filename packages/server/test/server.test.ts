@@ -263,8 +263,15 @@ test("the server hands out the built client and nothing outside it", async () =>
       const page = await fetch(`${origin}/`);
       assert.equal(page.headers.get("content-type"), "text/html; charset=utf-8");
       assert.equal(await page.text(), "<p>globe</p>");
+      assert.equal(page.headers.get("content-encoding"), "gzip");
+      assert.equal(page.headers.get("cache-control"), "no-cache");
       const script = await fetch(`${origin}/assets/app.js`);
       assert.equal(script.headers.get("content-type"), "text/javascript; charset=utf-8");
+      assert.equal(script.headers.get("cache-control"), "public, max-age=31536000, immutable");
+      assert.equal(await script.text(), "export {};");
+      const plain = await fetch(`${origin}/`, { headers: { "accept-encoding": "identity" } });
+      assert.equal(plain.headers.get("content-encoding"), null);
+      assert.equal(await plain.text(), "<p>globe</p>");
       assert.equal((await fetch(`${origin}/room/home`)).status, 200);
       assert.equal((await fetch(`${origin}/assets/missing.js`)).status, 404);
       assert.equal((await fetch(`${origin}/..%2fsecret.txt`)).status, 403);

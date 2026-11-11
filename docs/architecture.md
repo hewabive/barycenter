@@ -69,7 +69,7 @@ Messages are JSON over one WebSocket. A client first joins a room. A room that d
 - A room is saved when its last player leaves, every thousand ticks while it runs, and on shutdown. A save holds the whole state, so a restored room continues identically.
 - A save written by another version of the format is set aside under another name, and a fresh game starts in its place.
 - Live tuning is off unless the server is started with the tuning flag.
-- The server also hands out the built client, so one process and one address are enough to play.
+- The server also hands out the built client, so one process and one address are enough to play. Text files are sent gzipped, 155 KB instead of 611 KB for the script, and files with a hash in their name are cached for good.
 
 ## Client
 

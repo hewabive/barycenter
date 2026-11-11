@@ -1,8 +1,19 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { extname, join, resolve, sep } from "node:path";
+import { promisify } from "node:util";
+import { gzip } from "node:zlib";
 
 type Handler = (request: IncomingMessage, response: ServerResponse) => void;
+
+interface Packed {
+  stamp: number;
+  body: Buffer;
+}
+
+const pack = promisify(gzip);
+const TEXTUAL = new Set([".html", ".js", ".css", ".json", ".map", ".svg"]);
+const HASHED = `${sep}assets${sep}`;
 
 const TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -26,12 +37,35 @@ export function createStaticHandler(folder: string | null): Handler {
     return (_request, response) => reply(response, 200, "barycenter");
   }
   const root = resolve(folder);
+  const packed = new Map<string, Packed>();
 
-  const deliver = async (file: string, response: ServerResponse): Promise<boolean> => {
+  const compressed = async (file: string): Promise<Buffer> => {
+    const stamp = (await stat(file)).mtimeMs;
+    const known = packed.get(file);
+    if (known?.stamp === stamp) {
+      return known.body;
+    }
+    const body = await pack(await readFile(file));
+    packed.set(file, { stamp, body });
+    return body;
+  };
+
+  const deliver = async (
+    file: string,
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<boolean> => {
     try {
-      const body = await readFile(file);
-      const type = TYPES[extname(file)] ?? "application/octet-stream";
-      response.writeHead(200, { "content-type": type });
+      const extension = extname(file);
+      const accepted = String(request.headers["accept-encoding"] ?? "");
+      const squeeze = TEXTUAL.has(extension) && /\bgzip\b/.test(accepted);
+      const body = squeeze ? await compressed(file) : await readFile(file);
+      response.writeHead(200, {
+        "content-type": TYPES[extension] ?? "application/octet-stream",
+        "cache-control": file.includes(HASHED) ? "public, max-age=31536000, immutable" : "no-cache",
+        vary: "accept-encoding",
+        ...(squeeze ? { "content-encoding": "gzip" } : {}),
+      });
       response.end(body);
       return true;
     } catch {
@@ -58,11 +92,11 @@ export function createStaticHandler(folder: string | null): Handler {
     }
     const page = join(root, "index.html");
     const file = target === root || path.endsWith("/") ? join(target, "index.html") : target;
-    deliver(file, response).then(async (found) => {
+    deliver(file, request, response).then(async (found) => {
       if (found) {
         return;
       }
-      if (extname(file) !== "" || !(await deliver(page, response))) {
+      if (extname(file) !== "" || !(await deliver(page, request, response))) {
         reply(response, 404, "not found");
       }
     });
