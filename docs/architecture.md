@@ -32,7 +32,7 @@ Tunable numbers live in one constants object inside the state, so they can be ch
 3. **The server computes each player's view.** Fog and the private data of other players are cut out before anything is sent.
 4. **Time is server state.** Pause and speed are commands, not client settings.
 5. **Static data is separate from dynamic data.** The map is sent once on joining. After that the player's full view of the arena is sent every tick, so reconnecting needs only one snapshot.
-6. **The core has no notion of a planet.** It knows nodes, edges and owners. Positions are generated with the map but only the client uses them. A link to a parent node arrives with folding in stage 2.
+6. **The core has no notion of a planet.** It knows nodes, edges and owners. Positions are generated with the map but only the client uses them. A link from a unit to the one that contains it arrives with cells in stage 2.
 7. **The client decides nothing.** It draws the latest view. The motion of flows between ticks is cosmetic and derived from numbers the server sends, and smoothing of other values can be added without touching the server.
 
 Because orders are standing states and ticks are slow, the game needs neither client-side prediction nor lockstep synchronization.
@@ -76,6 +76,23 @@ Messages are JSON over one WebSocket. A client first joins a room. A room that d
 - Labels and panels are plain HTML over the canvas. A panel is rebuilt only when its structure changes; between rebuilds only its numbers are updated.
 - The seat token is kept in the browser's local storage, so reloading the page returns to the same seat.
 - In development the client runs on Vite at port 5183 and connects through its proxy to the game server on port 8787. Vite listens on 0.0.0.0 and proxies WebSocket connections on `/socket` to the game server, which stays on localhost.
+
+## Cell level
+
+Planned for stage 2 and not built. The core will run its rules on cells, each linked to the region that contains it. Orders, the view the bots decide from and the panels stay per region, and cells reach the client as a compact layer for drawing.
+
+To estimate the cost, today's rules were run with three bots for 3000 ticks on finer maps:
+
+| Land cells   | Tick    | View, compressed | Save   | World generation |
+| ------------ | ------- | ---------------- | ------ | ---------------- |
+| 21, as today | 0.05 ms | 1.5 KB           | 18 KB  | 7 ms             |
+| 211          | 0.7 ms  | 10 KB            | 194 KB | 3 s              |
+| 422          | 1.7 ms  | 14 KB            | 401 KB | 46 s             |
+
+- Tick time is no obstacle. At the top speed of 16 ticks a second, 422 cells take about 3% of one processor core.
+- World generation is the obstacle. Neighbors are found by testing every triple of points, in the core and again in the client, and this search must be replaced before the map grows.
+- A full view every tick stays affordable, but the compact or delta encoding listed under Deferred comes closer.
+- A series of 24 bot matches grows from seconds to minutes on one thread.
 
 ## Deferred
 
