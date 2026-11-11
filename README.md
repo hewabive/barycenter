@@ -38,7 +38,7 @@ Build the client once and start the server, then open `http://127.0.0.1:8787`:
 
 Add `--tuning` to change constants from the page while playing. Other options are `--port`, `--host`, `--saves`, `--client`, `--tick-rate` and `--seed`.
 
-While developing, run the server and the client with live reload and open `http://localhost:5183`:
+While developing, run the server and the client with live reload and open `http://localhost:5183`. The Vite server listens on all interfaces and forwards game traffic from `/socket` to the local game server, so only port 5183 needs to be reachable:
 
     pnpm dev
 

@@ -75,7 +75,7 @@ Messages are JSON over one WebSocket. A client first joins a room. A room that d
 - The surface is one mesh with a color per region. Edges are lines whose width follows capacity. Flows are particles moving along the edges, and attacks are raised arcs: dashed while announced, solid once active.
 - Labels and panels are plain HTML over the canvas. A panel is rebuilt only when its structure changes; between rebuilds only its numbers are updated.
 - The seat token is kept in the browser's local storage, so reloading the page returns to the same seat.
-- In development the client runs on Vite at port 5183 and connects to the game server on port 8787.
+- In development the client runs on Vite at port 5183 and connects through its proxy to the game server on port 8787. Vite listens on 0.0.0.0 and proxies WebSocket connections on `/socket` to the game server, which stays on localhost.
 
 ## Deferred
 

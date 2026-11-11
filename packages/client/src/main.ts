@@ -10,16 +10,12 @@ import { createPanel } from "./panel.ts";
 import { createTopbar } from "./topbar.ts";
 import { createTuning, type Tuning } from "./tuning.ts";
 
-const DEFAULT_PORT = 8787;
-
 const parameters = new URLSearchParams(window.location.search);
 const requestedRoom = parameters.get("room") ?? "home";
 const room = ROOM_NAME.test(requestedRoom) ? requestedRoom : "home";
 const secure = window.location.protocol === "https:";
 const sameOrigin = `${secure ? "wss" : "ws"}://${window.location.host}`;
-const url =
-  parameters.get("server") ??
-  (import.meta.env.DEV ? `ws://${window.location.hostname}:${DEFAULT_PORT}` : sameOrigin);
+const url = parameters.get("server") ?? (import.meta.env.DEV ? `${sameOrigin}/socket` : sameOrigin);
 
 function setupFrom(query: URLSearchParams): Setup | null {
   const seed = query.get("seed");
