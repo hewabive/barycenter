@@ -5,6 +5,7 @@ import {
   arc,
   areaOf,
   buildCells,
+  heartOf,
   nearest,
   neighborsAcross,
   outlineOfCell,
@@ -101,5 +102,32 @@ test("a cell outline is a closed loop on the given radius", () => {
   assert.equal(loop.length, cell.corners.length * 4);
   for (const point of loop) {
     assert.ok(Math.abs(lengthOf(point) - 1.01) < 1e-9);
+  }
+});
+
+test("the heart of a holding is one of its cells, in its largest group", () => {
+  const outline = outlineOf(createWorld({ seed: 4 }).map);
+  const points = [...outline.cells.map((cell) => cell.position), ...outline.oceans];
+  const across = neighborsAcross(buildCells(points));
+  const land = outline.cells.length;
+  const within = (region: number, cell: number) =>
+    across[cell].filter((other) => other < land && outline.cells[other].region === region);
+  for (const region of outline.regions) {
+    assert.equal(heartOf(region.cells, points, across), region.center);
+    for (const cell of region.cells) {
+      assert.equal(heartOf([cell], points, across), cell);
+    }
+    const far = (from: number) =>
+      region.cells.reduce((best, cell) =>
+        dot(points[cell], points[from]) < dot(points[best], points[from]) ? cell : best,
+      );
+    const lone = far(region.center);
+    const group = [far(lone)];
+    group.push(...within(region.id, group[0]).filter((cell) => cell !== lone));
+    if (group.length < 2 || across[lone].some((other) => group.includes(other))) {
+      continue;
+    }
+    assert.ok(group.includes(heartOf([lone, ...group], points, across)));
+    assert.ok(group.includes(heartOf([...group, lone], points, across)));
   }
 });

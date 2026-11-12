@@ -136,6 +136,36 @@ export function nearest(points: Vector[], direction: Vector): number {
   return best;
 }
 
+function groupsOf(members: number[], across: number[][]): number[][] {
+  const loose = new Set(members);
+  const groups: number[][] = [];
+  for (const start of members) {
+    if (!loose.delete(start)) {
+      continue;
+    }
+    const group = [start];
+    for (let index = 0; index < group.length; index++) {
+      for (const other of across[group[index]]) {
+        if (loose.delete(other)) {
+          group.push(other);
+        }
+      }
+    }
+    groups.push(group);
+  }
+  return groups;
+}
+
+export function heartOf(members: number[], points: Vector[], across: number[][]): number {
+  const largest = groupsOf(members, across).reduce((best, group) =>
+    group.length > best.length ? group : best,
+  );
+  const middle = largest.reduce((total, cell) => sum(total, points[cell]), { x: 0, y: 0, z: 0 });
+  return largest.reduce((best, cell) =>
+    dot(points[cell], middle) > dot(points[best], middle) ? cell : best,
+  );
+}
+
 function solidAngle(first: Vector, second: Vector, third: Vector): number {
   const triple = Math.abs(dot(first, cross(second, third)));
   const spread = 1 + dot(first, second) + dot(second, third) + dot(third, first);

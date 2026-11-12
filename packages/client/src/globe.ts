@@ -33,7 +33,7 @@ import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import { LineSegments2 } from "three/addons/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/addons/lines/LineSegmentsGeometry.js";
 import { el } from "./dom.ts";
-import { arc, buildCells, nearest, neighborsAcross, triangulate } from "./geometry.ts";
+import { arc, buildCells, heartOf, nearest, neighborsAcross, triangulate } from "./geometry.ts";
 import {
   BORDER,
   ENERGY,
@@ -77,11 +77,24 @@ interface Side {
 }
 
 interface Front {
+  region: number;
   line: LineSegments2;
   material: LineMaterial;
   label: HTMLElement;
   anchor: Vector3;
   shape: string | null;
+}
+
+interface Spot {
+  x: number;
+  y: number;
+  shown: boolean;
+}
+
+interface Extent {
+  key: string;
+  width: number;
+  height: number;
 }
 
 interface Press {
@@ -296,10 +309,12 @@ export function createGlobe(
     labels.append(label);
     return label;
   });
-  const regionAnchors = outline.regions.map((region) => {
+  const regionCenters = outline.regions.map((region) => {
     const center = sites[region.center];
     return new Vector3(center.x, center.y, center.z);
   });
+  const regionAnchors = regionCenters.map((center) => center.clone());
+  const regionSpots = outline.regions.map((): Spot => ({ x: 0, y: 0, shown: false }));
   const fronts = new Map<string, Front>();
 
   let frame: Frame | null = null;
@@ -311,7 +326,7 @@ export function createGlobe(
 
   const face = (region: number) => {
     const distance = camera.position.length();
-    camera.position.copy(regionAnchors[region]).setLength(distance);
+    camera.position.copy(regionCenters[region]).setLength(distance);
     controls.update();
   };
 
@@ -368,7 +383,14 @@ export function createGlobe(
         scene.add(line);
         const label = el("div", { class: "label pressure" });
         labels.append(label);
-        front = { line, material, label, anchor: new Vector3(), shape: null };
+        front = {
+          region: pressure.region,
+          line,
+          material,
+          label,
+          anchor: new Vector3(),
+          shape: null,
+        };
         fronts.set(key, front);
       }
       const target = pressure.target ?? NEUTRAL;
@@ -440,9 +462,14 @@ export function createGlobe(
       }
     }
 
-    const owners = layer.owner.join(",");
+    const owners = `${current.seat}:${layer.owner.join(",")}`;
     if (owners !== shownOwners) {
       shownOwners = owners;
+      outline.regions.forEach((region, id) => {
+        const held = region.cells.filter((cell) => layer.owner[cell] === current.seat);
+        const site = sites[held.length > 0 ? heartOf(held, sites, across) : region.center];
+        regionAnchors[id].set(site.x, site.y, site.z);
+      });
       redraw(
         holdingBorders,
         sidesWhere((cell, other) => {
@@ -537,19 +564,52 @@ export function createGlobe(
 
   const outward = new Vector3();
   const projected = new Vector3();
-  const place = (label: HTMLElement, anchor: Vector3) => {
+  const frontSpot: Spot = { x: 0, y: 0, shown: false };
+  const extents = new WeakMap<HTMLElement, Extent>();
+  const locate = (label: HTMLElement, anchor: Vector3, spot: Spot) => {
     const distance = camera.position.length();
     outward.copy(camera.position).divideScalar(distance);
     const facing = anchor.dot(outward) / Math.max(anchor.length(), 1e-6);
-    if (label.textContent === "" || facing < 1 / distance + 0.03) {
-      label.style.display = "none";
+    spot.shown = label.textContent !== "" && facing >= 1 / distance + 0.03;
+    if (spot.shown) {
+      projected.copy(anchor).project(camera);
+      spot.x = (projected.x * 0.5 + 0.5) * stage.clientWidth;
+      spot.y = (0.5 - projected.y * 0.5) * stage.clientHeight;
+    }
+  };
+  const put = (label: HTMLElement, spot: Spot) => {
+    label.style.display = spot.shown ? "" : "none";
+    if (spot.shown) {
+      label.style.transform = `translate(-50%, -50%) translate(${spot.x.toFixed(1)}px, ${spot.y.toFixed(1)}px)`;
+    }
+  };
+  const extentOf = (label: HTMLElement): Extent => {
+    const key = `${label.className}|${label.textContent}`;
+    let extent = extents.get(label);
+    if (extent === undefined || extent.key !== key) {
+      const box = label.getBoundingClientRect();
+      extent = { key, width: box.width, height: box.height };
+      if (box.width > 0) {
+        extents.set(label, extent);
+      }
+    }
+    return extent;
+  };
+  const clear = (front: Front, spot: Spot) => {
+    const held = regionSpots[front.region];
+    if (!spot.shown || !held.shown) {
       return;
     }
-    projected.copy(anchor).project(camera);
-    const x = (projected.x * 0.5 + 0.5) * stage.clientWidth;
-    const y = (0.5 - projected.y * 0.5) * stage.clientHeight;
-    label.style.display = "";
-    label.style.transform = `translate(-50%, -50%) translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+    const own = extentOf(front.label);
+    const other = extentOf(regionLabels[front.region]);
+    const reach = (own.height + other.height) / 2;
+    if (
+      Math.abs(spot.x - held.x) < (own.width + other.width) / 2 &&
+      Math.abs(spot.y - held.y) < reach
+    ) {
+      spot.y = held.y + (spot.y < held.y ? -reach : reach);
+      put(front.label, spot);
+    }
   };
 
   const present = () => {
@@ -558,10 +618,13 @@ export function createGlobe(
       placeFlows(frame);
     }
     regionLabels.forEach((label, id) => {
-      place(label, regionAnchors[id]);
+      locate(label, regionAnchors[id], regionSpots[id]);
+      put(label, regionSpots[id]);
     });
     for (const front of fronts.values()) {
-      place(front.label, front.anchor);
+      locate(front.label, front.anchor, frontSpot);
+      put(front.label, frontSpot);
+      clear(front, frontSpot);
     }
     renderer.render(scene, camera);
   };
