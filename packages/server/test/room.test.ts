@@ -178,6 +178,36 @@ test("a trigger that is switched off does not pause time", () => {
   assert.equal(room.running, true);
 });
 
+test("a seat gets the force report only while it asks for it", () => {
+  const { room, sent, last } = seated();
+  const home = homeOf(room, 0);
+  room.handle(0, { type: "orders", orders: [{ kind: "garrison", region: home, value: 2 }] });
+  assert.equal(last("view").report, null);
+
+  const before = sent.length;
+  room.handle(0, { type: "report", active: true });
+  assert.equal(sent.length, before + 1);
+  const asked = last("view");
+  assert.deepEqual(asked.events, []);
+  assert.ok(asked.report);
+  assert.equal(asked.report.arming, true);
+  assert.ok(asked.report.musters[home]);
+
+  room.handle(0, { type: "time", paused: false, speed: null });
+  room.pump(1000);
+  assert.ok(last("view").report);
+
+  room.handle(0, { type: "report", active: false });
+  room.pump(1000);
+  assert.equal(last("view").report, null);
+
+  room.handle(0, { type: "report", active: true });
+  room.leave(0);
+  room.join(0, room.save().tokens[0]);
+  room.handle(0, { type: "orders", orders: [] });
+  assert.equal(last("view").report, null);
+});
+
 test("bots play their seats while time runs", () => {
   const { room } = seated();
   room.handle(0, {

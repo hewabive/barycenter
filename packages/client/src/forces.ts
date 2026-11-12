@@ -1,10 +1,16 @@
-import type { Battle, Estate, Siege } from "@barycenter/sim";
+import type { Battle, Estate, ForceReport, Muster, Siege } from "@barycenter/sim";
 import { amount, button, el, percent, write } from "./dom.ts";
 import { capitalized, type Game, nameOf, pressureOn } from "./model.ts";
 
 export interface Forces {
   open(): void;
+  watching(): boolean;
   show(game: Game): void;
+}
+
+export interface ForcesActions {
+  select(region: number): void;
+  watch(active: boolean): void;
 }
 
 interface Line {
@@ -86,8 +92,7 @@ function waitOf(game: Game, power: number, region: number, target: number | null
   return pressure === undefined ? 0 : Math.max(0, pressure.activeAt - game.view.tick);
 }
 
-function reasonsOf(game: Game, region: number, estate: Estate): string[] {
-  const { muster } = estate;
+function reasonsOf(game: Game, region: number, estate: Estate, muster: Muster): string[] {
   const reasons: string[] = [];
   for (const duty of muster.duties) {
     const wait = waitOf(game, duty.power, duty.region, duty.target);
@@ -172,18 +177,18 @@ function battleLegend(game: Game): string {
   );
 }
 
-export function createForces(root: HTMLDialogElement, select: (region: number) => void): Forces {
-  let latest: Game | null = null;
+export function createForces(root: HTMLDialogElement, actions: ForcesActions): Forces {
   const totals = el("div", { class: "totals" });
   const yards = el("div", { class: "hint" });
   const legend = el("div", { class: "hint" });
+  const waiting = el("div", { class: "hint" }, "Asking the server for the report.");
 
   const stands = createSheet("stands", STAND_COLUMNS, "You hold no force.", (key) => {
     const link = el("a", { href: "#", class: "node-link" }, key);
     link.addEventListener("click", (event) => {
       event.preventDefault();
       root.close();
-      select(Number(key));
+      actions.select(Number(key));
     });
     const cells = STAND_COLUMNS.slice(1).map(() => el("td"));
     return { row: el("tr", {}, el("td", {}, link), ...cells), cells };
@@ -203,6 +208,16 @@ export function createForces(root: HTMLDialogElement, select: (region: number) =
     },
   );
 
+  const scroll = el(
+    "div",
+    { class: "scroll", tabindex: "-1", autofocus: "" },
+    el("h3", {}, "Where your force stands"),
+    stands.block,
+    el("div", { class: "hint" }, STAND_LEGEND),
+    el("h3", {}, "Battles"),
+    battles.block,
+    legend,
+  );
   root.replaceChildren(
     el(
       "div",
@@ -213,18 +228,10 @@ export function createForces(root: HTMLDialogElement, select: (region: number) =
         el("h2", {}, "Force report"),
         button("Close", "Esc", () => root.close()),
       ),
+      waiting,
       totals,
       yards,
-      el(
-        "div",
-        { class: "scroll", tabindex: "-1", autofocus: "" },
-        el("h3", {}, "Where your force stands"),
-        stands.block,
-        el("div", { class: "hint" }, STAND_LEGEND),
-        el("h3", {}, "Battles"),
-        battles.block,
-        legend,
-      ),
+      scroll,
     ),
   );
   root.addEventListener("click", (event) => {
@@ -232,16 +239,25 @@ export function createForces(root: HTMLDialogElement, select: (region: number) =
       root.close();
     }
   });
+  root.addEventListener("close", () => actions.watch(false));
 
-  const showStands = (game: Game) => {
+  const reveal = (ready: boolean) => {
+    waiting.hidden = ready;
+    for (const part of [totals, yards, scroll]) {
+      part.hidden = !ready;
+    }
+  };
+
+  const showStands = (game: Game, report: ForceReport) => {
     const sum = { force: 0, garrison: 0, front: 0, reserve: 0 };
     const keys: string[] = [];
     for (const region of game.view.regions) {
       const mine = region.holdings?.find((holding) => holding.owner === game.seat);
-      if (region.estate === null || mine === undefined) {
+      const muster = report.musters[region.id];
+      if (region.estate === null || mine === undefined || !muster) {
         continue;
       }
-      const { muster, garrison } = region.estate;
+      const { garrison } = region.estate;
       sum.force += mine.force;
       sum.garrison += muster.garrison;
       sum.front += muster.front;
@@ -256,7 +272,7 @@ export function createForces(root: HTMLDialogElement, select: (region: number) =
         share(muster.garrison, garrison),
         share(muster.front, muster.need),
         muster.reserve < SHOWN ? "—" : amount(muster.reserve),
-        reasonsOf(game, region.id, region.estate).join("\n"),
+        reasonsOf(game, region.id, region.estate, muster).join("\n"),
       ]);
     }
     stands.arrange(keys);
@@ -269,16 +285,16 @@ export function createForces(root: HTMLDialogElement, select: (region: number) =
     write(
       yards,
       `${
-        game.view.arming
+        report.arming
           ? "Shipyards are building: a pressure order stands or a cell is short of force."
           : "Shipyards are idle: no pressure is ordered and no cell is short of force."
       } Keeping this force takes ${upkeep} energy a tick.`,
     );
   };
 
-  const showBattles = (game: Game) => {
+  const showBattles = (game: Game, report: ForceReport) => {
     const keys: string[] = [];
-    const ordered = game.view.battles.toSorted(
+    const ordered = report.battles.toSorted(
       (left, right) =>
         Number(left.power !== game.seat) - Number(right.power !== game.seat) ||
         left.region - right.region ||
@@ -307,25 +323,25 @@ export function createForces(root: HTMLDialogElement, select: (region: number) =
     write(legend, battleLegend(game));
   };
 
-  const render = (game: Game) => {
-    showStands(game);
-    showBattles(game);
-  };
-
   return {
     open() {
-      if (!root.open) {
-        root.showModal();
+      if (root.open) {
+        return;
       }
-      if (latest !== null) {
-        render(latest);
-      }
+      reveal(false);
+      root.showModal();
+      actions.watch(true);
+    },
+    watching() {
+      return root.open;
     },
     show(game) {
-      latest = game;
-      if (root.open) {
-        render(game);
+      if (!root.open || game.report === null) {
+        return;
       }
+      showStands(game, game.report);
+      showBattles(game, game.report);
+      reveal(true);
     },
   };
 }

@@ -17,6 +17,7 @@ import {
   type Constants,
   createWorld,
   eventsFor,
+  forceReportFor,
   type GameEvent,
   issue,
   type Outline,
@@ -52,6 +53,7 @@ interface Seat {
   label: string;
   token: string | null;
   connected: boolean;
+  reporting: boolean;
   triggers: Triggers;
 }
 
@@ -105,6 +107,7 @@ export class Room {
         label: rival ?? "human",
         token: saved?.tokens[index] ?? null,
         connected: false,
+        reporting: false,
         triggers: { announced: true, territory: true, discovered: true },
       };
     });
@@ -154,6 +157,7 @@ export class Room {
     }
     seat.token ??= randomUUID();
     seat.connected = true;
+    seat.reporting = false;
     this.announce();
     return { seat: index, token: seat.token };
   }
@@ -164,6 +168,7 @@ export class Room {
       return;
     }
     seat.connected = false;
+    seat.reporting = false;
     if (!this.occupied) {
       this.paused = true;
       this.pausedFor = null;
@@ -203,6 +208,12 @@ export class Room {
         return;
       case "triggers":
         this.seats[index].triggers = message.triggers;
+        return;
+      case "report":
+        this.seats[index].reporting = message.active;
+        if (message.active) {
+          this.sink(index, this.viewMessage(index, []));
+        }
         return;
       case "tune":
         this.tune(index, message.constants);
@@ -300,7 +311,7 @@ export class Room {
         continue;
       }
       const seen = eventsFor(this.state, power, events);
-      this.sink(power, { type: "view", view: viewFor(this.state, power), events: seen });
+      this.sink(power, this.viewMessage(power, seen));
       if (stopper === null && seen.some((event) => fires(seat.triggers, event, power))) {
         stopper = power;
       }
@@ -310,6 +321,15 @@ export class Room {
       this.pausedFor = stopper;
       this.announce();
     }
+  }
+
+  private viewMessage(power: number, events: GameEvent[]): ServerMessage {
+    return {
+      type: "view",
+      view: viewFor(this.state, power),
+      events,
+      report: this.seats[power].reporting ? forceReportFor(this.state, power) : null,
+    };
   }
 
   private announce(): void {

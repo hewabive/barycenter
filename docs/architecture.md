@@ -48,6 +48,7 @@ Messages are JSON over one WebSocket. A client first joins a room. A room that d
 | `orders`    | orders for the seat's own power; the server stamps the seat on them                              |
 | `time`      | pause, resume or change speed                                                                    |
 | `triggers`  | which events pause time for this seat                                                            |
+| `report`    | start or stop sending the force report with this seat's views                                    |
 | `tune`      | change constants, where the server allows it                                                     |
 
 | From server | Meaning                                                                                          |
@@ -59,6 +60,7 @@ Messages are JSON over one WebSocket. A client first joins a room. A room that d
 | `rejected`  | orders the core refused, with reasons                                                            |
 | `error`     | a message the server could not act on                                                            |
 
+- A `view` also goes out at once when a seat asks for the force report, and carries that report until the seat tells the server to stop.
 - The first join of a seat returns a secret token. Rejoining that seat requires the token, and the newer connection replaces the older one.
 - Everything a client sends is parsed field by field, and unknown fields are dropped. The core then checks ownership and ranges.
 - Messages are compressed by the WebSocket extension. A view of the first planet is 12 to 18 KB of JSON and 2 to 4 KB on the wire. The map sent on joining is 45 KB and 9 KB on the wire.
@@ -77,7 +79,7 @@ Messages are JSON over one WebSocket. A client first joins a room. A room that d
 - The surface is one mesh with a color per cell: the owner's color, brighter as the cell is built up. Dark lines separate regions and bright lines separate holdings. The line where a power presses is drawn in its color, dashed while the attack is only announced.
 - Flows are particles moving between the centers of neighboring cells. A strait is a dashed arc over the water.
 - Labels and panels are plain HTML over the canvas. A panel is rebuilt only when its structure changes; between rebuilds only its numbers are updated.
-- The force total in the top bar opens a report meant for debugging. One table lists the player's regions with the force standing as garrison, at a front and in reserve, the orders that ask for it and the region the reserve is heading to. The other lists, for every line of pressure the player takes part in, each pressed cell with its defense, the pressure on it and the most its contacts can carry, the progress of the siege and whether the cell can fall. The server works both out with the functions the tick uses and sends them in every view, 3 to 4 KB of JSON.
+- The force total in the top bar opens a report meant for debugging. One table lists the player's regions with the force standing as garrison, at a front and in reserve, the orders that ask for it and the region the reserve is heading to. The other lists, for every line of pressure the player takes part in, each pressed cell with its defense, the pressure on it and the most its contacts can carry, the progress of the siege and whether the cell can fall. The server works both out with the functions the tick uses, only for a seat that has the report open: the client asks when the dialog opens and tells the server to stop when it closes. An open report adds about 3 KB of JSON to each view of that seat.
 - The globe is drawn on demand: after a new view, a camera move or a resize, and continuously only while flows are moving. A paused game with a still camera draws nothing.
 - One page serves desktop and handheld. On a narrow upright screen the panel becomes a sheet under the globe that opens on selecting a region, and on any small screen the top bar keeps time controls and totals and moves the rest into a menu. Targets grow where the pointer is coarse.
 - Dragging turns the globe at the speed of the surface under the pointer at any zoom. A tap selects only when a single pointer went down and came up in place, so a pinch never changes the selection.

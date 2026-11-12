@@ -65,7 +65,10 @@ const focus = (region: number) => {
   select(region);
 };
 
-const forces = createForces(required<HTMLDialogElement>("#forces"), focus);
+const forces = createForces(required<HTMLDialogElement>("#forces"), {
+  select: focus,
+  watch: (active) => link.send({ type: "report", active }),
+});
 
 const topbar = createTopbar(required<HTMLElement>("#topbar"), {
   time: (paused, speed) => link.send({ type: "time", paused, speed }),
@@ -123,7 +126,11 @@ function receive(message: ServerMessage): void {
       seats: message.seats,
       triggers: message.triggers,
       view: message.view,
+      report: null,
     };
+    if (forces.watching()) {
+      link.send({ type: "report", active: true });
+    }
     if (globe === null) {
       globe = createGlobe(stage, message.outline, select);
     }
@@ -145,6 +152,7 @@ function receive(message: ServerMessage): void {
   }
   if (message.type === "view") {
     game.view = message.view;
+    game.report = message.report;
     const current = game;
     journal.add(
       message.events

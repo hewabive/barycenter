@@ -86,6 +86,8 @@ test("time, triggers and tuning messages are checked", () => {
   const triggers = { announced: true, territory: false, discovered: true };
   assert.deepEqual(parse({ type: "triggers", triggers }), { type: "triggers", triggers });
   assert.equal(parse({ type: "triggers", triggers: { announced: true } }), null);
+  assert.deepEqual(parse({ type: "report", active: true }), { type: "report", active: true });
+  assert.equal(parse({ type: "report" }), null);
   assert.deepEqual(parse({ type: "tune", constants: { buildRate: 1 } }), {
     type: "tune",
     constants: { buildRate: 1 },

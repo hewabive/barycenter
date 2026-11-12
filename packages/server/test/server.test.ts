@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import type { ClientMessage, ServerMessage } from "@barycenter/protocol";
+import { type ClientMessage, PROTOCOL, type ServerMessage } from "@barycenter/protocol";
 import { type RunningServer, type ServerOptions, startServer } from "../src/index.ts";
 
 type Typed<Type extends ServerMessage["type"]> = Extract<ServerMessage, { type: Type }>;
@@ -73,7 +73,7 @@ function connect(server: RunningServer): Promise<Client> {
 }
 
 function joining(room: string, seat: number | null = null, token: string | null = null) {
-  return { type: "join", protocol: 2, room, seat, token, setup: null } as const;
+  return { type: "join", protocol: PROTOCOL, room, seat, token, setup: null } as const;
 }
 
 async function viewAt(client: Client, tick: number) {
@@ -99,6 +99,27 @@ test("a client joins, runs time and receives one view per tick", async () => {
     const first = await client.next("view");
     const second = await client.next("view");
     assert.equal(second.view.tick, first.view.tick + 1);
+    client.close();
+  } finally {
+    await server.close();
+  }
+});
+
+test("the force report comes over the socket when a client asks for it", async () => {
+  const server = await startServer(base);
+  try {
+    const client = await connect(server);
+    client.send(joining("report"));
+    const welcome = await client.next("welcome");
+    const home = welcome.view.regions.findIndex((region) => region.estate !== null);
+
+    client.send({ type: "orders", orders: [] });
+    assert.equal((await client.next("view")).report, null);
+    client.send({ type: "report", active: true });
+    const report = (await client.next("view")).report;
+    assert.ok(report);
+    assert.ok(report.musters[home]);
+    assert.deepEqual(report.battles, []);
     client.close();
   } finally {
     await server.close();

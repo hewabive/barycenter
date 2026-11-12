@@ -1,6 +1,6 @@
-import type { Command, Constants, GameEvent, Outline, View } from "@barycenter/sim";
+import type { Command, Constants, ForceReport, GameEvent, Outline, View } from "@barycenter/sim";
 
-export const PROTOCOL = 2;
+export const PROTOCOL = 3;
 export const SPEEDS = [1, 2, 4, 8];
 export const ROOM_NAME = /^[a-z0-9-]{1,32}$/;
 export const MAX_ORDERS = 256;
@@ -50,6 +50,7 @@ export type ClientMessage =
   | { type: "orders"; orders: Order[] }
   | { type: "time"; paused: boolean | null; speed: number | null }
   | { type: "triggers"; triggers: Triggers }
+  | { type: "report"; active: boolean }
   | { type: "tune"; constants: Partial<Constants> };
 
 export type ServerMessage =
@@ -68,7 +69,7 @@ export type ServerMessage =
       triggers: Triggers;
       view: View;
     }
-  | { type: "view"; view: View; events: GameEvent[] }
+  | { type: "view"; view: View; events: GameEvent[]; report: ForceReport | null }
   | { type: "room"; time: TimeState; seats: SeatInfo[] }
   | { type: "constants"; constants: Constants }
   | { type: "rejected"; rejections: RejectedOrder[] }

@@ -1,6 +1,7 @@
 export type { Battle, Siege } from "./battle.ts";
 export { defaultConstants } from "./constants.ts";
 export type { Duty, Muster, Route } from "./muster.ts";
+export { type ForceReport, forceReportFor } from "./report.ts";
 export { hullFaces } from "./sphere.ts";
 export { cloneState, issue, step } from "./step.ts";
 export { retune } from "./tune.ts";

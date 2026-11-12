@@ -1,5 +1,12 @@
 import type { SeatInfo, TimeState, Triggers } from "@barycenter/protocol";
-import type { Constants, GameEvent, Outline, PressureView, View } from "@barycenter/sim";
+import type {
+  Constants,
+  ForceReport,
+  GameEvent,
+  Outline,
+  PressureView,
+  View,
+} from "@barycenter/sim";
 
 export interface Game {
   room: string;
@@ -12,6 +19,7 @@ export interface Game {
   seats: SeatInfo[];
   triggers: Triggers;
   view: View;
+  report: ForceReport | null;
 }
 
 export interface Report {

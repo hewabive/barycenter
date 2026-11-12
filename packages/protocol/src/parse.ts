@@ -155,6 +155,9 @@ export function parseClientMessage(text: string): ClientMessage | null {
     const triggers = parseTriggers(value.triggers);
     return triggers === null ? null : { type: "triggers", triggers };
   }
+  if (value.type === "report") {
+    return isBoolean(value.active) ? { type: "report", active: value.active } : null;
+  }
   if (value.type === "tune") {
     const constants = parseConstants(value.constants);
     return constants === null ? null : { type: "tune", constants };
