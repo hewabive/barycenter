@@ -1,4 +1,5 @@
 import { visibleRegions } from "./explore.ts";
+import { type Muster, mustersOf } from "./muster.ts";
 import { capacityOf, defenseOf, heldOf } from "./rules.ts";
 import {
   BRANCHES,
@@ -55,6 +56,7 @@ export interface Estate {
   levelCap: number;
   exposure: number;
   hostile: number;
+  muster: Muster;
 }
 
 export interface RegionView {
@@ -102,6 +104,7 @@ export interface View {
   power: number;
   alive: boolean[];
   lean: number[];
+  arming: boolean;
   regions: RegionView[];
   edges: EdgeView[];
   pressures: PressureView[];
@@ -192,10 +195,15 @@ function holdingsOf(state: State, region: MapRegion, viewer: number): HoldingVie
     .sort((left, right) => (left.owner ?? NEUTRAL) - (right.owner ?? NEUTRAL));
 }
 
-function estateOf(state: State, region: MapRegion, viewer: number): Estate | null {
+function estateOf(
+  state: State,
+  region: MapRegion,
+  viewer: number,
+  muster: Muster | null,
+): Estate | null {
   const { cells, map } = state;
   const own = region.cells.filter((cell) => cells[cell].owner === viewer);
-  if (own.length === 0) {
+  if (own.length === 0 || muster === null) {
     return null;
   }
   const orders = state.powers[viewer].holdings[region.id];
@@ -220,6 +228,7 @@ function estateOf(state: State, region: MapRegion, viewer: number): Estate | nul
     levelCap: own.reduce((sum, cell) => sum + map.cells[cell].levelCap, 0),
     exposure: rivals.size,
     hostile,
+    muster,
   };
 }
 
@@ -254,6 +263,7 @@ export function viewFor(state: State, power: number): View {
   const { map } = state;
   const visible = visibleRegions(state, power);
   const explored = state.powers[power].explored;
+  const musters = mustersOf(state, power);
 
   const layer: CellLayer = { ground: [], cap: [], owner: [], level: [], force: [] };
   state.cells.forEach((cell, id) => {
@@ -272,7 +282,7 @@ export function viewFor(state: State, power: number): View {
       id: region.id,
       nature: explored[region.id] ? natureOf(state, region) : null,
       holdings: visible.has(region.id) ? holdingsOf(state, region, power) : null,
-      estate: estateOf(state, region, power),
+      estate: estateOf(state, region, power, musters.regions[region.id]),
     }),
   );
 
@@ -322,6 +332,7 @@ export function viewFor(state: State, power: number): View {
     power,
     alive: state.powers.map((holder) => holder.alive),
     lean: state.powers[power].lean.slice(),
+    arming: musters.arming,
     regions,
     edges,
     pressures,

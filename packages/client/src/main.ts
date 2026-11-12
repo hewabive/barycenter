@@ -3,6 +3,7 @@ import { ROOM_NAME, type ServerMessage, type Setup, SPEEDS } from "@barycenter/p
 import type { GameEvent } from "@barycenter/sim";
 import { connect } from "./connection.ts";
 import { required } from "./dom.ts";
+import { createForces } from "./forces.ts";
 import { createGlobe, type Globe } from "./globe.ts";
 import { createJournal } from "./journal.ts";
 import { type Game, report } from "./model.ts";
@@ -51,6 +52,7 @@ const refresh = () => {
   });
   panel.show(game, selected);
   topbar.show(game, notice);
+  forces.show(game);
 };
 
 const select = (region: number | null) => {
@@ -63,6 +65,8 @@ const focus = (region: number) => {
   select(region);
 };
 
+const forces = createForces(required<HTMLDialogElement>("#forces"), focus);
+
 const topbar = createTopbar(required<HTMLElement>("#topbar"), {
   time: (paused, speed) => link.send({ type: "time", paused, speed }),
   triggers: (triggers) => {
@@ -71,6 +75,7 @@ const topbar = createTopbar(required<HTMLElement>("#topbar"), {
     }
     link.send({ type: "triggers", triggers });
   },
+  forces: forces.open,
   restart: () => {
     const fresh = new URLSearchParams(window.location.search);
     fresh.set("room", `game-${Date.now().toString(36)}`);

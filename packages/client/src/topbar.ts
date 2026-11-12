@@ -1,11 +1,12 @@
 import { SPEEDS, type Triggers } from "@barycenter/protocol";
-import { amount, button, el } from "./dom.ts";
+import { amount, button, el, write } from "./dom.ts";
 import { type Game, summarize } from "./model.ts";
 import { css, powerColor } from "./palette.ts";
 
 export interface TopbarActions {
   time(paused: boolean | null, speed: number | null): void;
   triggers(triggers: Triggers): void;
+  forces(): void;
   restart(): void;
 }
 
@@ -21,6 +22,7 @@ const TRIGGER_LABELS: [keyof Triggers, string][] = [
 ];
 
 const STATS = ["tick", "regions", "cells", "levels", "force", "matter"] as const;
+const FORCES_HINT = "Where your force stands and why";
 
 export function createTopbar(root: HTMLElement, actions: TopbarActions): Topbar {
   let paused = true;
@@ -33,10 +35,13 @@ export function createTopbar(root: HTMLElement, actions: TopbarActions): Topbar 
   });
   const stats = STATS.map((name) => {
     const value = el("span", { class: "value" });
-    return {
-      value,
-      item: el("span", { class: "stat" }, el("span", { class: "name" }, name), value),
-    };
+    const label = el("span", { class: "name" }, name);
+    if (name !== "force") {
+      return { value, item: el("span", { class: "stat" }, label, value) };
+    }
+    const item = el("button", { type: "button", class: "stat", title: FORCES_HINT }, label, value);
+    item.addEventListener("click", actions.forces);
+    return { value, item };
   });
   const seats = el("span", { class: "seats" });
   const notice = el("span", { class: "notice" });
@@ -88,12 +93,6 @@ export function createTopbar(root: HTMLElement, actions: TopbarActions): Topbar 
     },
     { capture: true },
   );
-
-  const write = (target: HTMLElement, text: string) => {
-    if (target.textContent !== text) {
-      target.textContent = text;
-    }
-  };
 
   return {
     show(game, text) {

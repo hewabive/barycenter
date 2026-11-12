@@ -23,6 +23,12 @@ export function button(label: string, title: string, onClick: () => void): HTMLB
   return element;
 }
 
+export function write(target: HTMLElement, text: string): void {
+  if (target.textContent !== text) {
+    target.textContent = text;
+  }
+}
+
 export function amount(value: number, digits = 1): string {
   return value.toFixed(digits);
 }

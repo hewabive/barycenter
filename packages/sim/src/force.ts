@@ -28,17 +28,32 @@ export function forceWantedBy(state: State, field: ForceField): boolean[] {
   return wanted;
 }
 
+function widthOf(state: State, lane: Lane): number {
+  return capacityOf(state, lane.joint) * state.constants.pressurePerCapacity;
+}
+
+export function attackNeedOf(state: State, lane: Lane): number {
+  return Math.min(widthOf(state, lane), FULL_SIEGE * defenseOf(state, lane.to));
+}
+
+export function defenseNeedOf(state: State, lane: Lane): number {
+  if (state.cells[lane.to].owner === null) {
+    return 0;
+  }
+  const faced = Math.min(widthOf(state, lane), state.cells[lane.from].force);
+  return faced / state.constants.defensePerForce;
+}
+
 export function forceFieldOf(state: State, lanes: Lane[], posts: number[]): ForceField {
   const { constants, cells } = state;
   const held = posts.slice();
   const fighting = new Array<boolean>(cells.length).fill(false);
   for (const lane of lanes) {
-    const limit = capacityOf(state, lane.joint) * constants.pressurePerCapacity;
     fighting[lane.from] = true;
-    held[lane.from] += Math.min(limit, FULL_SIEGE * defenseOf(state, lane.to));
+    held[lane.from] += attackNeedOf(state, lane);
     if (cells[lane.to].owner !== null) {
       fighting[lane.to] = true;
-      held[lane.to] += Math.min(limit, cells[lane.from].force) / constants.defensePerForce;
+      held[lane.to] += defenseNeedOf(state, lane);
     }
   }
   const demand = cells.map((cell, id) => {
