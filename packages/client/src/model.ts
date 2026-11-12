@@ -56,7 +56,7 @@ export function nameOf(game: Game, power: number | null): string {
   return power === game.seat ? "you" : (game.seats[power]?.label ?? `power ${power}`);
 }
 
-function capitalized(text: string): string {
+export function capitalized(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 

@@ -166,6 +166,64 @@ test("a muster accounts for all the force of a holding", () => {
   assert.ok(seen > 0);
 });
 
+test("a battle lists the pressed cells with their defense and the pressure on them", () => {
+  const { state } = fresh();
+  const { from, to } = neutralNeighbor(state, 0);
+  const pressed = state.map.cells[to].region;
+  state.cells[from].force = 20;
+  const after = step(state, [
+    { kind: "pressure", power: 0, region: pressed, target: null, active: true },
+  ]).state;
+  const battles = viewFor(after, 0).battles;
+  assert.equal(battles.length, 1);
+  const [battle] = battles;
+  assert.deepEqual([battle.power, battle.region, battle.target], [0, pressed, null]);
+  const siege = battle.sieges.find((known) => known.cell === to);
+  assert.ok(siege);
+  assert.equal(siege.defense, state.constants.neutralDefense);
+  assert.equal(siege.bare, siege.defense);
+  assert.ok(siege.contacts >= 1 && siege.limit > siege.defense);
+  assert.ok(siege.pressure > siege.defense);
+  assert.ok(siege.progress > 0 && siege.rate > 0);
+  assert.ok(battle.attackerLoss > 0);
+  assert.equal(battle.defenderLoss, 0);
+  for (const known of battle.sieges) {
+    assert.equal(after.cells[known.cell].owner, null);
+    assert.equal(state.map.cells[known.cell].region, pressed);
+  }
+});
+
+test("a battle against the viewer is shown from the announcement on", () => {
+  const { state } = fresh();
+  const { from, to } = neutralNeighbor(state, 0);
+  const attacked = state.map.cells[from].region;
+  state.cells[to].owner = 1;
+  state.cells[to].force = 30;
+  const order = { kind: "pressure", power: 1, region: attacked, target: 0, active: true } as const;
+
+  const announced = step(state, [order]).state;
+  const waiting = viewFor(announced, 0).battles;
+  assert.equal(waiting.length, 1);
+  assert.ok(waiting[0].sieges.length > 0);
+  for (const siege of waiting[0].sieges) {
+    assert.equal(siege.pressure, 0);
+    assert.equal(siege.rate, 0);
+  }
+  assert.deepEqual(viewFor(announced, 2).battles, []);
+
+  const fought = run(state, state.constants.announceTicks + 2, [order]);
+  const [battle] = viewFor(fought, 0).battles;
+  assert.ok(battle);
+  assert.deepEqual([battle.power, battle.region, battle.target], [1, attacked, 0]);
+  assert.ok(battle.sieges.some((siege) => siege.pressure > 0));
+  assert.ok(battle.attackerLoss > 0);
+  for (const siege of battle.sieges) {
+    assert.equal(fought.cells[siege.cell].owner, 0);
+    assert.ok(siege.contacts >= 1 && siege.limit > 0);
+    assert.ok(siege.bare <= siege.defense);
+  }
+});
+
 test("the outline carries geometry and topology but no natural data", () => {
   const outline = outlineOf(createWorld({ seed: 1 }).map);
   assert.deepEqual(Object.keys(outline.cells[0]).sort(), ["position", "region"]);

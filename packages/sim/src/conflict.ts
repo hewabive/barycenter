@@ -1,19 +1,26 @@
+import { widthOf } from "./force.ts";
 import type { Lane } from "./front.ts";
-import { capacityOf, cellsOf, defenseOf, EPSILON, FULL_SIEGE, holds } from "./rules.ts";
-import type { GameEvent, State } from "./types.ts";
+import { cellsOf, defenseOf, EPSILON, FULL_SIEGE, holds } from "./rules.ts";
+import type { Constants, GameEvent, State } from "./types.ts";
 
-export function resolveConflict(
-  state: State,
-  lanes: Lane[],
-  posts: number[],
-  events: GameEvent[],
-): void {
-  const { constants, cells } = state;
+export interface Commitment {
+  active: Lane[];
+  commits: number[];
+  walls: Map<number, number>;
+  totals: Map<number, number[]>;
+}
+
+export function siegeGainOf(constants: Constants, total: number, wall: number): number {
+  return constants.siegeRate * Math.min(total / wall - 1, FULL_SIEGE - 1);
+}
+
+export function wearOf(constants: Constants, total: number, wall: number): number {
+  return Math.min(total, wall) * constants.attrition;
+}
+
+export function commitmentOf(state: State, lanes: Lane[], posts: number[]): Commitment {
+  const { cells } = state;
   const powerCount = state.powers.length;
-  for (const pressure of state.pressures) {
-    pressure.commit = 0;
-  }
-
   const active = lanes.filter((lane) => state.pressures[lane.pressure].activeAt <= state.tick);
   const walls = new Map<number, number>();
   const origins = new Map<number, number[]>();
@@ -36,8 +43,7 @@ export function resolveConflict(
     for (const index of indices) {
       const lane = active[index];
       const wall = wallOf(lane.to);
-      const limit = capacityOf(state, lane.joint) * constants.pressurePerCapacity;
-      const given = Math.min(available, limit, FULL_SIEGE * wall);
+      const given = Math.min(available, widthOf(state, lane), FULL_SIEGE * wall);
       if (given <= EPSILON || (engaged && given <= wall)) {
         continue;
       }
@@ -68,6 +74,22 @@ export function resolveConflict(
     }
   });
   tally();
+  return { active, commits, walls, totals };
+}
+
+export function resolveConflict(
+  state: State,
+  lanes: Lane[],
+  posts: number[],
+  events: GameEvent[],
+): void {
+  const { constants, cells } = state;
+  const powerCount = state.powers.length;
+  for (const pressure of state.pressures) {
+    pressure.commit = 0;
+  }
+  const { active, commits, walls, totals } = commitmentOf(state, lanes, posts);
+  const wallOf = (cell: number) => walls.get(cell) ?? 0;
   active.forEach((lane, index) => {
     state.pressures[lane.pressure].commit += commits[index];
   });
@@ -77,7 +99,7 @@ export function resolveConflict(
     if (total <= EPSILON) {
       return;
     }
-    const engaged = Math.min(total, wallOf(lane.to)) * constants.attrition;
+    const engaged = wearOf(constants, total, wallOf(lane.to));
     const source = cells[lane.from];
     source.force = Math.max(0, source.force - (engaged * commits[index]) / total);
   });
@@ -91,11 +113,11 @@ export function resolveConflict(
     for (let power = 0; power < powerCount; power++) {
       const total = row?.[power] ?? 0;
       if (total > wall) {
-        cell.siege[power] += constants.siegeRate * Math.min(total / wall - 1, FULL_SIEGE - 1);
+        cell.siege[power] += siegeGainOf(constants, total, wall);
       } else if (cell.siege[power] > 0) {
         cell.siege[power] = Math.max(0, cell.siege[power] - constants.siegeDecay);
       }
-      loss += Math.min(total, wall) * constants.attrition * constants.defenderLossShare;
+      loss += wearOf(constants, total, wall) * constants.defenderLossShare;
       if (cell.siege[power] >= 1 && (winner < 0 || cell.siege[power] > cell.siege[winner])) {
         winner = power;
       }

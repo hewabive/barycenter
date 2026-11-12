@@ -28,7 +28,7 @@ export function forceWantedBy(state: State, field: ForceField): boolean[] {
   return wanted;
 }
 
-function widthOf(state: State, lane: Lane): number {
+export function widthOf(state: State, lane: Lane): number {
   return capacityOf(state, lane.joint) * state.constants.pressurePerCapacity;
 }
 

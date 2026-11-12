@@ -1,5 +1,5 @@
 import { attackNeedOf, defenseNeedOf, forceFieldOf, forceWantedBy } from "./force.ts";
-import { lanesOf, postsOf } from "./front.ts";
+import type { Lane } from "./front.ts";
 import { bestLink, EPSILON } from "./rules.ts";
 import type { State } from "./types.ts";
 
@@ -29,10 +29,8 @@ export interface Musters {
   regions: (Muster | null)[];
 }
 
-export function mustersOf(state: State, viewer: number): Musters {
+export function mustersOf(state: State, viewer: number, lanes: Lane[], posts: number[]): Musters {
   const { cells, map } = state;
-  const lanes = lanesOf(state);
-  const posts = postsOf(state);
   const field = forceFieldOf(state, lanes, posts);
   const regions: (Muster | null)[] = map.regions.map(() => null);
 

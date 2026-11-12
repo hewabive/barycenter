@@ -1,3 +1,4 @@
+export type { Battle, Siege } from "./battle.ts";
 export { defaultConstants } from "./constants.ts";
 export type { Duty, Muster, Route } from "./muster.ts";
 export { hullFaces } from "./sphere.ts";

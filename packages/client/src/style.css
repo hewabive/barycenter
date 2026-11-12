@@ -449,6 +449,18 @@ dialog::backdrop {
   margin: 0;
 }
 
+.report h3 {
+  margin: 12px 0 4px;
+}
+
+.report h3:first-child {
+  margin-top: 0;
+}
+
+.report table[hidden] {
+  display: none;
+}
+
 .report .scroll {
   min-height: 0;
   overflow: auto;
@@ -491,13 +503,19 @@ dialog::backdrop {
   white-space: pre-line;
 }
 
-.report td:first-child {
+.stands td:first-child {
   padding: 0;
 }
 
-.report .node-link {
+.stands .node-link {
   display: block;
   padding: 4px 8px;
+}
+
+.battles .front td {
+  padding-top: 10px;
+  font-weight: 600;
+  white-space: normal;
 }
 
 #tuning .grid {
@@ -573,7 +591,7 @@ dialog::backdrop {
 
   .report th,
   .report td,
-  .report .node-link {
+  .stands .node-link {
     padding-block: 8px;
   }
 
@@ -729,6 +747,10 @@ dialog::backdrop {
     border-top: 1px solid var(--line);
   }
 
+  .battles tr {
+    grid-template-columns: 3.4em 0.8fr 0.9fr 1.2fr 2fr 1fr;
+  }
+
   .report th,
   .report td {
     position: static;
@@ -752,7 +774,12 @@ dialog::backdrop {
     color: var(--muted);
   }
 
-  .report .node-link {
+  .battles .front td {
+    padding-top: 10px;
+    color: var(--text);
+  }
+
+  .stands .node-link {
     padding-inline: 4px;
   }
 

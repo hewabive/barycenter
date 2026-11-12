@@ -1,4 +1,6 @@
+import { type Battle, battlesOf } from "./battle.ts";
 import { visibleRegions } from "./explore.ts";
+import { lanesOf, postsOf } from "./front.ts";
 import { type Muster, mustersOf } from "./muster.ts";
 import { capacityOf, defenseOf, heldOf } from "./rules.ts";
 import {
@@ -108,6 +110,7 @@ export interface View {
   regions: RegionView[];
   edges: EdgeView[];
   pressures: PressureView[];
+  battles: Battle[];
   cells: CellLayer;
   flows: FlowView[];
 }
@@ -263,7 +266,9 @@ export function viewFor(state: State, power: number): View {
   const { map } = state;
   const visible = visibleRegions(state, power);
   const explored = state.powers[power].explored;
-  const musters = mustersOf(state, power);
+  const lanes = lanesOf(state);
+  const posts = postsOf(state);
+  const musters = mustersOf(state, power, lanes, posts);
 
   const layer: CellLayer = { ground: [], cap: [], owner: [], level: [], force: [] };
   state.cells.forEach((cell, id) => {
@@ -336,6 +341,7 @@ export function viewFor(state: State, power: number): View {
     regions,
     edges,
     pressures,
+    battles: battlesOf(state, power, lanes, posts),
     cells: layer,
     flows,
   };
