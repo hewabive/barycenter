@@ -184,6 +184,32 @@ export function rimmed(tooth: Tooth, margin: number): Tooth {
   return { left: grown(left), right: grown(right), tip: grown(tip) };
 }
 
+export function landfall(points: Vector[], from: number, to: number, steps: number): Vector {
+  const reached = (share: number) => nearest(points, slerp(points[from], points[to], share)) === to;
+  for (let step = 1; step <= steps; step++) {
+    if (!reached(step / steps)) {
+      continue;
+    }
+    let short = (step - 1) / steps;
+    let ashore = step / steps;
+    for (let round = 0; round < 12; round++) {
+      const middle = (short + ashore) / 2;
+      if (reached(middle)) {
+        ashore = middle;
+      } else {
+        short = middle;
+      }
+    }
+    return slerp(points[from], points[to], ashore);
+  }
+  return points[to];
+}
+
+export function barAcross(at: Vector, heading: Vector, length: number): [Vector, Vector] {
+  const sideways = normalize(cross(at, heading));
+  return [sum(at, scaled(sideways, -length / 2)), sum(at, scaled(sideways, length / 2))];
+}
+
 export function nearest(points: Vector[], direction: Vector): number {
   let best = 0;
   for (let index = 1; index < points.length; index++) {

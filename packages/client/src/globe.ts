@@ -36,8 +36,10 @@ import { LineSegmentsGeometry } from "three/addons/lines/LineSegmentsGeometry.js
 import { el } from "./dom.ts";
 import {
   arc,
+  barAcross,
   buildCells,
   heartOf,
+  landfall,
   nearest,
   neighborsAcross,
   rimmed,
@@ -88,7 +90,17 @@ interface Side {
   side: number;
 }
 
-interface Bite extends Side {
+interface Contact {
+  joint: number;
+  from: Vector;
+  to: Vector;
+  toward: Vector;
+  room: number;
+  approach: Vector[];
+}
+
+interface Bite {
+  contact: Contact;
   progress: number;
 }
 
@@ -100,7 +112,8 @@ interface Front {
   label: HTMLElement;
   anchor: Vector3;
   shape: string | null;
-  bite: string;
+  contacts: Contact[];
+  bite: string | null;
 }
 
 interface Spot {
@@ -137,6 +150,9 @@ const TOOTH_SHARE = 0.72;
 const TOOTH_RIM = 0.002;
 const TOOTH_START = 0.012;
 const TOOTH_REACH = 0.55;
+const LANDFALL_STEPS = 24;
+const LANDING_WIDTH = 0.05;
+const CROSSING_LIFT = 0.02;
 const HIDDEN = [0, 0, 0, 0, 0, 0];
 
 function along(from: Vector, to: Vector, share: number, radius: number, target: Vector3): void {
@@ -261,12 +277,15 @@ export function createGlobe(
     scene.add(line);
     return line;
   };
-  const redraw = (line: LineSegments2, sides: Side[], radius: number) => {
+  const restring = (line: LineSegments2, values: number[]) => {
     line.geometry.dispose();
     line.geometry = new LineSegmentsGeometry();
-    line.visible = sides.length > 0;
-    line.geometry.setPositions(sides.length > 0 ? trace(sides, radius) : HIDDEN);
+    line.visible = values.length > 0;
+    line.geometry.setPositions(values.length > 0 ? values : HIDDEN);
     line.computeLineDistances();
+  };
+  const redraw = (line: LineSegments2, sides: Side[], radius: number) => {
+    restring(line, trace(sides, radius));
   };
 
   const regionBorders = fatLine(REGION_BORDER, 2.5);
@@ -294,6 +313,9 @@ export function createGlobe(
     jointBetween.set(joint.a * landCount + joint.b, id);
     jointBetween.set(joint.b * landCount + joint.a, id);
   });
+  const crossings = outline.joints.flatMap((joint, id) =>
+    adjacent.has(joint.a * landCount + joint.b) ? [] : [{ id, a: joint.a, b: joint.b }],
+  );
   const straits = outline.joints
     .filter((joint) => joint.edge !== null && !adjacent.has(joint.a * landCount + joint.b))
     .map((joint) => {
@@ -415,17 +437,14 @@ export function createGlobe(
   const serrate = (bites: Bite[]): BufferGeometry => {
     const positions: number[] = [];
     const shades: number[] = [];
-    for (const { cell, side, progress } of bites) {
-      const corners = cells[cell].corners;
-      const toward = subtract(sites[across[cell][side]], sites[cell]);
-      const full = (TOOTH_REACH * Math.hypot(toward.x, toward.y, toward.z)) / 2;
+    for (const { contact, progress } of bites) {
       const teeth = teethAlong(
-        corners[side],
-        corners[(side + 1) % corners.length],
-        toward,
+        contact.from,
+        contact.to,
+        contact.toward,
         TOOTH_PITCH,
         TOOTH_SHARE,
-        TOOTH_START + Math.max(0, full - TOOTH_START) * progress,
+        TOOTH_START + Math.max(0, TOOTH_REACH * contact.room - TOOTH_START) * progress,
       );
       for (const tooth of teeth) {
         lay(rimmed(tooth, TOOTH_RIM), 1.0064, rim, positions, shades);
@@ -436,6 +455,54 @@ export function createGlobe(
     geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
     geometry.setAttribute("color", new Float32BufferAttribute(shades, 3));
     return geometry;
+  };
+
+  const span = (vector: Vector) => Math.hypot(vector.x, vector.y, vector.z);
+  const byLand = ({ cell, side }: Side): Contact => {
+    const corners = cells[cell].corners;
+    const other = across[cell][side];
+    const toward = subtract(sites[other], sites[cell]);
+    return {
+      joint: jointBetween.get(cell * landCount + other) ?? -1,
+      from: corners[side],
+      to: corners[(side + 1) % corners.length],
+      toward,
+      room: span(toward) / 2,
+      approach: [],
+    };
+  };
+  const bySea = (joint: number, from: number, to: number): Contact => {
+    const shore = landfall(sites, from, to, LANDFALL_STEPS);
+    const toward = subtract(sites[to], shore);
+    const [left, right] = barAcross(shore, toward, LANDING_WIDTH);
+    return {
+      joint,
+      from: left,
+      to: right,
+      toward,
+      room: span(toward),
+      approach: arc(sites[from], shore, STRAIT_STEPS, 1.006, CROSSING_LIFT),
+    };
+  };
+  const strokes = (contacts: Contact[]): number[] => {
+    const values: number[] = [];
+    const stroke = (from: Vector, to: Vector, radius: number) => {
+      values.push(
+        from.x * radius,
+        from.y * radius,
+        from.z * radius,
+        to.x * radius,
+        to.y * radius,
+        to.z * radius,
+      );
+    };
+    for (const contact of contacts) {
+      stroke(contact.from, contact.to, 1.006);
+      for (let step = 1; step < contact.approach.length; step++) {
+        stroke(contact.approach[step - 1], contact.approach[step], 1);
+      }
+    }
+    return values;
   };
 
   const syncFronts = (current: Frame) => {
@@ -465,7 +532,8 @@ export function createGlobe(
           label,
           anchor: new Vector3(),
           shape: null,
-          bite: "",
+          contacts: [],
+          bite: null,
         };
         fronts.set(key, front);
       }
@@ -477,28 +545,41 @@ export function createGlobe(
           owners[other] === target &&
           regionOf(other) === pressure.region,
       );
-      const shape = sides.map(({ cell, side }) => `${cell}:${side}`).join(",");
+      const pressed = (from: number, to: number) =>
+        owners[from] === pressure.power &&
+        owners[to] === target &&
+        regionOf(to) === pressure.region;
+      const landings = crossings.flatMap(({ id, a, b }) =>
+        pressed(a, b) ? [{ id, from: a, to: b }] : pressed(b, a) ? [{ id, from: b, to: a }] : [],
+      );
+      const shape = [
+        ...sides.map(({ cell, side }) => `${cell}:${side}`),
+        ...landings.map(({ from, to }) => `${from}>${to}`),
+      ].join(",");
       if (shape !== front.shape) {
         front.shape = shape;
-        redraw(front.line, sides, 1.006);
+        front.bite = null;
+        front.contacts = [
+          ...sides.map(byLand),
+          ...landings.map(({ id, from, to }) => bySea(id, from, to)),
+        ];
+        restring(front.line, strokes(front.contacts));
         front.anchor.set(0, 0, 0);
-        for (const { cell, side } of sides) {
-          const corner = cells[cell].corners[side];
-          front.anchor.x += corner.x;
-          front.anchor.y += corner.y;
-          front.anchor.z += corner.z;
+        for (const { from } of front.contacts) {
+          front.anchor.x += from.x;
+          front.anchor.y += from.y;
+          front.anchor.z += from.z;
         }
-        if (sides.length > 0) {
+        if (front.contacts.length > 0) {
           front.anchor.setLength(1.02);
         }
       }
-      const bites = sides.flatMap(({ cell, side }): Bite[] => {
-        const joint = jointBetween.get(cell * landCount + across[cell][side]);
-        const breach = pressure.breaches.find((known) => known.joint === joint);
-        return breach === undefined ? [] : [{ cell, side, progress: breach.progress }];
+      const bites = front.contacts.flatMap((contact): Bite[] => {
+        const breach = pressure.breaches.find((known) => known.joint === contact.joint);
+        return breach === undefined ? [] : [{ contact, progress: breach.progress }];
       });
       const bite = bites
-        .map(({ cell, side, progress }) => `${cell}:${side}:${progress.toFixed(3)}`)
+        .map(({ contact, progress }) => `${contact.joint}:${progress.toFixed(3)}`)
         .join(",");
       if (bite !== front.bite) {
         front.bite = bite;
@@ -514,7 +595,7 @@ export function createGlobe(
       const text = active
         ? `⚔ ${pressure.commit.toFixed(0)}`
         : `in ${pressure.activeAt - current.view.tick}`;
-      front.label.textContent = sides.length > 0 ? text : "";
+      front.label.textContent = front.contacts.length > 0 ? text : "";
       front.label.style.color = `#${powerColor(pressure.power).toString(16).padStart(6, "0")}`;
     }
     for (const [key, front] of fronts) {

@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createWorld, dot, outlineOf, subtract, type Vector } from "@barycenter/sim";
+import { angleBetween, createWorld, dot, outlineOf, subtract, type Vector } from "@barycenter/sim";
 import {
   arc,
   areaOf,
+  barAcross,
   buildCells,
   heartOf,
+  landfall,
   nearest,
   neighborsAcross,
   outlineOfCell,
@@ -187,4 +189,41 @@ test("a rim keeps the same distance from every side of a tooth", () => {
   const beyond = (point: Vector) => (3 * point.x + point.y - 3) / slope;
   assert.ok(Math.abs(beyond(rim.right) - 0.25) < 1e-12);
   assert.ok(Math.abs(beyond(rim.tip) - 0.25) < 1e-12);
+});
+
+test("a crossing makes landfall on the near edge of the far cell", () => {
+  let crossings = 0;
+  for (const seed of [1, 2, 3]) {
+    const outline = outlineOf(createWorld({ seed }).map);
+    const points = [...outline.cells.map((cell) => cell.position), ...outline.oceans];
+    const across = neighborsAcross(buildCells(points));
+    for (const { a, b } of outline.joints) {
+      if (across[a].includes(b)) {
+        continue;
+      }
+      crossings += 1;
+      for (const [from, to] of [
+        [a, b],
+        [b, a],
+      ]) {
+        const shore = landfall(points, from, to, 24);
+        assert.equal(nearest(points, shore), to);
+        const sailed = angleBetween(points[from], shore);
+        const left = angleBetween(shore, points[to]);
+        assert.ok(Math.abs(sailed + left - angleBetween(points[from], points[to])) < 1e-9);
+        const back = arc(shore, points[from], 100, 1, 0)[1];
+        assert.notEqual(nearest(points, back), to);
+      }
+    }
+  }
+  assert.ok(crossings > 0);
+});
+
+test("a bar lies across a heading with its middle on the given point", () => {
+  const at = { x: 0, y: 0, z: 1 };
+  const [left, right] = barAcross(at, { x: 0.3, y: 0, z: -0.2 }, 0.5);
+  assert.ok(Math.abs(lengthOf(subtract(right, left)) - 0.5) < 1e-12);
+  assert.ok(Math.abs(left.x) < 1e-12 && Math.abs(right.x) < 1e-12);
+  assert.ok(Math.abs(left.y + right.y) < 1e-12);
+  assert.ok(Math.abs(left.z - 1) < 1e-12 && Math.abs(right.z - 1) < 1e-12);
 });
