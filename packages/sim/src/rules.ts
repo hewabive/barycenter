@@ -22,8 +22,27 @@ export function lossOf(constants: Constants, grade: number): number {
   return constants.hopLoss * constants.roadRelief ** grade;
 }
 
+const passes = { hopLoss: Number.NaN, roadRelief: Number.NaN, byGrade: [] as number[] };
+
+function passTableOf(constants: Constants): number[] {
+  const stale =
+    passes.hopLoss !== constants.hopLoss ||
+    passes.roadRelief !== constants.roadRelief ||
+    passes.byGrade.length <= constants.maxGrade;
+  if (stale) {
+    passes.hopLoss = constants.hopLoss;
+    passes.roadRelief = constants.roadRelief;
+    passes.byGrade = Array.from(
+      { length: constants.maxGrade + 1 },
+      (_, grade) => 1 - lossOf(constants, grade),
+    );
+  }
+  return passes.byGrade;
+}
+
 export function passOf(state: State, joint: number): number {
-  return 1 - lossOf(state.constants, state.joints[joint].grade);
+  const grade = state.joints[joint].grade;
+  return passTableOf(state.constants)[grade] ?? 1 - lossOf(state.constants, grade);
 }
 
 export function roadCostOf(constants: Constants, grade: number): number {
@@ -117,7 +136,9 @@ export function dialOf(state: State, cell: number): number {
 }
 
 export function spread(state: State, source: number[]): number[] {
-  const { cells, map } = state;
+  const { cells, map, joints } = state;
+  const table = passTableOf(state.constants);
+  const worst = 1 - state.constants.hopLoss;
   const potential = source.slice();
   const waiting = new Array<boolean>(cells.length).fill(false);
   const queue: number[] = [];
@@ -136,7 +157,7 @@ export function spread(state: State, source: number[]): number[] {
       if (cells[link.cell].owner !== owner) {
         continue;
       }
-      const carried = potential[cell] * passOf(state, link.joint);
+      const carried = potential[cell] * (table[joints[link.joint].grade] ?? worst);
       if (carried <= potential[link.cell] + EPSILON) {
         continue;
       }

@@ -47,6 +47,9 @@ export function mustersOf(state: State, viewer: number, lanes: Lane[]): Musters 
 
   const goalOf = (cell: number): number | null => {
     const heading = headingOf(field, cell);
+    if (heading === null) {
+      return null;
+    }
     let reached: number | null = null;
     for (let link = bestLink(state, cell, heading); link !== null; ) {
       reached = link.cell;

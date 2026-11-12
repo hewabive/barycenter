@@ -121,7 +121,7 @@ Force is tied to the land through garrisons.
 
 - The garrison order names a node and a size. The simulation builds room for that much force in the hub of the player's holding there. Room costs matter, takes time to build and needs energy upkeep even when empty. A hub can house more as its level grows. Room that no order asks for is slowly run down.
 - The room in all garrisons of a power caps its force. Shipyards build up to the cap, and force above it melts away, so a lost garrison shrinks the army it housed.
-- Force that no front asks for rests in a garrison. A front draws force from the nearest garrisons that have it, for attack and for defense alike, and force that a front lets go returns to a garrison with room.
+- Force that no front asks for rests in a garrison. A front draws force from the nearest garrisons that have it, for attack and for defense alike. Force stays at its front while the order stands and moves only to another front that is short. Once the order is gone it returns to a garrison with room.
 - Force at rest needs a fraction of the energy of force in the field, and force on the move loses a share on every hop like everything else. A far front reached over poor ground is dear.
 - A cell cut off from its capital is stranded, and force there melts quickly. A strip one cell wide is a supply line that one captured cell cuts.
 - A captured cell loses part of its garrison room along with its level.
@@ -225,7 +225,7 @@ Stage 2 moves the simulation onto cells. It is built.
 
 Stage 2 tests whether the game gains depth without the player gaining work.
 
-Play of stage 2 found the game a race of expansion. Land cost nothing to hold, the shape of a power did not matter and a severed piece lived on as before, so the winning way was to grow in thin strips and fence rivals off. The economy ran itself and drew no attention, and the leaning stayed untouched, while the war asked for finer control. Three changes answer this. They are built one after another, and balance is left until all three are in.
+Play of stage 2 found the game a race of expansion. Land cost nothing to hold, the shape of a power did not matter and a severed piece lived on as before, so the winning way was to grow in thin strips and fence rivals off. The economy ran itself and drew no attention, and the leaning stayed untouched, while the war asked for finer control. Three changes answer this. All three are built, and their constants are set only coarsely.
 
 - Roads, as described under Logistics. Built.
 - Garrisons that house force, cap it and make force in the field dearer. Built.
@@ -239,13 +239,18 @@ Stage 4 splits matter into kinds with prices and values. It is not designed in d
 
 ## Open questions
 
-- No human has judged yet whether stage 2 passes its test.
+- No human has played with roads, garrisons and aims yet.
+- Land is still free to hold. A taken cell pays from the first tick and has no upkeep, so expansion stays the best move, and roads and garrisons punish only its shape. The brake meant for this is cohesion.
+- While a power expands, its cells build themselves and matter hardly moves, so the loss on the way takes only a few percent of what is produced.
+- Bots do not aim their attacks and cut a supply line only by chance.
+- Energy is not limited by capacity, so a strip one cell wide carries any amount of it.
+- The hub of a holding, where its garrison stands and its trunk roads meet, is chosen by the simulation. The player may need a say in it.
+- The leaning went untouched in play. Whether the player keeps it is undecided.
 - The constants are preliminary. They were adjusted only until bots played sensibly, and real tuning needs play with the constants panel.
-- In a series of 12 bot matches of 6000 ticks each doctrine ended with about a third of the cells and was eliminated once, no match was left with a single power, and five regions on average were shared at the end.
-- The late game still goes quiet. In two thirds of those matches no cell changed hands in the last third: force piles up on both sides of a front and nothing spends it.
-- A power that has built every cell to its cap has nothing left to spend matter on.
+- In a series of 12 bot matches of 6000 ticks each doctrine ended with about a third of the cells, two powers were eliminated, no match was left with a single power, and four regions on average were shared at the end. About 22 cells a match changed hands between powers.
+- In 2 of those 12 matches no cell changed hands in the last third. Before roads and garrisons it was 8 of 12.
+- A power that has built every cell to its cap has nothing left to spend matter on. Its surplus then circulates and a tenth to a fifth of its output is lost on the way.
 - The client shows regions by number and lets values other than flows jump between ticks.
-- Without roles the player may have too few levers. More are to be added where play shows the need.
 - Kinds of matter: how many functions there are and which, and whether energy, force and knowledge are split in the same way. Kinds of force would be unit types and kinds of knowledge a technology tree, and both are absent so far.
 - The governor is not designed, and its logic may be simple. It is also undecided how a body is simulated when only some of the powers on it have folded.
 - Cohesion, knowledge, border and gift are stated for whole nodes and must be restated for holdings and for borders that run inside a node.

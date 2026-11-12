@@ -26,7 +26,8 @@ interface Survey {
   own: Own[];
   campaigns: Map<string, PressureView>;
   totalForce: number;
-  forceBudget: number;
+  levels: number;
+  supply: number;
 }
 
 interface Option {
@@ -49,8 +50,6 @@ interface Guard {
   routine: Map<number, number>;
 }
 
-const POWER_BRANCH = BRANCHES.indexOf("power");
-const FORCE_BUDGET_SHARE = 0.8;
 const LEAN_STEP = 0.02;
 const DIAL_STEP = 0.05;
 const GARRISON_STEP = 1;
@@ -60,6 +59,10 @@ const BASE_THREAT = 2;
 const BASE_FRONT = 2;
 const BASE_PASSES = 3;
 const FORCE_FLOOR = 10;
+const FORCE_SHRINK = 0.95;
+const FULL_SHARE = 0.8;
+const SUPPLY_AMPLE = 0.97;
+const SUPPLY_SHORT = 0.9;
 const GRAB_RATIO = 2;
 const HOLD_RATIO = 1.2;
 const RETREAT_RATIO = 0.7;
@@ -85,7 +88,7 @@ export function decide(
   return [
     ...setLean(survey, doctrine),
     ...setDials(survey, doctrine),
-    ...setGarrisons(survey, guard, plan),
+    ...setGarrisons(survey, doctrine, guard, plan),
     ...plan.commands,
     ...layRoads(survey, plan),
   ];
@@ -98,17 +101,16 @@ function keyOf(region: number, target: number | null): string {
 function look(outline: Outline, constants: Constants, view: View): Survey {
   const me = view.power;
   const own: Own[] = [];
-  let spareEnergy = 0;
+  let cells = 0;
+  let supplied = 0;
   for (const region of view.regions) {
     const mine = region.holdings?.find((holding) => holding.owner === me);
     if (region.estate === null || region.nature === null || mine === undefined) {
       continue;
     }
     own.push({ id: region.id, region, estate: region.estate, mine });
-    const generation =
-      constants.baseEnergy * mine.cells + constants.energyRate * mine.profile[POWER_BRANCH];
-    spareEnergy += region.nature.energyRichness * generation;
-    spareEnergy -= constants.upkeepPerLevel * mine.level;
+    cells += mine.cells;
+    supplied += mine.cells * region.estate.supply;
   }
   const campaigns = new Map<string, PressureView>();
   for (const pressure of view.pressures) {
@@ -124,12 +126,24 @@ function look(outline: Outline, constants: Constants, view: View): Survey {
     own,
     campaigns,
     totalForce: own.reduce((sum, holding) => sum + holding.mine.force, 0),
-    forceBudget: Math.max(0, (spareEnergy * FORCE_BUDGET_SHARE) / upkeepOf(constants)),
+    levels: own.reduce((sum, holding) => sum + holding.mine.level, 0),
+    supply: cells > 0 ? supplied / cells : 1,
   };
 }
 
-function upkeepOf(constants: Constants): number {
-  return (constants.upkeepPerForce * (1 + constants.restUpkeep)) / 2 + constants.upkeepPerQuarter;
+function armyOf(survey: Survey, doctrine: Doctrine): number {
+  const ordered = survey.own.reduce(
+    (sum, holding) => sum + Math.min(holding.estate.garrison, holding.estate.quartersLimit),
+    0,
+  );
+  const ceiling = Math.max(FORCE_FLOOR, survey.levels * (0.3 + doctrine.aggression));
+  let wanted = ordered;
+  if (survey.supply < SUPPLY_SHORT) {
+    wanted = ordered * FORCE_SHRINK;
+  } else if (survey.supply >= SUPPLY_AMPLE && survey.totalForce >= ordered * FULL_SHARE) {
+    wanted = Math.max(ordered * FORCE_GROWTH, ordered + FORCE_STEP);
+  }
+  return Math.max(FORCE_FLOOR, Math.min(ceiling, wanted));
 }
 
 function marginOf(doctrine: Doctrine): number {
@@ -299,7 +313,7 @@ function planPressure(survey: Survey, doctrine: Doctrine, guard: Guard): Plan {
         return;
       }
       if (uncommitted < option.required) {
-        const affordable = guarded + option.required <= survey.forceBudget;
+        const affordable = guarded + option.required <= armyOf(survey, doctrine);
         const ground = stagingGround(survey, option.region);
         if (mayStage && !plan.active && plan.staging.size === 0 && affordable && ground !== null) {
           plan.staging.set(ground, option.required);
@@ -358,10 +372,8 @@ function setDials(survey: Survey, doctrine: Doctrine): Command[] {
   return commands;
 }
 
-function setGarrisons(survey: Survey, guard: Guard, plan: Plan): Command[] {
-  const cap = survey.view.forceCap;
-  const growth = Math.max(cap * FORCE_GROWTH, cap + FORCE_STEP);
-  let left = Math.max(FORCE_FLOOR, Math.min(survey.forceBudget, growth));
+function setGarrisons(survey: Survey, doctrine: Doctrine, guard: Guard, plan: Plan): Command[] {
+  let left = armyOf(survey, doctrine);
   const weights = new Map<number, number>();
   for (const holding of survey.own) {
     const border = holding.estate.exposure > 0 ? BASE_BORDER : 0;

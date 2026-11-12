@@ -118,8 +118,11 @@ export function forceFieldOf(state: State, lanes: Lane[]): ForceField {
   return { need, rest, held: need.map((wanted, id) => wanted + rest[id]), toFront, toHome };
 }
 
-export function headingOf(field: ForceField, cell: number): number[] {
-  return field.toFront[cell] > EPSILON ? field.toFront : field.toHome;
+export function headingOf(field: ForceField, cell: number): number[] | null {
+  if (field.toFront[cell] > EPSILON) {
+    return field.toFront;
+  }
+  return field.need[cell] > EPSILON ? null : field.toHome;
 }
 
 export function routeForce(state: State, field: ForceField): void {
@@ -134,7 +137,8 @@ export function routeForce(state: State, field: ForceField): void {
     if (current.owner === null || free <= EPSILON) {
       continue;
     }
-    const link = bestLink(state, cell, headingOf(field, cell));
+    const heading = headingOf(field, cell);
+    const link = heading === null ? null : bestLink(state, cell, heading);
     if (link === null) {
       continue;
     }

@@ -131,7 +131,9 @@ function reasonsOf(game: Game, region: number, estate: Estate, muster: Muster): 
   }
   const idle = muster.reserve - routed;
   if (idle >= SHOWN) {
-    reasons.push(`${amount(idle)} stands still: no front asks for it and no garrison has room`);
+    reasons.push(
+      `${amount(idle)} stands still: it waits at its front, or no garrison in reach has room`,
+    );
   }
   return reasons;
 }

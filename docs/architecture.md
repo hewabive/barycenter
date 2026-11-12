@@ -66,7 +66,7 @@ Messages are JSON over one WebSocket. A client first joins a room. A room that d
 - For every pressure a view gives the force committed and its breaches: the contacts that carry force into a cell whose siege has begun, each with the progress of that siege. The force is worked out for the coming tick with the function the tick uses, so the map and the force report agree. Breaches that start in a region the seat cannot see are left out.
 - The first join of a seat returns a secret token. Rejoining that seat requires the token, and the newer connection replaces the older one.
 - Everything a client sends is parsed field by field, and unknown fields are dropped. The core then checks ownership and ranges.
-- Messages are compressed by the WebSocket extension. A view of the first planet is 12 to 18 KB of JSON and 2 to 4 KB on the wire. The map sent on joining is 45 KB and 9 KB on the wire.
+- Messages are compressed by the WebSocket extension. A view of the first planet is 11 to 23 KB of JSON and 1 to 6 KB on the wire. The map sent on joining is 45 KB and 9 KB on the wire.
 
 ## Server
 
@@ -100,8 +100,9 @@ Messages are JSON over one WebSocket. A client first joins a room. A room that d
 
 - A map is made from 400 points on the sphere: about 250 land cells, joined into regions by growing them outward from seeds at uneven speeds, with mountains slowing the growth so that ranges tend to become borders.
 - Neighbors come from the hull of the points, built point by point: 6 ms for 400 points and 15 ms for 800. Testing every triple of points took 46 s for 680.
-- With 250 cells a tick takes 0.8 ms and the three bots another 0.1 ms. At the top speed of 16 ticks a second this is under 2% of one processor core. A save is about 215 KB.
-- A series of 12 bot matches of 6000 ticks takes about 50 s on one thread. The match runner accepts changed constants, so a tuning idea can be tried on a whole series.
+- With 250 cells a tick takes 1.0 ms and the three bots another 0.2 ms. At the top speed of 16 ticks a second this is about 2% of one processor core. A save is about 250 KB.
+- Almost half of a tick goes into finding the way that loses least: once for matter, twice for force, once for every round of energy and once for every road order.
+- A series of 12 bot matches of 6000 ticks takes about 90 s on one thread. The match runner accepts changed constants, so a tuning idea can be tried on a whole series.
 - A full view every tick stays affordable, but the compact or delta encoding listed under Deferred comes closer as maps grow.
 
 Deposits and stocks are stored by kind from the start, with a single kind until matter is split in stage 4. Once kinds multiply, only the dear ones should be carried from cell to cell and the rest counted as totals per power: by estimate, thirty kinds carried in full would make a tick about ten times slower.

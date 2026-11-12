@@ -2,12 +2,12 @@
 
 A browser space strategy sandbox in which attention stays on the frontier. Territory that has matured is handed over to self-rule and becomes a single node of a larger map: the regions of a planet, then the worlds of a star system, then neighboring stars.
 
-Status: the second stage is playable. One player faces two bot rivals on a single planet. The player gives orders to regions, and the game works them out on the cells each region is made of.
+Status: the second stage is playable, with roads, garrisons and aimed attacks added after its first play. One player faces two bot rivals on a single planet. The player gives orders to regions, and the game works them out on the cells each region is made of.
 
 ## What makes it different
 
 - One rule set at every scale: nodes produce, edges carry, pressure captures.
-- Orders are coarser than the world: borders run inside regions and move cell by cell without any order naming a cell.
+- Orders are coarser than the world: borders run inside regions and move cell by cell, and only the aim of an attack names a cell.
 - Orders are standing states, and time runs in ticks at a speed the player chooses.
 - Whatever the player delegates gains a will of its own and may secede.
 - Rivals announce their intentions before they act.
@@ -45,7 +45,7 @@ While developing, run the server and the client with live reload and open `http:
 
     pnpm dev
 
-Click a region to select it, then settle its neutral land or press a rival from the panel. The sliders in the panel set the leaning of the whole power. Space pauses and resumes, and the keys 1 to 4 set the speed. The address accepts `?room=name` to keep several games apart, and `?seed=` and `?rivals=` to set up a new one.
+Click a region to select it, then settle its neutral land or press a rival from the panel. The same panel sets the garrison of the region, lays roads to its neighbors and aims an attack at one cell. The sliders in the panel set the leaning of the whole power. Space pauses and resumes, and the keys 1 to 4 set the speed. The address accepts `?room=name` to keep several games apart, and `?seed=` and `?rivals=` to set up a new one.
 
 The same page works on a phone or tablet: drag to turn the globe, pinch to zoom and tap a region to open its sheet. To reach the game from another device on the local network, open port 5183 of the development machine, or start the server with `--host 0.0.0.0`.
 
