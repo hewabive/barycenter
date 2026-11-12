@@ -269,6 +269,55 @@ test("a save from another format is set aside and a fresh game starts", async ()
   }
 });
 
+test("a snapshot of a running game is written beside the saves", async () => {
+  const folder = await mkdtemp(join(tmpdir(), "barycenter-saves-"));
+  try {
+    const server = await startServer({ ...base, saves: folder });
+    try {
+      const client = await connect(server);
+      client.send(joining("theta"));
+      await client.next("welcome");
+      client.send({
+        type: "triggers",
+        triggers: { announced: false, territory: false, discovered: false },
+      });
+      client.send({ type: "time", paused: false, speed: 1 });
+      await viewAt(client, 5);
+      client.send({ type: "snapshot", selected: 2 });
+      const { name } = await client.next("snapshot");
+
+      const path = join(folder, "snapshots", `${name}.json`);
+      const written = JSON.parse(await readFile(path, "utf8"));
+      assert.ok(written.state.tick >= 5);
+      assert.equal(name, `theta-${written.state.tick}`);
+      assert.equal(written.options.id, name);
+      assert.equal(written.seat, 0);
+      assert.equal(written.selected, 2);
+      assert.equal(written.time.paused, false);
+      assert.deepEqual(written.tokens, [null, null, null]);
+      client.close();
+    } finally {
+      await server.close();
+    }
+  } finally {
+    await rm(folder, { recursive: true, force: true });
+  }
+});
+
+test("a server without saves takes no snapshots", async () => {
+  const server = await startServer(base);
+  try {
+    const client = await connect(server);
+    client.send(joining("iota"));
+    await client.next("welcome");
+    client.send({ type: "snapshot", selected: null });
+    assert.equal((await client.next("error")).reason, "snapshots are disabled");
+    client.close();
+  } finally {
+    await server.close();
+  }
+});
+
 test("the server hands out the built client and nothing outside it", async () => {
   const folder = await mkdtemp(join(tmpdir(), "barycenter-client-"));
   try {

@@ -232,6 +232,7 @@ input[type="range"] {
 }
 
 .room,
+.snapshot,
 .restart {
   order: 2;
 }

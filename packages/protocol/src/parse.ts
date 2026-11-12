@@ -158,6 +158,11 @@ export function parseClientMessage(text: string): ClientMessage | null {
   if (value.type === "report") {
     return isBoolean(value.active) ? { type: "report", active: value.active } : null;
   }
+  if (value.type === "snapshot") {
+    const selected = value.selected ?? null;
+    const region = isNumber(selected) && Number.isInteger(selected) && selected >= 0;
+    return selected === null || region ? { type: "snapshot", selected } : null;
+  }
   if (value.type === "tune") {
     const constants = parseConstants(value.constants);
     return constants === null ? null : { type: "tune", constants };

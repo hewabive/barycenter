@@ -1,6 +1,7 @@
 import { randomInt } from "node:crypto";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import { join } from "node:path";
 import {
   type ClientMessage,
   PROTOCOL,
@@ -39,6 +40,7 @@ type Opened = Entry | { error: string };
 const DEFAULT_RIVALS = ["aggressor", "builder"];
 const PUMP_INTERVAL = 20;
 const SAVE_EVERY = 1000;
+const SNAPSHOTS = "snapshots";
 const MAX_PAYLOAD = 64 * 1024;
 const COMPRESS_FROM = 1024;
 const MAX_MESSAGES_PER_SECOND = 60;
@@ -70,6 +72,25 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       await writeSave(options.saves, entry.room.options.id, entry.room.save());
     } catch (error) {
       process.stderr.write(`Could not save room ${entry.room.options.id}: ${String(error)}\n`);
+    }
+  };
+
+  const capture = async (
+    entry: Entry,
+    seat: number,
+    selected: number | null,
+  ): Promise<ServerMessage> => {
+    if (options.saves === null) {
+      return { type: "error", reason: "snapshots are disabled" };
+    }
+    const snapshot = entry.room.snapshot(seat, selected);
+    const name = snapshot.options.id;
+    try {
+      await writeSave(join(options.saves, SNAPSHOTS), name, snapshot);
+      return { type: "snapshot", name };
+    } catch (error) {
+      process.stderr.write(`Could not write snapshot ${name}: ${String(error)}\n`);
+      return { type: "error", reason: "snapshot could not be written" };
     }
   };
 
@@ -191,7 +212,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         return;
       }
       if (entry !== null) {
-        entry.room.handle(seat, message);
+        if (message.type === "snapshot") {
+          void capture(entry, seat, message.selected).then((reply) => send(socket, reply));
+        } else {
+          entry.room.handle(seat, message);
+        }
         return;
       }
       if (message.type !== "join" || joining) {

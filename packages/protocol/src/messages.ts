@@ -51,6 +51,7 @@ export type ClientMessage =
   | { type: "time"; paused: boolean | null; speed: number | null }
   | { type: "triggers"; triggers: Triggers }
   | { type: "report"; active: boolean }
+  | { type: "snapshot"; selected: number | null }
   | { type: "tune"; constants: Partial<Constants> };
 
 export type ServerMessage =
@@ -73,6 +74,7 @@ export type ServerMessage =
   | { type: "room"; time: TimeState; seats: SeatInfo[] }
   | { type: "constants"; constants: Constants }
   | { type: "rejected"; rejections: RejectedOrder[] }
+  | { type: "snapshot"; name: string }
   | { type: "error"; reason: string };
 
 export function commandOf(order: Order, power: number): Command {

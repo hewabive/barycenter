@@ -7,6 +7,7 @@ export interface TopbarActions {
   time(paused: boolean | null, speed: number | null): void;
   triggers(triggers: Triggers): void;
   forces(): void;
+  snapshot(): void;
   restart(): void;
 }
 
@@ -23,6 +24,7 @@ const TRIGGER_LABELS: [keyof Triggers, string][] = [
 
 const STATS = ["tick", "regions", "cells", "levels", "force", "matter"] as const;
 const FORCES_HINT = "Where your force stands and why";
+const SNAPSHOT_HINT = "Write the state of this game to a file on the server, for debugging";
 
 export function createTopbar(root: HTMLElement, actions: TopbarActions): Topbar {
   let paused = true;
@@ -47,6 +49,11 @@ export function createTopbar(root: HTMLElement, actions: TopbarActions): Topbar 
   const notice = el("span", { class: "notice" });
   const status = el("span", { class: "status" });
   const room = el("span", { class: "name room" });
+  const snapshot = button("Snapshot", SNAPSHOT_HINT, () => {
+    root.classList.remove("open");
+    actions.snapshot();
+  });
+  snapshot.classList.add("snapshot");
   const restart = button("New game", "Start a fresh game in a new room", actions.restart);
   restart.classList.add("restart");
   const menu = button("☰", "More", () => root.classList.toggle("open"));
@@ -77,6 +84,7 @@ export function createTopbar(root: HTMLElement, actions: TopbarActions): Topbar 
       el("span", { class: "name" }, "pause on"),
       ...boxes.map((item) => item.wrapper),
       room,
+      snapshot,
       restart,
     ),
     el("span", { class: "alerts" }, notice, status),

@@ -95,6 +95,14 @@ test("time, triggers and tuning messages are checked", () => {
   assert.equal(parse({ type: "tune", constants: { buildRate: "fast" } }), null);
 });
 
+test("a snapshot request names the selected region or none", () => {
+  assert.deepEqual(parse({ type: "snapshot" }), { type: "snapshot", selected: null });
+  assert.deepEqual(parse({ type: "snapshot", selected: 3 }), { type: "snapshot", selected: 3 });
+  assert.equal(parse({ type: "snapshot", selected: -1 }), null);
+  assert.equal(parse({ type: "snapshot", selected: 1.5 }), null);
+  assert.equal(parse({ type: "snapshot", selected: "home" }), null);
+});
+
 test("anything that is not a known message is refused", () => {
   assert.equal(parseClientMessage("not json"), null);
   assert.equal(parseClientMessage("[]"), null);

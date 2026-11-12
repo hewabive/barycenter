@@ -79,6 +79,7 @@ const topbar = createTopbar(required<HTMLElement>("#topbar"), {
     link.send({ type: "triggers", triggers });
   },
   forces: forces.open,
+  snapshot: () => link.send({ type: "snapshot", selected }),
   restart: () => {
     const fresh = new URLSearchParams(window.location.search);
     fresh.set("room", `game-${Date.now().toString(36)}`);
@@ -145,6 +146,10 @@ function receive(message: ServerMessage): void {
   }
   if (message.type === "error") {
     topbar.status(`Server: ${message.reason}`);
+    return;
+  }
+  if (message.type === "snapshot") {
+    topbar.status(`Snapshot ${message.name} saved`);
     return;
   }
   if (game === null) {

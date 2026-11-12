@@ -265,6 +265,25 @@ test("a restored room continues exactly where the saved one stopped", () => {
   assert.equal(JSON.stringify(restored.save().state), JSON.stringify(original.room.save().state));
 });
 
+test("a snapshot opens as a room of its own with every seat free", () => {
+  const { room } = seated();
+  room.handle(0, { type: "time", paused: false, speed: 1 });
+  room.pump(2000);
+  const snapshot = room.snapshot(0, 3);
+  assert.ok(room.tick > 0);
+  assert.equal(snapshot.options.id, `test-${room.tick}`);
+  assert.equal(snapshot.seat, 0);
+  assert.equal(snapshot.selected, 3);
+  assert.equal(snapshot.time.paused, false);
+
+  const copy = Room.restore(JSON.parse(JSON.stringify(snapshot)), true, () => {});
+  assert.ok(copy);
+  assert.equal(copy.tick, room.tick);
+  const joined = copy.join(null, null);
+  assert.ok("seat" in joined);
+  assert.equal(joined.seat, 0);
+});
+
 test("a save from another format is not restored", () => {
   const { room } = seated();
   const saved = { ...room.save(), version: 99 };

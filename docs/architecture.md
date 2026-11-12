@@ -49,6 +49,7 @@ Messages are JSON over one WebSocket. A client first joins a room. A room that d
 | `time`      | pause, resume or change speed                                                                    |
 | `triggers`  | which events pause time for this seat                                                            |
 | `report`    | start or stop sending the force report with this seat's views                                    |
+| `snapshot`  | write the whole room to a file on the server, for debugging                                      |
 | `tune`      | change constants, where the server allows it                                                     |
 
 | From server | Meaning                                                                                          |
@@ -58,6 +59,7 @@ Messages are JSON over one WebSocket. A client first joins a room. A room that d
 | `room`      | time and seats, sent when either changes                                                         |
 | `constants` | the constants after tuning                                                                       |
 | `rejected`  | orders the core refused, with reasons                                                            |
+| `snapshot`  | the name of the snapshot that was written                                                        |
 | `error`     | a message the server could not act on                                                            |
 
 - A `view` also goes out at once when a seat asks for the force report, and carries that report until the seat tells the server to stop.
@@ -70,6 +72,7 @@ Messages are JSON over one WebSocket. A client first joins a room. A room that d
 - The server listens on the local machine unless a host is given. It has no accounts yet, so a seat token is the only protection.
 - A room is saved when its last player leaves, every thousand ticks while it runs, and on shutdown. A save holds the whole state, so a restored room continues identically.
 - A save written by another version of the format is set aside under another name, and a fresh game starts in its place.
+- A snapshot is a debugging aid that keeps the moment a question came up. On request the server writes the room as it stands to `snapshots/<room>-<tick>.json` inside the saves folder and answers with that name. The file is a save without seat tokens, plus the seat that asked, the region it had selected and the state of the clock. It holds everything, with no fog. Copied into a saves folder, it opens as a room of its own.
 - Live tuning is off unless the server is started with the tuning flag.
 - The server also hands out the built client, so one process and one address are enough to play. Text files are sent gzipped, 155 KB instead of 611 KB for the script, and files with a hash in their name are cached for good.
 
@@ -80,6 +83,7 @@ Messages are JSON over one WebSocket. A client first joins a room. A room that d
 - Flows are particles moving between the centers of neighboring cells. A strait is a dashed arc over the water.
 - Labels and panels are plain HTML over the canvas. A panel is rebuilt only when its structure changes; between rebuilds only its numbers are updated.
 - The force total in the top bar opens a report meant for debugging. One table lists the player's regions with the force standing as garrison, at a front and in reserve, the orders that ask for it and the region the reserve is heading to. The other lists, for every line of pressure the player takes part in, each pressed cell with its defense, the pressure on it and the most its contacts can carry, the progress of the siege and whether the cell can fall. The server works both out with the functions the tick uses, only for a seat that has the report open: the client asks when the dialog opens and tells the server to stop when it closes. An open report adds about 3 KB of JSON to each view of that seat.
+- The `Snapshot` button in the top bar asks the server for a snapshot and shows the name it was given.
 - The globe is drawn on demand: after a new view, a camera move or a resize, and continuously only while flows are moving. A paused game with a still camera draws nothing.
 - One page serves desktop and handheld. On a narrow upright screen the panel becomes a sheet under the globe that opens on selecting a region, and on any small screen the top bar keeps time controls and totals and moves the rest into a menu. Targets grow where the pointer is coarse.
 - Dragging turns the globe at the speed of the surface under the pointer at any zoom. A tap selects only when a single pointer went down and came up in place, so a pinch never changes the selection.

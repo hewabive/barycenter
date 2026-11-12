@@ -45,6 +45,13 @@ export interface SavedRoom {
   speed: number;
 }
 
+export interface Snapshot extends SavedRoom {
+  seat: number;
+  selected: number | null;
+  time: TimeState;
+}
+
+export type RoomMessage = Exclude<ClientMessage, { type: "snapshot" }>;
 export type Sink = (seat: number, message: ServerMessage) => void;
 export type JoinResult = { seat: number; token: string } | { error: string };
 
@@ -145,6 +152,17 @@ export class Room {
     };
   }
 
+  snapshot(seat: number, selected: number | null): Snapshot {
+    return {
+      ...this.save(),
+      options: { ...this.options, id: `${this.options.id}-${this.state.tick}` },
+      tokens: this.seats.map(() => null),
+      seat,
+      selected,
+      time: this.time(),
+    };
+  }
+
   join(wanted: number | null, token: string | null): JoinResult {
     const index =
       wanted ?? this.seats.findIndex((seat) => seat.doctrine === null && seat.token === null);
@@ -195,7 +213,7 @@ export class Room {
     };
   }
 
-  handle(index: number, message: ClientMessage): void {
+  handle(index: number, message: RoomMessage): void {
     switch (message.type) {
       case "join":
         this.sink(index, { type: "error", reason: "already joined" });
