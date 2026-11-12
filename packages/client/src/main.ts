@@ -6,7 +6,7 @@ import { required } from "./dom.ts";
 import { createForces } from "./forces.ts";
 import { createGlobe, type Globe } from "./globe.ts";
 import { createJournal } from "./journal.ts";
-import { type Game, report } from "./model.ts";
+import { type Aiming, type Game, report } from "./model.ts";
 import { createPanel } from "./panel.ts";
 import { createTopbar } from "./topbar.ts";
 import { createTuning, type Tuning } from "./tuning.ts";
@@ -34,6 +34,7 @@ let game: Game | null = null;
 let globe: Globe | null = null;
 let tuning: Tuning | null = null;
 let selected: number | null = null;
+let aiming: Aiming | null = null;
 let notice = "";
 
 const stage = required<HTMLElement>("#stage");
@@ -49,13 +50,27 @@ const refresh = () => {
     speed: game.time.speed,
     selected,
   });
-  panel.show(game, selected);
+  panel.show(game, selected, aiming);
   topbar.show(game, notice);
   forces.show(game);
 };
 
 const select = (region: number | null) => {
   selected = region;
+  refresh();
+};
+
+const pick = (region: number | null, cell: number | null) => {
+  const request = aiming;
+  aiming = null;
+  if (request === null || cell === null || region !== request.region) {
+    select(region);
+    return;
+  }
+  link.send({
+    type: "orders",
+    orders: [{ kind: "aim", region: request.region, target: request.target, cell }],
+  });
   refresh();
 };
 
@@ -90,6 +105,10 @@ const topbar = createTopbar(required<HTMLElement>("#topbar"), {
 const panel = createPanel(required<HTMLElement>("#panel"), {
   order: (order) => link.send({ type: "orders", orders: [order] }),
   select: focus,
+  aim: (request) => {
+    aiming = request;
+    refresh();
+  },
 });
 
 const compact = window.matchMedia("(max-width: 820px), (max-height: 520px)").matches;
@@ -132,7 +151,7 @@ function receive(message: ServerMessage): void {
       link.send({ type: "report", active: true });
     }
     if (globe === null) {
-      globe = createGlobe(stage, message.outline, select);
+      globe = createGlobe(stage, message.outline, pick);
     }
     if (message.tuning && tuning === null) {
       tuning = createTuning(required<HTMLElement>("#tuning"), message.constants, (constants) =>

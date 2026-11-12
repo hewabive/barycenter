@@ -4,7 +4,7 @@ import { resolveConflict } from "./conflict.ts";
 import { distributeEnergy } from "./energy.ts";
 import { explore } from "./explore.ts";
 import { decayForce, forceFieldOf, forceRoomOf, routeForce } from "./force.ts";
-import { lanesOf } from "./front.ts";
+import { lanesOf, lapseAims } from "./front.ts";
 import { matterFieldOf, produceMatter, routeMatter, spendMatter, worksOf } from "./matter.ts";
 import { convert, wantsOf } from "./profile.ts";
 import { lapseRoads, trunksOf, wearRoads } from "./roads.ts";
@@ -44,6 +44,7 @@ export function step(previous: State, commands: Command[]): StepResult {
   const { state, events, rejections } = issue(previous, commands);
 
   lapseRoads(state);
+  lapseAims(state);
   const lanes = lanesOf(state);
   const field = forceFieldOf(state, lanes);
   distributeEnergy(state, field.rest);

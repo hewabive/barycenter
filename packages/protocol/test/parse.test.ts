@@ -41,6 +41,8 @@ test("orders keep only the fields the core knows", () => {
       { kind: "road", edge: 3, active: true },
       { kind: "pressure", region: 5, target: null, active: false },
       { kind: "pressure", region: 5, target: 1, active: true },
+      { kind: "aim", region: 5, target: 1, cell: 40, power: 3 },
+      { kind: "aim", region: 5, target: null, cell: null },
     ],
   });
   assert.deepEqual(parsed, {
@@ -52,6 +54,8 @@ test("orders keep only the fields the core knows", () => {
       { kind: "road", edge: 3, active: true },
       { kind: "pressure", region: 5, target: null, active: false },
       { kind: "pressure", region: 5, target: 1, active: true },
+      { kind: "aim", region: 5, target: 1, cell: 40 },
+      { kind: "aim", region: 5, target: null, cell: null },
     ],
   });
 });
@@ -70,6 +74,7 @@ test("malformed orders are refused as a whole", () => {
     parse({ type: "orders", orders: [{ kind: "pressure", region: 2, active: true }] }),
     null,
   );
+  assert.equal(parse({ type: "orders", orders: [{ kind: "aim", region: 2, target: 1 }] }), null);
   assert.equal(parse({ type: "orders", orders: [{ kind: "teleport", region: 2 }] }), null);
   assert.equal(parse({ type: "orders", orders: "all" }), null);
   assert.equal(parse({ type: "orders", orders: new Array(257).fill(good) }), null);

@@ -103,6 +103,7 @@ export interface Pressure {
   region: number;
   target: number | null;
   activeAt: number;
+  aim: number | null;
 }
 
 export interface Constants {
@@ -188,7 +189,8 @@ export type Command =
   | { kind: "garrison"; power: number; region: number; value: number }
   | { kind: "lean"; power: number; branch: Branch; value: number }
   | { kind: "road"; power: number; edge: number; active: boolean }
-  | { kind: "pressure"; power: number; region: number; target: number | null; active: boolean };
+  | { kind: "pressure"; power: number; region: number; target: number | null; active: boolean }
+  | { kind: "aim"; power: number; region: number; target: number | null; cell: number | null };
 
 export type GameEvent =
   | { kind: "announced"; power: number; region: number; target: number; activeAt: number }

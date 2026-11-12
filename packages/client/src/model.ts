@@ -22,6 +22,11 @@ export interface Game {
   report: ForceReport | null;
 }
 
+export interface Aiming {
+  region: number;
+  target: number | null;
+}
+
 export interface Report {
   tick: number;
   text: string;

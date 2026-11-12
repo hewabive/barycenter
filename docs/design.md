@@ -75,13 +75,14 @@ Stocks of matter and force lie in cells, and the network moves them from cell to
 
 ## Orders
 
-Every order names a node or an edge between nodes. No order names a cell: which cells receive matter, hold force or are attacked next is decided by the simulation.
+Every order names a node or an edge between nodes, and the simulation decides which cells receive matter and hold force. One order reaches a level lower: the aim of a pressure names a cell.
 
 | Target | Order                | Effect                                                                   |
 | ------ | -------------------- | ------------------------------------------------------------------------ |
 | Node   | development priority | one dial from "gives everything to the network" to "pulls toward itself" |
 | Node   | garrison             | room for force built in the holding, where force rests                   |
 | Node   | pressure             | directs force at one holder's cells in the node                          |
+| Node   | aim                  | gives a pressure one cell to break through to                            |
 | Edge   | road                 | lays a trunk road between the holdings on its two sides                  |
 | Edge   | border               | closed, or trade: exchange of surpluses and spread of knowledge          |
 | Edge   | gift                 | a flow into a foreign node, to aid an ally or to feed a rival's colony   |
@@ -92,6 +93,8 @@ Every order names a node or an edge between nodes. No order names a cell: which 
 Development priority and garrison apply to the player's own holding in the node. A garrison is built in the hub of the holding.
 
 Pressure names a node and whose cells in it to press: neutral ground or one power. It can be ordered wherever the player's cells touch such cells, from a neighboring node or from inside the same one, and it lapses when that holder has no cells left there.
+
+A pressure may be given an aim: one cell of the pressed holder in that node. The attack then presses only where its line is nearest to the aim, so it drives a wedge toward that cell instead of pushing along the whole line. The aim lapses when its cell changes hands. At every scale the aim lies one level below the node, a cell on a planet and a region in a star system.
 
 No order sets what a node specializes in. The leaning is the only say the player has in it: with all dials level the economy answers shortages as they appear, and a raised dial builds that branch ahead of need across the whole power.
 
@@ -127,7 +130,7 @@ Force is tied to the land through garrisons.
 ## Conflict
 
 - There are no tactical battles.
-- Force directed at a node becomes pressure along the whole line where the attacker's cells touch foreign cells of that node.
+- Force directed at a node becomes pressure along the whole line where the attacker's cells touch foreign cells of that node, or along the part of that line nearest to the aim.
 - A cell changes owner once pressure on it has exceeded its defense for long enough, so a border moves cell by cell and can come to rest inside a node.
 - Pressure consumes force on both sides, the attacker's faster.
 - Pressure is limited by the width of the line of contact. A strong holding has to be pressed on a wide front or along a road.
@@ -226,7 +229,7 @@ Play of stage 2 found the game a race of expansion. Land cost nothing to hold, t
 
 - Roads, as described under Logistics. Built.
 - Garrisons that house force, cap it and make force in the field dearer. Built.
-- An aim for pressure, one level below the node.
+- An aim for pressure, one level below the node. Built.
 
 Deferred with them: a travel time for what moves, to be designed together with orbits, where it is the main rule, and roads that improve with knowledge.
 

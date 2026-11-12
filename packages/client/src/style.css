@@ -417,6 +417,13 @@ button.stat .value {
   font-size: 11px;
 }
 
+.label.aim {
+  padding: 0 3px;
+  font-size: 16px;
+  line-height: 18px;
+  border-radius: 50%;
+}
+
 dialog {
   width: min(820px, calc(100vw - 16px));
   max-height: calc(100dvh - 24px);

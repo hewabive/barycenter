@@ -45,6 +45,8 @@ function applyCommand(state: State, command: Command, events: GameEvent[]): stri
         command.active,
         events,
       );
+    case "aim":
+      return setAim(state, command.power, command.region, command.target, command.cell);
     default:
       return "unknown command";
   }
@@ -134,9 +136,34 @@ function setPressure(
     return "target is out of reach";
   }
   const activeAt = state.tick + (target === null ? 0 : state.constants.announceTicks);
-  state.pressures.push({ power, region, target, activeAt });
+  state.pressures.push({ power, region, target, activeAt, aim: null });
   if (target !== null) {
     events.push({ kind: "announced", power, region, target, activeAt });
   }
+  return null;
+}
+
+function setAim(
+  state: State,
+  power: number,
+  region: number,
+  target: number | null,
+  cell: number | null,
+): string | null {
+  const pressure = state.pressures.find(
+    (known) => known.power === power && known.region === region && known.target === target,
+  );
+  if (pressure === undefined) {
+    return "there is no such pressure to aim";
+  }
+  if (cell === null) {
+    pressure.aim = null;
+    return null;
+  }
+  const place = Number.isInteger(cell) ? state.map.cells[cell] : undefined;
+  if (place === undefined || place.region !== region || state.cells[cell].owner !== target) {
+    return "the aim is not a cell of the pressed holder in the region";
+  }
+  pressure.aim = cell;
   return null;
 }

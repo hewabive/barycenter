@@ -33,7 +33,7 @@ Tunable numbers live in one constants object inside the state, so they can be ch
 4. **Time is server state.** Pause and speed are commands, not client settings.
 5. **Static data is separate from dynamic data.** The map is sent once on joining. After that the player's full view of the arena is sent every tick, so reconnecting needs only one snapshot.
 6. **The core has no notion of a planet.** It knows cells and the joints between neighboring cells, regions that group cells, edges that group the joints between two regions, and owners. Positions are generated with the map but only the client uses them.
-7. **Rules run on cells and orders name regions.** A view therefore has two layers: a summary per region, from which bots decide and panels are drawn, and compact lists per cell and per flow, from which the globe is drawn.
+7. **Rules run on cells and orders name regions.** Only the aim of a pressure names a cell. A view therefore has two layers: a summary per region, from which bots decide and panels are drawn, and compact lists per cell and per flow, from which the globe is drawn.
 8. **The client decides nothing.** It draws the latest view. The motion of flows between ticks is cosmetic and derived from numbers the server sends, and smoothing of other values can be added without touching the server.
 
 Because orders are standing states and ticks are slow, the game needs neither client-side prediction nor lockstep synchronization.
@@ -90,6 +90,7 @@ Messages are JSON over one WebSocket. A client first joins a room. A room that d
 - The `Snapshot` button in the top bar asks the server for a snapshot and shows the name it was given.
 - The globe is drawn on demand: after a new view, a camera move or a resize, and continuously only while flows are moving. A paused game with a still camera draws nothing.
 - One page serves desktop and handheld. On a narrow upright screen the panel becomes a sheet under the globe that opens on selecting a region, and on any small screen the top bar keeps time controls and totals and moves the rest into a menu. Targets grow where the pointer is coarse.
+- The `Aim` button of an attack makes the next tap on the globe pick a cell instead of a region. The aim is marked with a cross in the attacker's color.
 - Dragging turns the globe at the speed of the surface under the pointer at any zoom. A tap selects only when a single pointer went down and came up in place, so a pinch never changes the selection.
 - On a handheld the client pauses the game when the page is hidden and caps the motion of flows at 30 frames a second. On returning after half a minute or more it opens a fresh connection before dropping the old one, because a suspended page can keep a dead socket that still looks open.
 - The seat token is kept in the browser's local storage, so reloading the page returns to the same seat.

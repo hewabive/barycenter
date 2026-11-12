@@ -31,7 +31,7 @@ function parseOrder(value: unknown): Order | null {
   if (!isFields(value)) {
     return null;
   }
-  const { kind, region, edge, target, active, branch } = value;
+  const { kind, region, edge, target, active, branch, cell } = value;
   const amount = value.value;
   if (kind === "dial" && isNumber(region) && isNumber(amount)) {
     return { kind, region, value: amount };
@@ -48,6 +48,9 @@ function parseOrder(value: unknown): Order | null {
   const targeted = target === null || isNumber(target);
   if (kind === "pressure" && isNumber(region) && targeted && isBoolean(active)) {
     return { kind, region, target, active };
+  }
+  if (kind === "aim" && isNumber(region) && targeted && (cell === null || isNumber(cell))) {
+    return { kind, region, target, cell };
   }
   return null;
 }

@@ -111,6 +111,8 @@ interface Front {
   teeth: Mesh<BufferGeometry, MeshBasicMaterial>;
   label: HTMLElement;
   anchor: Vector3;
+  mark: HTMLElement;
+  aim: Vector3;
   shape: string | null;
   contacts: Contact[];
   bite: string | null;
@@ -173,7 +175,7 @@ function along(from: Vector, to: Vector, share: number, radius: number, target: 
 export function createGlobe(
   stage: HTMLElement,
   outline: Outline,
-  onPick: (region: number | null) => void,
+  onPick: (region: number | null, cell: number | null) => void,
 ): Globe {
   const renderer = new WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -538,7 +540,8 @@ export function createGlobe(
         teeth.frustumCulled = false;
         scene.add(teeth);
         const label = el("div", { class: "label pressure" });
-        labels.append(label);
+        const mark = el("div", { class: "label aim" });
+        labels.append(label, mark);
         front = {
           region: pressure.region,
           line,
@@ -546,6 +549,8 @@ export function createGlobe(
           teeth,
           label,
           anchor: new Vector3(),
+          mark,
+          aim: new Vector3(),
           shape: null,
           contacts: [],
           bite: null,
@@ -612,6 +617,12 @@ export function createGlobe(
         : `in ${pressure.activeAt - current.view.tick}`;
       front.label.textContent = front.contacts.length > 0 ? text : "";
       front.label.style.color = `#${powerColor(pressure.power).toString(16).padStart(6, "0")}`;
+      front.mark.textContent = pressure.aim === null ? "" : "✛";
+      front.mark.style.color = front.label.style.color;
+      if (pressure.aim !== null) {
+        const site = sites[pressure.aim];
+        front.aim.set(site.x, site.y, site.z).setLength(1.02);
+      }
     }
     for (const [key, front] of fronts) {
       if (!wanted.has(key)) {
@@ -621,6 +632,7 @@ export function createGlobe(
         front.material.dispose();
         lineMaterials.splice(lineMaterials.indexOf(front.material), 1);
         front.label.remove();
+        front.mark.remove();
         fronts.delete(key);
       }
     }
@@ -821,6 +833,8 @@ export function createGlobe(
       put(label, regionSpots[id]);
     });
     for (const front of fronts.values()) {
+      locate(front.mark, front.aim, frontSpot);
+      put(front.mark, frontSpot);
       locate(front.label, front.anchor, frontSpot);
       put(front.label, frontSpot);
       clear(front, frontSpot);
@@ -877,11 +891,12 @@ export function createGlobe(
     );
     raycaster.setFromCamera(pointer, camera);
     if (raycaster.ray.intersectSphere(ball, hit) === null) {
-      onPick(null);
+      onPick(null, null);
       return;
     }
     const cell = nearest(sites, { x: hit.x, y: hit.y, z: hit.z });
-    onPick(cell < landCount ? regionOf(cell) : null);
+    const land = cell < landCount;
+    onPick(land ? regionOf(cell) : null, land ? cell : null);
   });
 
   let previous = performance.now();

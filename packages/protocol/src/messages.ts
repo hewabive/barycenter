@@ -1,6 +1,6 @@
 import type { Command, Constants, ForceReport, GameEvent, Outline, View } from "@barycenter/sim";
 
-export const PROTOCOL = 8;
+export const PROTOCOL = 9;
 export const SPEEDS = [1, 2, 4, 8];
 export const ROOM_NAME = /^[a-z0-9-]{1,32}$/;
 export const MAX_ORDERS = 256;
@@ -95,6 +95,14 @@ export function commandOf(order: Order, power: number): Command {
         target: order.target,
         active: order.active,
       };
+    case "aim":
+      return {
+        kind: "aim",
+        power,
+        region: order.region,
+        target: order.target,
+        cell: order.cell,
+      };
   }
 }
 
@@ -114,6 +122,13 @@ export function orderOf(command: Command): Order {
         region: command.region,
         target: command.target,
         active: command.active,
+      };
+    case "aim":
+      return {
+        kind: "aim",
+        region: command.region,
+        target: command.target,
+        cell: command.cell,
       };
   }
 }

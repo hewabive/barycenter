@@ -64,7 +64,7 @@ interface Seat {
   triggers: Triggers;
 }
 
-const SAVE_VERSION = 4;
+const SAVE_VERSION = 5;
 const THINK_EVERY = 5;
 const MAX_BURST = 32;
 

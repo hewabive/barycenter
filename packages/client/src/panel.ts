@@ -1,16 +1,17 @@
 import type { Order } from "@barycenter/protocol";
 import { BRANCHES, type Branch, type HoldingView } from "@barycenter/sim";
 import { amount, button, el, percent } from "./dom.ts";
-import { type Game, nameOf, pressureOn, summarize } from "./model.ts";
+import { type Aiming, type Game, nameOf, pressureOn, summarize } from "./model.ts";
 import { css, powerColor } from "./palette.ts";
 
 export interface PanelActions {
   order(order: Order): void;
   select(region: number): void;
+  aim(request: Aiming | null): void;
 }
 
 export interface Panel {
-  show(game: Game, selected: number | null): void;
+  show(game: Game, selected: number | null, aiming: Aiming | null): void;
 }
 
 type Refresh = (game: Game) => void;
@@ -24,6 +25,8 @@ const BRANCH_LABELS: Record<Branch, string> = {
 const LEANING_HINT = "50% builds a branch as the need appears, more builds it ahead of need";
 const GARRISON_HINT =
   "Room for force to build in this region. Force rests in its garrisons, and their sum caps your force";
+const AIM_HINT =
+  "Pick one of its cells on the globe. The attack then presses only where it is nearest to that cell";
 const ROAD_HINT =
   "Build a trunk road between your land on the two sides. A road loses less on the way and carries more";
 
@@ -54,9 +57,13 @@ function holdingIn(game: Game, region: number, owner: number | null): HoldingVie
   return game.view.regions[region].holdings?.find((holding) => holding.owner === owner);
 }
 
-function signatureOf(game: Game, selected: number | null): string {
+function signatureOf(game: Game, selected: number | null, aiming: Aiming | null): string {
   const { view, outline } = game;
-  const facts: unknown[] = [selected, view.pressures.map((p) => [p.power, p.region, p.target])];
+  const facts: unknown[] = [
+    selected,
+    aiming,
+    view.pressures.map((p) => [p.power, p.region, p.target, p.aim !== null]),
+  ];
   if (selected !== null) {
     const region = view.regions[selected];
     facts.push(
@@ -240,7 +247,12 @@ export function createPanel(root: HTMLElement, actions: PanelActions): Panel {
     return section;
   };
 
-  const buildHolder = (game: Game, id: number, holding: HoldingView): HTMLElement => {
+  const buildHolder = (
+    game: Game,
+    id: number,
+    holding: HoldingView,
+    aiming: Aiming | null,
+  ): HTMLElement => {
     const me = game.seat;
     const owner = holding.owner;
     const entry = el("div", { class: "neighbor" });
@@ -294,7 +306,34 @@ export function createPanel(root: HTMLElement, actions: PanelActions): Panel {
       );
     }
 
-    if (pressureOn(game, me, id, owner) !== undefined) {
+    const mine = pressureOn(game, me, id, owner);
+    if (mine !== undefined) {
+      const picking = aiming !== null && aiming.region === id && aiming.target === owner;
+      const aim = el("div", { class: "row" });
+      if (picking) {
+        aim.append(
+          el("span", { class: "name" }, "Click one of its cells on the globe"),
+          button("Cancel", "Keep the attack as it is", () => actions.aim(null)),
+        );
+      } else {
+        aim.append(
+          el(
+            "span",
+            { class: "name" },
+            mine.aim === null ? "Presses along the whole line" : "Aimed at ✛",
+          ),
+          button(mine.aim === null ? "Aim" : "Aim again", AIM_HINT, () => {
+            actions.aim({ region: id, target: owner });
+          }),
+        );
+        if (mine.aim !== null) {
+          aim.append(
+            button("Clear aim", "Press along the whole line again", () => {
+              actions.order({ kind: "aim", region: id, target: owner, cell: null });
+            }),
+          );
+        }
+      }
       entry.append(
         el(
           "div",
@@ -313,6 +352,7 @@ export function createPanel(root: HTMLElement, actions: PanelActions): Panel {
             actions.order({ kind: "pressure", region: id, target: owner, active: false });
           }),
         ),
+        aim,
       );
     } else if (holding.contact > 0) {
       const label = owner === null ? "Settle" : "Press";
@@ -389,7 +429,7 @@ export function createPanel(root: HTMLElement, actions: PanelActions): Panel {
     return entry;
   };
 
-  const buildRegion = (game: Game, id: number): HTMLElement[] => {
+  const buildRegion = (game: Game, id: number, aiming: Aiming | null): HTMLElement[] => {
     const region = game.view.regions[id];
     const header = el("h2", {}, `Region ${id}`);
     if (region.nature === null) {
@@ -435,7 +475,7 @@ export function createPanel(root: HTMLElement, actions: PanelActions): Panel {
             ? game.seats.length
             : holding.owner;
       for (const holding of region.holdings.slice().sort((a, b) => order(a) - order(b))) {
-        holders.append(buildHolder(game, id, holding));
+        holders.append(buildHolder(game, id, holding, aiming));
       }
       parts.push(holders);
     }
@@ -480,30 +520,30 @@ export function createPanel(root: HTMLElement, actions: PanelActions): Panel {
     return section;
   };
 
-  const rebuild = (game: Game, selected: number | null) => {
+  const rebuild = (game: Game, selected: number | null, aiming: Aiming | null) => {
     refreshers = [];
     const parts: (HTMLElement | null)[] = [];
     if (selected === null) {
       parts.push(el("p", { class: "hint" }, "Select a region on the globe."));
     } else {
-      parts.push(...buildRegion(game, selected));
+      parts.push(...buildRegion(game, selected, aiming));
     }
     parts.push(buildCampaigns(game));
     details.replaceChildren(...parts.filter((part): part is HTMLElement => part !== null));
   };
 
   return {
-    show(game, selected) {
+    show(game, selected, aiming) {
       if (selected !== shown) {
         shown = selected;
         heading.textContent = selected === null ? "Your power" : `Region ${selected}`;
         root.classList.toggle("folded", selected === null);
         body.scrollTop = 0;
       }
-      const next = signatureOf(game, selected);
+      const next = signatureOf(game, selected, aiming);
       if (next !== signature) {
         signature = next;
-        rebuild(game, selected);
+        rebuild(game, selected, aiming);
       }
       for (const refresh of steady) {
         refresh(game);

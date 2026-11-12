@@ -84,7 +84,7 @@ test("a front shows a breach where force presses a cell whose siege has begun", 
   const region = state.map.cells[to].region;
   const joint = state.map.links[from].find((link) => link.cell === to)?.joint;
   state.cells[from].force = 8;
-  state.pressures.push({ power: 0, region, target: null, activeAt: 0 });
+  state.pressures.push({ power: 0, region, target: null, activeAt: 0, aim: null });
 
   const untouched = viewFor(state, 0).pressures[0];
   assert.ok(untouched.commit > state.constants.neutralDefense);
@@ -139,7 +139,7 @@ test("a front seen from afar hides the breaches that start out of sight", () => 
   state.cells[inside].siege[1] = 0.3;
   state.cells[outside].owner = 1;
   state.cells[outside].force = 8;
-  state.pressures.push({ power: 1, region, target: null, activeAt: 0 });
+  state.pressures.push({ power: 1, region, target: null, activeAt: 0, aim: null });
 
   const attacker = viewFor(state, 1).pressures.find((pressure) => pressure.region === region);
   assert.ok(attacker);

@@ -90,6 +90,7 @@ export interface PressureView {
   region: number;
   target: number | null;
   activeAt: number;
+  aim: number | null;
   commit: number;
   breaches: Breach[];
 }
@@ -267,11 +268,12 @@ function pressuresOf(state: State, viewer: number, visible: Set<number>): Pressu
     (pressure) => pressure.power === viewer || visible.has(pressure.region),
   );
   const views = state.pressures.map(
-    ({ power, region, target, activeAt }): PressureView => ({
+    ({ power, region, target, activeAt, aim }): PressureView => ({
       power,
       region,
       target,
       activeAt,
+      aim,
       commit: 0,
       breaches: [],
     }),
