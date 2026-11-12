@@ -78,7 +78,7 @@ test("an announced attack is visible to its target", () => {
   assert.equal(pressures[0].activeAt, state.constants.announceTicks);
 });
 
-test("a front tells where it advances, where it is stalled and where it rests", () => {
+test("a front shows a breach where force presses a cell whose siege has begun", () => {
   const { state } = fresh();
   const { from, to } = neutralNeighbor(state, 0);
   const region = state.map.cells[to].region;
@@ -86,36 +86,43 @@ test("a front tells where it advances, where it is stalled and where it rests", 
   state.cells[from].force = 8;
   state.pressures.push({ power: 0, region, target: null, activeAt: 0 });
 
-  const open = viewFor(state, 0).pressures[0];
-  assert.ok(open.commit > state.constants.neutralDefense);
-  assert.ok(open.advancing.includes(joint ?? -1));
-  assert.deepEqual(open.stalled, []);
-  for (const pushed of open.advancing) {
-    const { a, b } = state.map.joints[pushed];
-    assert.deepEqual([state.cells[a].owner, state.cells[b].owner].sort(), [0, null]);
+  const untouched = viewFor(state, 0).pressures[0];
+  assert.ok(untouched.commit > state.constants.neutralDefense);
+  assert.deepEqual(untouched.breaches, []);
+
+  const pressed = step(state, []).state;
+  const progress = pressed.cells[to].siege[0];
+  assert.ok(progress > 0);
+  const breach = viewFor(pressed, 0).pressures[0].breaches.find((known) => known.joint === joint);
+  assert.deepEqual(breach, { joint, progress });
+  for (const known of viewFor(pressed, 0).pressures[0].breaches) {
+    const { a, b } = pressed.map.joints[known.joint];
+    assert.deepEqual([pressed.cells[a].owner, pressed.cells[b].owner].sort(), [0, null]);
   }
 
   state.cells[to].owner = 1;
   state.cells[to].force = 100;
   state.pressures[0].target = 1;
   const walled = viewFor(state, 0).pressures[0];
-  assert.ok(walled.stalled.includes(joint ?? -1));
-  assert.deepEqual(walled.advancing, []);
+  assert.ok(walled.commit > 0);
+  assert.deepEqual(walled.breaches, []);
+
+  state.cells[to].siege[0] = 0.4;
+  assert.deepEqual(viewFor(state, 0).pressures[0].breaches, [{ joint, progress: 0.4 }]);
 
   state.pressures[0].activeAt = state.tick + 1;
   const announced = viewFor(state, 0).pressures[0];
   assert.equal(announced.commit, 0);
-  assert.deepEqual([announced.stalled, announced.advancing], [[], []]);
+  assert.deepEqual(announced.breaches, []);
 
   state.pressures[0].activeAt = 0;
   for (const cell of state.cells) {
     cell.force = cell.owner === 0 ? 0 : cell.force;
   }
-  const spent = viewFor(state, 0).pressures[0];
-  assert.deepEqual([spent.stalled, spent.advancing], [[], []]);
+  assert.deepEqual(viewFor(state, 0).pressures[0].breaches, []);
 });
 
-test("a front seen from afar hides the contacts that start out of sight", () => {
+test("a front seen from afar hides the breaches that start out of sight", () => {
   const { state, home } = fresh();
   const near = state.map.neighbors[home].map((neighbor) => neighbor.region);
   const seen = new Set([home, ...near]);
@@ -129,17 +136,18 @@ test("a front seen from afar hides the contacts that start out of sight", () => 
   const [inside, outside] = seen.has(state.map.cells[a].region) ? [a, b] : [b, a];
   const region = state.map.cells[inside].region;
   state.cells[inside].owner = null;
+  state.cells[inside].siege[1] = 0.3;
   state.cells[outside].owner = 1;
   state.cells[outside].force = 8;
   state.pressures.push({ power: 1, region, target: null, activeAt: 0 });
 
   const attacker = viewFor(state, 1).pressures.find((pressure) => pressure.region === region);
   assert.ok(attacker);
-  assert.ok(attacker.advancing.includes(edge.joints[0]));
+  assert.deepEqual(attacker.breaches, [{ joint: edge.joints[0], progress: 0.3 }]);
   const watcher = viewFor(state, 0).pressures.find((pressure) => pressure.region === region);
   assert.ok(watcher);
   assert.equal(watcher.commit, attacker.commit);
-  assert.deepEqual([watcher.stalled, watcher.advancing], [[], []]);
+  assert.deepEqual(watcher.breaches, []);
 });
 
 test("the outline carries geometry and topology but no natural data", () => {

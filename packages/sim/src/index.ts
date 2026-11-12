@@ -34,6 +34,7 @@ export {
 } from "./types.ts";
 export { angleBetween, cross, dot, normalize, subtract } from "./vector.ts";
 export {
+  type Breach,
   type CellLayer,
   type EdgeView,
   type Estate,

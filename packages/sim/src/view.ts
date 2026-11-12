@@ -77,14 +77,18 @@ export interface EdgeView {
   load: number;
 }
 
+export interface Breach {
+  joint: number;
+  progress: number;
+}
+
 export interface PressureView {
   power: number;
   region: number;
   target: number | null;
   activeAt: number;
   commit: number;
-  stalled: number[];
-  advancing: number[];
+  breaches: Breach[];
 }
 
 export interface CellLayer {
@@ -267,22 +271,20 @@ function pressuresOf(state: State, viewer: number, visible: Set<number>): Pressu
       target,
       activeAt,
       commit: 0,
-      stalled: [],
-      advancing: [],
+      breaches: [],
     }),
   );
   if (shown.includes(true)) {
-    const { active, commits, walls, totals } = commitmentOf(state, lanesOf(state), postsOf(state));
+    const { active, commits } = commitmentOf(state, lanesOf(state), postsOf(state));
     active.forEach((lane, index) => {
       const view = views[lane.pressure];
       view.commit += commits[index];
+      const progress = state.cells[lane.to].siege[view.power];
       const seen =
         visible.has(map.cells[lane.from].region) && visible.has(map.cells[lane.to].region);
-      if (!seen || commits[index] < PUSH_FLOOR) {
-        return;
+      if (seen && commits[index] >= PUSH_FLOOR && progress > 0) {
+        view.breaches.push({ joint: lane.joint, progress });
       }
-      const yielding = (totals.get(lane.to)?.[view.power] ?? 0) > (walls.get(lane.to) ?? 0);
-      (yielding ? view.advancing : view.stalled).push(lane.joint);
     });
   }
   return views.filter((_, index) => shown[index]);

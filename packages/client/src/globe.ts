@@ -46,8 +46,8 @@ import {
   triangulate,
 } from "./geometry.ts";
 import {
-  ADVANCING,
   BORDER,
+  BREACH,
   ENERGY,
   EXPANDING,
   FORCE,
@@ -86,6 +86,10 @@ interface Stream {
 interface Side {
   cell: number;
   side: number;
+}
+
+interface Bite extends Side {
+  progress: number;
 }
 
 interface Front {
@@ -131,8 +135,8 @@ const FLOW_FRAME = 30;
 const TOOTH_PITCH = 0.03;
 const TOOTH_SHARE = 0.72;
 const TOOTH_RIM = 0.002;
-const STALLED_DEPTH = 0.014;
-const ADVANCING_DEPTH = 0.032;
+const TOOTH_START = 0.012;
+const TOOTH_REACH = 0.55;
 const HIDDEN = [0, 0, 0, 0, 0, 0];
 
 function along(from: Vector, to: Vector, share: number, radius: number, target: Vector3): void {
@@ -393,6 +397,7 @@ export function createGlobe(
 
   const toothMaterial = new MeshBasicMaterial({ vertexColors: true, side: DoubleSide });
   const rim = new Color(BORDER);
+  const fang = new Color(BREACH);
   const point = new Vector3();
   const lay = (
     tooth: Tooth,
@@ -407,28 +412,30 @@ export function createGlobe(
       shades.push(shade.r, shade.g, shade.b);
     }
   };
-  const serrate = (
-    sides: Side[],
-    depth: number,
-    fill: Color,
-    positions: number[],
-    shades: number[],
-  ) => {
-    for (const { cell, side } of sides) {
+  const serrate = (bites: Bite[]): BufferGeometry => {
+    const positions: number[] = [];
+    const shades: number[] = [];
+    for (const { cell, side, progress } of bites) {
       const corners = cells[cell].corners;
+      const toward = subtract(sites[across[cell][side]], sites[cell]);
+      const full = (TOOTH_REACH * Math.hypot(toward.x, toward.y, toward.z)) / 2;
       const teeth = teethAlong(
         corners[side],
         corners[(side + 1) % corners.length],
-        subtract(sites[across[cell][side]], sites[cell]),
+        toward,
         TOOTH_PITCH,
         TOOTH_SHARE,
-        depth,
+        TOOTH_START + Math.max(0, full - TOOTH_START) * progress,
       );
       for (const tooth of teeth) {
         lay(rimmed(tooth, TOOTH_RIM), 1.0064, rim, positions, shades);
-        lay(tooth, 1.0068, fill, positions, shades);
+        lay(tooth, 1.0068, fang, positions, shades);
       }
     }
+    const geometry = new BufferGeometry();
+    geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
+    geometry.setAttribute("color", new Float32BufferAttribute(shades, 3));
+    return geometry;
   };
 
   const syncFronts = (current: Frame) => {
@@ -485,25 +492,18 @@ export function createGlobe(
           front.anchor.setLength(1.02);
         }
       }
-      const among = (joints: number[]) =>
-        sides.filter(({ cell, side }) =>
-          joints.includes(jointBetween.get(cell * landCount + across[cell][side]) ?? -1),
-        );
-      const stalled = among(pressure.stalled);
-      const advancing = among(pressure.advancing);
-      const bite = [stalled, advancing]
-        .map((group) => group.map(({ cell, side }) => `${cell}:${side}`).join(","))
-        .join("|");
+      const bites = sides.flatMap(({ cell, side }): Bite[] => {
+        const joint = jointBetween.get(cell * landCount + across[cell][side]);
+        const breach = pressure.breaches.find((known) => known.joint === joint);
+        return breach === undefined ? [] : [{ cell, side, progress: breach.progress }];
+      });
+      const bite = bites
+        .map(({ cell, side, progress }) => `${cell}:${side}:${progress.toFixed(3)}`)
+        .join(",");
       if (bite !== front.bite) {
         front.bite = bite;
-        const positions: number[] = [];
-        const shades: number[] = [];
-        serrate(stalled, STALLED_DEPTH, tint.setHex(powerColor(pressure.power)), positions, shades);
-        serrate(advancing, ADVANCING_DEPTH, tint.setHex(ADVANCING), positions, shades);
         front.teeth.geometry.dispose();
-        front.teeth.geometry = new BufferGeometry();
-        front.teeth.geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
-        front.teeth.geometry.setAttribute("color", new Float32BufferAttribute(shades, 3));
+        front.teeth.geometry = serrate(bites);
       }
       const active = pressure.activeAt <= current.view.tick;
       front.material.color.setHex(powerColor(pressure.power));

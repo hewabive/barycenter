@@ -63,7 +63,7 @@ Messages are JSON over one WebSocket. A client first joins a room. A room that d
 | `error`     | a message the server could not act on                                                            |
 
 - A `view` also goes out at once when a seat asks for the force report, and carries that report until the seat tells the server to stop.
-- For every pressure a view gives the force committed and the contacts that carry it, split into those pushing a cell that holds and those pushing a cell that gives way. Both are worked out for the coming tick with the function the tick uses, so the map and the force report agree. Contacts that start in a region the seat cannot see are left out.
+- For every pressure a view gives the force committed and its breaches: the contacts that carry force into a cell whose siege has begun, each with the progress of that siege. The force is worked out for the coming tick with the function the tick uses, so the map and the force report agree. Breaches that start in a region the seat cannot see are left out.
 - The first join of a seat returns a secret token. Rejoining that seat requires the token, and the newer connection replaces the older one.
 - Everything a client sends is parsed field by field, and unknown fields are dropped. The core then checks ownership and ranges.
 - Messages are compressed by the WebSocket extension. A view of the first planet is 12 to 18 KB of JSON and 2 to 4 KB on the wire. The map sent on joining is 45 KB and 9 KB on the wire.
@@ -80,7 +80,7 @@ Messages are JSON over one WebSocket. A client first joins a room. A room that d
 ## Client
 
 - Cell shapes are the Voronoi cells of the same points the core used to generate the map, so the globe needs no geometry from the server beyond those points.
-- The surface is one mesh with a color per cell: the owner's color, brighter as the cell is built up. Dark lines separate regions and bright lines separate holdings. The line where a power presses is drawn in its color, dashed while the attack is only announced. Teeth along that line point into the cells being pressed: low teeth in the attacker's color where the cell holds, tall white teeth where it gives way. A contact without teeth carries no force.
+- The surface is one mesh with a color per cell: the owner's color, brighter as the cell is built up. Dark lines separate regions and bright lines separate holdings. The line where a power presses is drawn in its color, dashed while the attack is only announced. White teeth along that line mark the contacts where a siege is under way. They point into the besieged cell and reach deeper as the siege nears its end. Where force presses a cell that holds, the line stays smooth and only the force on its label tells of it.
 - Flows are particles moving between the centers of neighboring cells. A strait is a dashed arc over the water.
 - Labels and panels are plain HTML over the canvas. A panel is rebuilt only when its structure changes; between rebuilds only its numbers are updated.
 - A region's label stands on the center cell of the region. Where the player holds cells in the region it stands on one of them instead: the cell nearest the middle of the largest connected group of the player's cells. A pressure label that would cover the label of its region is moved just above or below it.
