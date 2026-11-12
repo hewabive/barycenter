@@ -12,21 +12,11 @@ import {
 import type { State } from "./types.ts";
 
 export interface ForceField {
+  need: number[];
+  rest: number[];
   held: number[];
-  potential: number[];
-}
-
-export function forceWantedBy(state: State, field: ForceField): boolean[] {
-  const wanted = state.powers.map(() => false);
-  for (const pressure of state.pressures) {
-    wanted[pressure.power] = true;
-  }
-  state.cells.forEach((cell, id) => {
-    if (cell.owner !== null && cell.force < field.held[id] - EPSILON) {
-      wanted[cell.owner] = true;
-    }
-  });
-  return wanted;
+  toFront: number[];
+  toHome: number[];
 }
 
 export function widthOf(state: State, lane: Lane): number {
@@ -45,25 +35,91 @@ export function defenseNeedOf(state: State, lane: Lane): number {
   return faced / state.constants.defensePerForce;
 }
 
-export function forceFieldOf(state: State, lanes: Lane[], posts: number[]): ForceField {
-  const { constants, cells } = state;
-  const held = posts.slice();
-  const fighting = new Array<boolean>(cells.length).fill(false);
-  for (const lane of lanes) {
-    fighting[lane.from] = true;
-    held[lane.from] += attackNeedOf(state, lane);
-    if (cells[lane.to].owner !== null) {
-      fighting[lane.to] = true;
-      held[lane.to] += defenseNeedOf(state, lane);
+export function forceCapsOf(state: State): number[] {
+  const caps = state.powers.map(() => 0);
+  for (const cell of state.cells) {
+    if (cell.owner !== null) {
+      caps[cell.owner] += cell.quarters;
     }
   }
-  const demand = cells.map((cell, id) => {
-    if (cell.owner === null || cell.force >= held[id] - EPSILON) {
-      return 0;
+  return caps;
+}
+
+export function forceTotalsOf(state: State): number[] {
+  const totals = state.powers.map(() => 0);
+  for (const cell of state.cells) {
+    if (cell.owner !== null) {
+      totals[cell.owner] += cell.force;
     }
-    return fighting[id] ? 1 : constants.garrisonPull;
+  }
+  return totals;
+}
+
+export function forceRoomOf(state: State): number[] {
+  const caps = forceCapsOf(state);
+  return forceTotalsOf(state).map((total, power) => Math.max(0, caps[power] - total));
+}
+
+export function armingOf(state: State): boolean[] {
+  return forceRoomOf(state).map((room) => room > EPSILON);
+}
+
+export function forceFieldOf(state: State, lanes: Lane[]): ForceField {
+  const { cells } = state;
+  const need = new Array<number>(cells.length).fill(0);
+  for (const lane of lanes) {
+    need[lane.from] += attackNeedOf(state, lane);
+    if (cells[lane.to].owner !== null) {
+      need[lane.to] += defenseNeedOf(state, lane);
+    }
+  }
+
+  const short = cells.map((cell, id) => (cell.owner === null ? 0 : need[id] - cell.force));
+  const toFront = spread(
+    state,
+    short.map((missing) => (missing > EPSILON ? 1 : 0)),
+  );
+
+  const rest = new Array<number>(cells.length).fill(0);
+  const call = state.powers.map(() => 0);
+  const bases: number[] = [];
+  cells.forEach((cell, id) => {
+    if (cell.owner === null) {
+      return;
+    }
+    const spare = Math.max(0, cell.force - need[id]);
+    rest[id] = Math.min(spare, cell.quarters);
+    call[cell.owner] += Math.max(0, short[id]);
+    if (toFront[id] > EPSILON) {
+      call[cell.owner] -= spare - rest[id];
+      if (rest[id] > EPSILON) {
+        bases.push(id);
+      }
+    }
   });
-  return { held, potential: spread(state, demand) };
+  bases.sort((left, right) => toFront[right] - toFront[left] || left - right);
+  for (const base of bases) {
+    const owner = cells[base].owner;
+    if (owner === null || call[owner] <= EPSILON) {
+      continue;
+    }
+    const released = Math.min(rest[base], call[owner]);
+    rest[base] -= released;
+    call[owner] -= released;
+  }
+
+  const toHome = spread(
+    state,
+    cells.map((cell, id) => {
+      const room = cell.quarters - Math.max(0, cell.force - need[id]);
+      return cell.owner !== null && room > EPSILON ? 1 : 0;
+    }),
+  );
+  return { need, rest, held: need.map((wanted, id) => wanted + rest[id]), toFront, toHome };
+}
+
+export function headingOf(field: ForceField, cell: number): number[] {
+  return field.toFront[cell] > EPSILON ? field.toFront : field.toHome;
 }
 
 export function routeForce(state: State, field: ForceField): void {
@@ -78,7 +134,7 @@ export function routeForce(state: State, field: ForceField): void {
     if (current.owner === null || free <= EPSILON) {
       continue;
     }
-    const link = bestLink(state, cell, field.potential);
+    const link = bestLink(state, cell, headingOf(field, cell));
     if (link === null) {
       continue;
     }
@@ -92,10 +148,39 @@ export function routeForce(state: State, field: ForceField): void {
   }
 }
 
-export function decayForce(state: State): void {
-  for (const cell of state.cells) {
-    if (cell.owner !== null && cell.supply < 1) {
-      cell.force -= cell.force * state.constants.forceDecay * (1 - cell.supply);
+export function linkedOf(state: State): boolean[] {
+  const { cells, map } = state;
+  const linked = new Array<boolean>(cells.length).fill(false);
+  state.powers.forEach((power, id) => {
+    if (!power.alive || cells[power.capital].owner !== id) {
+      return;
     }
-  }
+    linked[power.capital] = true;
+    const queue = [power.capital];
+    for (let head = 0; head < queue.length; head++) {
+      for (const link of map.links[queue[head]]) {
+        if (!linked[link.cell] && cells[link.cell].owner === id) {
+          linked[link.cell] = true;
+          queue.push(link.cell);
+        }
+      }
+    }
+  });
+  return linked;
+}
+
+export function decayForce(state: State): void {
+  const { constants, cells } = state;
+  const linked = linkedOf(state);
+  const caps = forceCapsOf(state);
+  const totals = forceTotalsOf(state);
+  cells.forEach((cell, id) => {
+    if (cell.owner === null || cell.force <= 0) {
+      return;
+    }
+    const starved = linked[id] ? constants.forceDecay * (1 - cell.supply) : constants.strandedDecay;
+    const excess = Math.max(0, totals[cell.owner] - caps[cell.owner]) / totals[cell.owner];
+    const lost = starved + constants.excessDecay * excess;
+    cell.force -= cell.force * Math.min(1, lost);
+  });
 }

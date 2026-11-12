@@ -1,9 +1,10 @@
+import { settleQuarters, wantedQuartersOf } from "./bases.ts";
 import { applyCommands } from "./commands.ts";
 import { resolveConflict } from "./conflict.ts";
 import { distributeEnergy } from "./energy.ts";
 import { explore } from "./explore.ts";
-import { decayForce, forceFieldOf, forceWantedBy, routeForce } from "./force.ts";
-import { lanesOf, postsOf } from "./front.ts";
+import { decayForce, forceFieldOf, forceRoomOf, routeForce } from "./force.ts";
+import { lanesOf } from "./front.ts";
 import { matterFieldOf, produceMatter, routeMatter, spendMatter, worksOf } from "./matter.ts";
 import { convert, wantsOf } from "./profile.ts";
 import { lapseRoads, trunksOf, wearRoads } from "./roads.ts";
@@ -43,22 +44,25 @@ export function step(previous: State, commands: Command[]): StepResult {
   const { state, events, rejections } = issue(previous, commands);
 
   lapseRoads(state);
-  distributeEnergy(state);
   const lanes = lanesOf(state);
-  const posts = postsOf(state);
-  const forceField = forceFieldOf(state, lanes, posts);
-  const forceWanted = forceWantedBy(state, forceField);
+  const field = forceFieldOf(state, lanes);
+  distributeEnergy(state, field.rest);
+  const room = forceRoomOf(state);
+  const arming = room.map((left) => left > 0);
   const trunks = trunksOf(state);
   const works = worksOf(state, trunks);
-  const matterField = matterFieldOf(state, works, forceWanted);
-  const wants = wantsOf(state, matterField.potential, forceField.potential);
+  const quarters = wantedQuartersOf(state);
+  const matterField = matterFieldOf(state, works, arming, quarters);
+  const forceNeed = field.toFront.map((front, cell) => Math.max(front, field.toHome[cell]));
+  const wants = wantsOf(state, matterField.potential, forceNeed);
 
   produceMatter(state);
-  spendMatter(state, works, forceWanted, wants);
+  spendMatter(state, works, room, quarters, wants);
   routeMatter(state, matterField);
-  routeForce(state, forceField);
+  routeForce(state, field);
   wearRoads(state, trunks);
-  resolveConflict(state, lanes, posts, events);
+  settleQuarters(state, quarters);
+  resolveConflict(state, lanes, field.rest, events);
   decayForce(state);
   convert(state, wants);
   explore(state, events);

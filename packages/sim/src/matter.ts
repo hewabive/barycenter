@@ -1,3 +1,4 @@
+import { quarterUseOf } from "./bases.ts";
 import { advanceRoad, wantedGradeOf } from "./roads.ts";
 import {
   addTo,
@@ -45,10 +46,10 @@ export function worksOf(state: State, trunks: boolean[]): Work[][] {
   return works;
 }
 
-function shipyardUse(state: State, cell: number, forceWanted: boolean[]): number {
+function shipyardUse(state: State, cell: number, arming: boolean[]): number {
   const { constants } = state;
   const current = state.cells[cell];
-  if (current.owner === null || !forceWanted[current.owner]) {
+  if (current.owner === null || !arming[current.owner]) {
     return 0;
   }
   const output = outputOf(constants, current.supply);
@@ -67,14 +68,23 @@ function worksUse(works: Work[]): number {
   return sum;
 }
 
-export function matterFieldOf(state: State, works: Work[][], forceWanted: boolean[]): MatterField {
+export function matterFieldOf(
+  state: State,
+  works: Work[][],
+  arming: boolean[],
+  quarters: number[],
+): MatterField {
   const { constants, cells } = state;
   const reserve = cells.map((cell, id) => {
     if (cell.owner === null) {
       return 0;
     }
     const build = canGrow(state, id) ? constants.buildRate : 0;
-    const total = worksUse(works[id]) + shipyardUse(state, id, forceWanted) + build;
+    const total =
+      worksUse(works[id]) +
+      quarterUseOf(state, id, quarters) +
+      shipyardUse(state, id, arming) +
+      build;
     return dialOf(state, id) * total * constants.reserveTicks;
   });
   const attraction = cells.map((cell, id) =>
@@ -99,10 +109,12 @@ export function produceMatter(state: State): void {
 export function spendMatter(
   state: State,
   works: Work[][],
-  forceWanted: boolean[],
+  room: number[],
+  quarters: number[],
   wants: number[][],
 ): void {
   const { constants } = state;
+  const arming = room.map((left) => left > EPSILON);
   state.cells.forEach((current, id) => {
     if (current.owner === null) {
       return;
@@ -110,8 +122,12 @@ export function spendMatter(
     const short = current.supply < 1 - EPSILON;
     const pace = short ? wants[id][POWER] : 1;
     const build = canGrow(state, id) ? constants.buildRate * pace : 0;
-    const shipyard = shipyardUse(state, id, forceWanted);
-    const total = worksUse(works[id]) + shipyard + build;
+    const shipyard = Math.min(
+      shipyardUse(state, id, arming),
+      room[current.owner] * constants.forceCost,
+    );
+    const housing = quarterUseOf(state, id, quarters);
+    const total = worksUse(works[id]) + housing + shipyard + build;
     if (total <= 0) {
       return;
     }
@@ -126,7 +142,10 @@ export function spendMatter(
     for (const work of works[id]) {
       advanceRoad(state, work.joint, take(work.rate));
     }
-    current.force += take(shipyard) / constants.forceCost;
+    current.quarters += take(housing) / constants.quarterCost;
+    const armed = take(shipyard) / constants.forceCost;
+    current.force += armed;
+    room[current.owner] -= armed;
     current.progress += take(build);
 
     const cap = state.map.cells[id].levelCap;

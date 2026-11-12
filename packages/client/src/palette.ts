@@ -12,6 +12,7 @@ export const HOLDING_BORDER = 0xf2f5fa;
 export const STRAIT = 0x5fb9de;
 export const ROAD_ORDER = 0xfff4a8;
 export const ROAD = 0xe9d8a6;
+export const GARRISON = 0xf2f5fa;
 export const BREACH = 0xffffff;
 
 export const MATTER = 0xffa64d;

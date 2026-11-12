@@ -3,15 +3,15 @@ import { test } from "node:test";
 import { forceReportFor, issue, step, viewFor } from "../src/index.ts";
 import { fresh, neutralNeighbor, ownNeighbor, run } from "./support.ts";
 
-test("force that no order asks for is a reserve with nowhere to go", () => {
+test("force that no front asks for rests in its base", () => {
   const { state, home } = fresh();
   const report = forceReportFor(state, 0);
   const muster = report.musters[home];
   assert.ok(muster);
-  assert.equal(report.arming, false);
-  assert.equal(muster.garrison, 0);
+  assert.equal(report.arming, true);
+  assert.equal(muster.garrison, state.constants.startForce);
   assert.equal(muster.front, 0);
-  assert.equal(muster.reserve, state.constants.startForce);
+  assert.equal(muster.reserve, 0);
   assert.deepEqual(muster.routes, []);
   assert.deepEqual(muster.duties, []);
   assert.deepEqual(report.battles, []);
@@ -27,23 +27,17 @@ test("a report covers only the regions and battles of its power", () => {
   assert.equal(forceReportFor(state, 1).musters[home], null);
 });
 
-test("a reserve is routed to the cells that are short of their garrison", () => {
+test("force away from home is a reserve routed to a base with room", () => {
   const { state, capital, home } = fresh();
-  const spare = ownNeighbor(state, capital);
+  const away = ownNeighbor(state, capital);
   state.cells[capital].force = 0;
-  state.cells[spare].force = 3;
-  state.powers[0].holdings[home].garrison = 1;
+  state.cells[away].force = 3;
   const report = forceReportFor(state, 0);
   const muster = report.musters[home];
   assert.ok(muster);
-  assert.equal(report.arming, true);
-  assert.ok(muster.reserve > 2);
-  assert.ok(Math.abs(muster.garrison + muster.reserve - 3) < 1e-9);
-  const routed = muster.routes.reduce((sum, route) => sum + route.amount, 0);
-  assert.ok(Math.abs(routed - muster.reserve) < 1e-9);
-  for (const route of muster.routes) {
-    assert.notEqual(report.musters[route.region], null);
-  }
+  assert.equal(muster.garrison, 0);
+  assert.equal(muster.reserve, 3);
+  assert.deepEqual(muster.routes, [{ region: home, amount: 3 }]);
 });
 
 test("a muster names the orders its front force serves", () => {
@@ -97,7 +91,7 @@ test("a muster accounts for all the force of a holding", () => {
     const mine = region.holdings?.find((holding) => holding.owner === 0);
     assert.ok(mine);
     assert.ok(Math.abs(muster.garrison + muster.front + muster.reserve - mine.force) < 1e-9);
-    assert.ok(muster.garrison <= region.estate.garrison + 1e-9);
+    assert.ok(muster.garrison <= region.estate.quarters + 1e-9);
     assert.ok(muster.front <= muster.need + 1e-9);
     seen += mine.force;
   }

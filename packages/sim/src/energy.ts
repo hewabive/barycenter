@@ -10,7 +10,7 @@ import {
 } from "./rules.ts";
 import type { State } from "./types.ts";
 
-export function distributeEnergy(state: State): void {
+export function distributeEnergy(state: State, rest: number[]): void {
   const { constants, cells } = state;
   for (const joint of state.joints) {
     joint.energyFlow = 0;
@@ -18,7 +18,7 @@ export function distributeEnergy(state: State): void {
 
   const roads = roadUpkeepOf(state);
   const need = cells.map((cell, id) =>
-    cell.owner === null ? 0 : energyNeedOf(state, id) + roads[id],
+    cell.owner === null ? 0 : energyNeedOf(state, id, rest[id]) + roads[id],
   );
   const surplus = new Array<number>(cells.length).fill(0);
   const deficit = new Array<number>(cells.length).fill(0);

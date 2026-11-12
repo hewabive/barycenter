@@ -51,6 +51,7 @@ import {
   BREACH,
   ENERGY,
   FORCE,
+  GARRISON,
   HOLDING_BORDER,
   MATTER,
   MOUNTAIN,
@@ -360,6 +361,8 @@ export function createGlobe(
     scene.add(points);
     return { positions, geometry, used: 0 };
   };
+  const garrisonRims = createStream(BORDER, 12);
+  const garrisonMarks = createStream(GARRISON, 8);
   const matterStream = createStream(MATTER, 5);
   const energyStream = createStream(ENERGY, 3);
   const forceStream = createStream(FORCE, 6);
@@ -381,6 +384,7 @@ export function createGlobe(
   let shownSelection: number | null = null;
   let shownOwners = "";
   let shownRoads = "";
+  let shownGarrisons = "";
   let phase = 0;
   let faced = false;
 
@@ -666,6 +670,18 @@ export function createGlobe(
       );
     }
 
+    const garrisons = layer.quarters.flatMap((quarters, cell) => (quarters >= 1 ? [cell] : []));
+    if (garrisons.join(",") !== shownGarrisons) {
+      shownGarrisons = garrisons.join(",");
+      for (const marks of [garrisonRims, garrisonMarks]) {
+        garrisons.forEach((cell, index) => {
+          along(sites[cell], sites[cell], 0, 1.007, roadPoint);
+          marks.positions.setXYZ(index, roadPoint.x, roadPoint.y, roadPoint.z);
+        });
+        marks.positions.needsUpdate = true;
+        marks.geometry.setDrawRange(0, garrisons.length);
+      }
+    }
     const grades = current.view.roads;
     if (grades.join("") !== shownRoads) {
       shownRoads = grades.join("");

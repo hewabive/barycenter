@@ -76,10 +76,15 @@ export function energyProductionOf(state: State, cell: number): number {
   return state.map.cells[cell].energyRichness * (constants.baseEnergy + generation);
 }
 
-export function energyNeedOf(state: State, cell: number): number {
+export function energyNeedOf(state: State, cell: number, resting: number): number {
   const { constants } = state;
   const current = state.cells[cell];
-  return constants.upkeepPerLevel * current.level + constants.upkeepPerForce * current.force;
+  const fielded = current.force - resting * (1 - constants.restUpkeep);
+  return (
+    constants.upkeepPerLevel * current.level +
+    constants.upkeepPerForce * fielded +
+    constants.upkeepPerQuarter * current.quarters
+  );
 }
 
 export function heldOf(stock: number[]): number {

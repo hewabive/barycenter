@@ -81,6 +81,8 @@ test("powers that enter a neutral region from two sides share it", () => {
   ]) {
     state.cells[cell].owner = power;
     state.cells[cell].force = 60;
+    state.cells[cell].quarters = 60;
+    state.powers[power].capital = cell;
   }
 
   let current = step(state, [

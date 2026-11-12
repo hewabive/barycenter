@@ -73,6 +73,8 @@ test("a cell short of energy is undersupplied and grows only its power branch", 
     }
   }
   state.powers[0].holdings[home].dial = 1;
+  state.powers[0].holdings[home].garrison = 0;
+  state.cells[capital].quarters = 0;
   state.cells[capital].force = 0;
   state.cells[capital].stock[0] = 1000;
   state.cells[capital].branches = [state.cells[capital].level, 0, 0];
@@ -114,14 +116,6 @@ test("force decays where energy is short", () => {
   const after = run(state, 50);
   const held = after.cells.reduce((sum, cell) => sum + (cell.owner === 0 ? cell.force : 0), 0);
   assert.ok(held < 60);
-});
-
-test("the garrison of a holding spreads over its border cells", () => {
-  const { state, capital, home } = fresh();
-  state.cells[capital].force = 10;
-  const after = run(state, 30, [{ kind: "garrison", power: 0, region: home, value: 8 }]);
-  const posted = after.cells.filter((cell) => cell.owner === 0 && cell.force > 0.5).length;
-  assert.ok(posted >= 3);
 });
 
 test("a raised leaning shifts what new levels become", () => {

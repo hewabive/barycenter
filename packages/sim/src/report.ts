@@ -1,5 +1,6 @@
 import { type Battle, battlesOf } from "./battle.ts";
-import { lanesOf, postsOf } from "./front.ts";
+import { forceFieldOf } from "./force.ts";
+import { lanesOf } from "./front.ts";
 import { type Muster, mustersOf } from "./muster.ts";
 import type { State } from "./types.ts";
 
@@ -11,7 +12,7 @@ export interface ForceReport {
 
 export function forceReportFor(state: State, power: number): ForceReport {
   const lanes = lanesOf(state);
-  const posts = postsOf(state);
-  const { arming, regions } = mustersOf(state, power, lanes, posts);
-  return { arming, musters: regions, battles: battlesOf(state, power, lanes, posts) };
+  const { rest } = forceFieldOf(state, lanes);
+  const { arming, regions } = mustersOf(state, power, lanes);
+  return { arming, musters: regions, battles: battlesOf(state, power, lanes, rest) };
 }

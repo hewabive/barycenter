@@ -25,7 +25,7 @@ interface Sheet {
 }
 
 const SHOWN = 0.05;
-const STAND_COLUMNS = ["Region", "Force", "Garrison", "Front", "Reserve", "Why it is there"];
+const STAND_COLUMNS = ["Region", "Force", "Garrison", "Front", "Moving", "Why it is there"];
 const BATTLE_COLUMNS = [
   "Cell",
   "Level",
@@ -37,9 +37,9 @@ const BATTLE_COLUMNS = [
   "Outlook",
 ];
 const STAND_LEGEND =
-  "Garrison and Front show the force standing there and the force wanted. " +
-  "A reserve is force that no garrison and no front asks for: " +
-  "it moves toward any cell that is short and stands still when none is.";
+  "Garrison shows the force resting in the garrison of the region and the room it has. " +
+  "Front shows the force standing at a front and the force wanted there. " +
+  "Moving is force on its way: to a front that is short, or back to a garrison with room.";
 
 function createSheet(
   name: string,
@@ -112,21 +112,26 @@ function reasonsOf(game: Game, region: number, estate: Estate, muster: Muster): 
     const start = wait > 0 ? `, starts in ${wait} ticks` : "";
     reasons.push(`${subject} needs ${amount(duty.need)}${start}`);
   }
-  const missing = estate.garrison - muster.garrison;
-  if (missing >= SHOWN) {
-    reasons.push(`Garrison is short by ${amount(missing)}`);
+  const ordered = Math.min(estate.garrison, estate.quartersLimit);
+  if (estate.quarters < ordered - SHOWN) {
+    reasons.push(
+      `Garrison is being built: room for ${amount(estate.quarters)} of ${amount(ordered)}`,
+    );
+  }
+  if (estate.garrison > estate.quartersLimit + SHOWN) {
+    reasons.push(`The hub here can house only ${amount(estate.quartersLimit)}`);
   }
   let routed = 0;
   for (const route of muster.routes) {
     routed += route.amount;
     if (route.amount >= SHOWN) {
       const goal = route.region === region ? "cells here" : `region ${route.region}`;
-      reasons.push(`Reserve ${amount(route.amount)} heads to ${goal}`);
+      reasons.push(`${amount(route.amount)} is on its way to ${goal}`);
     }
   }
   const idle = muster.reserve - routed;
   if (idle >= SHOWN) {
-    reasons.push(`Reserve ${amount(idle)} is idle: no cell asks for it`);
+    reasons.push(`${amount(idle)} stands still: no front asks for it and no garrison has room`);
   }
   return reasons;
 }
@@ -268,7 +273,7 @@ export function createForces(root: HTMLDialogElement, actions: ForcesActions): F
       if (region.estate === null || mine === undefined || !muster) {
         continue;
       }
-      const { garrison } = region.estate;
+      const { garrison, quarters } = region.estate;
       sum.force += mine.force;
       sum.garrison += muster.garrison;
       sum.front += muster.front;
@@ -280,26 +285,29 @@ export function createForces(root: HTMLDialogElement, actions: ForcesActions): F
       keys.push(key);
       fill(stands.line(key), [
         amount(mine.force),
-        share(muster.garrison, garrison),
+        share(muster.garrison, quarters),
         share(muster.front, muster.need),
         muster.reserve < SHOWN ? "—" : amount(muster.reserve),
         reasonsOf(game, region.id, region.estate, muster).join("\n"),
       ]);
     }
     stands.arrange(keys);
+    const cap = game.view.forceCap;
     write(
       totals,
-      `Total ${amount(sum.force)} · garrison ${amount(sum.garrison)} · ` +
-        `front ${amount(sum.front)} · reserve ${amount(sum.reserve)}`,
+      `Total ${amount(sum.force)} of ${amount(cap)} · in garrisons ${amount(sum.garrison)} · ` +
+        `front ${amount(sum.front)} · moving ${amount(sum.reserve)}`,
     );
-    const upkeep = amount(sum.force * game.constants.upkeepPerForce, 2);
+    const { upkeepPerForce, restUpkeep, upkeepPerQuarter } = game.constants;
+    const fielded = sum.force - sum.garrison * (1 - restUpkeep);
+    const upkeep = amount(fielded * upkeepPerForce + cap * upkeepPerQuarter, 2);
     write(
       yards,
       `${
         report.arming
-          ? "Shipyards are building: a pressure order stands or a cell is short of force."
-          : "Shipyards are idle: no pressure is ordered and no cell is short of force."
-      } Keeping this force takes ${upkeep} energy a tick.`,
+          ? "Shipyards are building: your force is below the room in your garrisons."
+          : "Shipyards are idle: your garrisons are full."
+      } Keeping this force and its garrisons takes ${upkeep} energy a tick.`,
     );
   };
 

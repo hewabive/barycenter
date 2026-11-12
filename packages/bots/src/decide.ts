@@ -53,7 +53,13 @@ const POWER_BRANCH = BRANCHES.indexOf("power");
 const FORCE_BUDGET_SHARE = 0.8;
 const LEAN_STEP = 0.02;
 const DIAL_STEP = 0.05;
-const GARRISON_STEP = 0.5;
+const GARRISON_STEP = 1;
+const BASE_REAR = 0.5;
+const BASE_BORDER = 1.5;
+const BASE_THREAT = 2;
+const BASE_FRONT = 2;
+const BASE_PASSES = 3;
+const FORCE_FLOOR = 10;
 const GRAB_RATIO = 2;
 const HOLD_RATIO = 1.2;
 const RETREAT_RATIO = 0.7;
@@ -78,7 +84,7 @@ export function decide(
   const plan = planPressure(survey, doctrine, guard);
   return [
     ...setLean(survey, doctrine),
-    ...setDials(survey, doctrine, plan),
+    ...setDials(survey, doctrine),
     ...setGarrisons(survey, guard, plan),
     ...plan.commands,
     ...layRoads(survey, plan),
@@ -118,8 +124,12 @@ function look(outline: Outline, constants: Constants, view: View): Survey {
     own,
     campaigns,
     totalForce: own.reduce((sum, holding) => sum + holding.mine.force, 0),
-    forceBudget: Math.max(0, (spareEnergy * FORCE_BUDGET_SHARE) / constants.upkeepPerForce),
+    forceBudget: Math.max(0, (spareEnergy * FORCE_BUDGET_SHARE) / upkeepOf(constants)),
   };
+}
+
+function upkeepOf(constants: Constants): number {
+  return (constants.upkeepPerForce * (1 + constants.restUpkeep)) / 2 + constants.upkeepPerQuarter;
 }
 
 function marginOf(doctrine: Doctrine): number {
@@ -326,13 +336,10 @@ function setLean(survey: Survey, doctrine: Doctrine): Command[] {
   return commands;
 }
 
-function setDials(survey: Survey, doctrine: Doctrine, plan: Plan): Command[] {
+function setDials(survey: Survey, doctrine: Doctrine): Command[] {
   const { own, me, view, outline } = survey;
   const commands: Command[] = [];
-  const forceWanted =
-    plan.active ||
-    plan.staging.size > 0 ||
-    own.some((holding) => holding.mine.force < holding.estate.garrison);
+  const forceWanted = survey.totalForce < view.forceCap - GARRISON_STEP;
 
   for (const holding of own) {
     const cap = holding.estate.levelCap;
@@ -352,22 +359,39 @@ function setDials(survey: Survey, doctrine: Doctrine, plan: Plan): Command[] {
 }
 
 function setGarrisons(survey: Survey, guard: Guard, plan: Plan): Command[] {
-  const growth = Math.max(survey.totalForce * FORCE_GROWTH, survey.totalForce + FORCE_STEP);
-  let pool = Math.max(0, Math.min(survey.forceBudget, growth) - plan.committed);
-  const wanted = new Map<number, number>();
-  for (const tier of [guard.urgent, guard.routine]) {
-    const asked = total(tier);
-    const scale = asked > pool && asked > 0 ? pool / asked : 1;
-    for (const [region, value] of tier) {
-      wanted.set(region, value * scale);
+  const cap = survey.view.forceCap;
+  const growth = Math.max(cap * FORCE_GROWTH, cap + FORCE_STEP);
+  let left = Math.max(FORCE_FLOOR, Math.min(survey.forceBudget, growth));
+  const weights = new Map<number, number>();
+  for (const holding of survey.own) {
+    const border = holding.estate.exposure > 0 ? BASE_BORDER : 0;
+    const threat = guard.urgent.has(holding.id) ? BASE_THREAT : 0;
+    const front = plan.staging.has(holding.id) || plan.fronts.has(holding.id) ? BASE_FRONT : 0;
+    weights.set(holding.id, BASE_REAR + border + threat + front);
+  }
+  const rooms = new Map<number, number>();
+  let open = survey.own;
+  for (let pass = 0; pass < BASE_PASSES && open.length > 0 && left > 0; pass++) {
+    const sum = open.reduce((total, holding) => total + (weights.get(holding.id) ?? 0), 0);
+    const pool = left;
+    const unfilled: Own[] = [];
+    for (const holding of open) {
+      const held = rooms.get(holding.id) ?? 0;
+      const share = (pool * (weights.get(holding.id) ?? 0)) / sum;
+      const given = Math.min(share, holding.estate.quartersLimit - held);
+      rooms.set(holding.id, held + given);
+      left -= given;
+      if (given < share) {
+        continue;
+      }
+      unfilled.push(holding);
     }
-    pool = Math.max(0, pool - asked * scale);
+    open = unfilled;
   }
 
   const commands: Command[] = [];
   for (const holding of survey.own) {
-    const target = (wanted.get(holding.id) ?? 0) + (plan.staging.get(holding.id) ?? 0);
-    const value = Math.round(target / GARRISON_STEP) * GARRISON_STEP;
+    const value = Math.round((rooms.get(holding.id) ?? 0) / GARRISON_STEP) * GARRISON_STEP;
     if (Math.abs(value - holding.estate.garrison) >= GARRISON_STEP) {
       commands.push({ kind: "garrison", power: survey.me, region: holding.id, value });
     }

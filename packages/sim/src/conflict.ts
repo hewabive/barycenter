@@ -148,6 +148,7 @@ function capture(state: State, target: number, winner: number, events: GameEvent
   cell.owner = winner;
   cell.progress = 0;
   cell.force = 0;
+  cell.quarters *= 1 - constants.captureLevelLoss;
   cell.supply = 1;
   cell.siege.fill(0);
 

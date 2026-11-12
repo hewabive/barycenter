@@ -13,7 +13,7 @@ test("orders can be issued without advancing time", () => {
   assert.equal(result.state.tick, 0);
   assert.equal(result.state.powers[0].holdings[home].garrison, 4);
   assert.equal(result.rejections.length, 1);
-  assert.equal(state.powers[0].holdings[home].garrison, 0);
+  assert.equal(state.powers[0].holdings[home].garrison, state.constants.startQuarters);
 });
 
 test("retuning replaces constants and leaves the old state alone", () => {

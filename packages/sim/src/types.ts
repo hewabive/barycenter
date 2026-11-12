@@ -70,6 +70,7 @@ export interface CellState {
   branches: number[];
   stock: number[];
   force: number;
+  quarters: number;
   supply: number;
   siege: number[];
 }
@@ -112,8 +113,17 @@ export interface Constants {
   energyRounds: number;
   upkeepPerLevel: number;
   upkeepPerForce: number;
+  restUpkeep: number;
+  upkeepPerQuarter: number;
   shortageOutput: number;
   forceDecay: number;
+  strandedDecay: number;
+  excessDecay: number;
+  quarterCost: number;
+  quarterRate: number;
+  quarterDecay: number;
+  quartersBase: number;
+  quartersPerLevel: number;
   levelCost: number;
   buildRate: number;
   shipyardRate: number;
@@ -130,7 +140,6 @@ export interface Constants {
   roadMemory: number;
   upkeepPerRoad: number;
   reserveTicks: number;
-  garrisonPull: number;
   forcePerCapacity: number;
   pressurePerCapacity: number;
   neutralDefense: number;
@@ -161,6 +170,7 @@ export interface Constants {
   startLevel: number;
   startMatter: number;
   startForce: number;
+  startQuarters: number;
 }
 
 export interface State {

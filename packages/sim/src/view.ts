@@ -1,7 +1,9 @@
+import { quartersLimitOf } from "./bases.ts";
 import { commitmentOf } from "./conflict.ts";
 import { visibleRegions } from "./explore.ts";
-import { lanesOf, postsOf } from "./front.ts";
-import { capacityOf, defenseOf, heldOf, holds } from "./rules.ts";
+import { forceCapsOf, forceFieldOf } from "./force.ts";
+import { lanesOf } from "./front.ts";
+import { capacityOf, defenseOf, heldOf, holds, hubOf } from "./rules.ts";
 import {
   BRANCHES,
   type GameEvent,
@@ -54,6 +56,8 @@ export interface Estate {
   matter: number;
   dial: number;
   garrison: number;
+  quarters: number;
+  quartersLimit: number;
   supply: number;
   levelCap: number;
   exposure: number;
@@ -96,6 +100,7 @@ export interface CellLayer {
   owner: number[];
   level: number[];
   force: number[];
+  quarters: number[];
 }
 
 export interface FlowView {
@@ -110,6 +115,7 @@ export interface View {
   power: number;
   alive: boolean[];
   lean: number[];
+  forceCap: number;
   regions: RegionView[];
   edges: EdgeView[];
   pressures: PressureView[];
@@ -221,10 +227,13 @@ function estateOf(state: State, region: MapRegion, viewer: number): Estate | nul
   for (const cell of rivals) {
     hostile += cells[cell].force;
   }
+  const hub = hubOf(state, viewer, region.id);
   return {
     matter: own.reduce((sum, cell) => sum + heldOf(cells[cell].stock), 0),
     dial: orders.dial,
     garrison: orders.garrison,
+    quarters: own.reduce((sum, cell) => sum + cells[cell].quarters, 0),
+    quartersLimit: hub === null ? 0 : quartersLimitOf(state, hub),
     supply: own.reduce((sum, cell) => sum + cells[cell].supply, 0) / own.length,
     levelCap: own.reduce((sum, cell) => sum + map.cells[cell].levelCap, 0),
     exposure: rivals.size,
@@ -268,7 +277,8 @@ function pressuresOf(state: State, viewer: number, visible: Set<number>): Pressu
     }),
   );
   if (shown.includes(true)) {
-    const { active, commits } = commitmentOf(state, lanesOf(state), postsOf(state));
+    const lanes = lanesOf(state);
+    const { active, commits } = commitmentOf(state, lanes, forceFieldOf(state, lanes).rest);
     active.forEach((lane, index) => {
       const view = views[lane.pressure];
       view.commit += commits[index];
@@ -288,7 +298,7 @@ export function viewFor(state: State, power: number): View {
   const visible = visibleRegions(state, power);
   const explored = state.powers[power].explored;
 
-  const layer: CellLayer = { ground: [], cap: [], owner: [], level: [], force: [] };
+  const layer: CellLayer = { ground: [], cap: [], owner: [], level: [], force: [], quarters: [] };
   state.cells.forEach((cell, id) => {
     const place = map.cells[id];
     const known = explored[place.region];
@@ -298,6 +308,7 @@ export function viewFor(state: State, power: number): View {
     layer.owner.push(seen ? (cell.owner ?? NEUTRAL) : UNSEEN);
     layer.level.push(seen ? cell.level : 0);
     layer.force.push(seen ? cell.force : 0);
+    layer.quarters.push(seen ? Math.round(cell.quarters) : 0);
   });
 
   const regions = map.regions.map(
@@ -352,6 +363,7 @@ export function viewFor(state: State, power: number): View {
     power,
     alive: state.powers.map((holder) => holder.alive),
     lean: state.powers[power].lean.slice(),
+    forceCap: forceCapsOf(state)[power],
     regions,
     edges,
     pressures: pressuresOf(state, power, visible),

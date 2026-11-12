@@ -1,4 +1,4 @@
-import { attackNeedOf, defenseNeedOf, forceFieldOf, forceWantedBy } from "./force.ts";
+import { armingOf, attackNeedOf, defenseNeedOf, forceFieldOf, headingOf } from "./force.ts";
 import type { Lane } from "./front.ts";
 import { bestLink, EPSILON } from "./rules.ts";
 import type { State } from "./types.ts";
@@ -29,9 +29,9 @@ export interface Musters {
   regions: (Muster | null)[];
 }
 
-export function mustersOf(state: State, viewer: number, lanes: Lane[], posts: number[]): Musters {
+export function mustersOf(state: State, viewer: number, lanes: Lane[]): Musters {
   const { cells, map } = state;
-  const field = forceFieldOf(state, lanes, posts);
+  const field = forceFieldOf(state, lanes);
   const regions: (Muster | null)[] = map.regions.map(() => null);
 
   const musterIn = (cell: number): Muster => {
@@ -46,10 +46,11 @@ export function mustersOf(state: State, viewer: number, lanes: Lane[], posts: nu
   };
 
   const goalOf = (cell: number): number | null => {
+    const heading = headingOf(field, cell);
     let reached: number | null = null;
-    for (let link = bestLink(state, cell, field.potential); link !== null; ) {
+    for (let link = bestLink(state, cell, heading); link !== null; ) {
       reached = link.cell;
-      link = bestLink(state, reached, field.potential);
+      link = bestLink(state, reached, heading);
     }
     return reached;
   };
@@ -59,8 +60,8 @@ export function mustersOf(state: State, viewer: number, lanes: Lane[], posts: nu
       return;
     }
     const muster = musterIn(id);
-    const garrison = Math.min(cell.force, posts[id]);
-    const need = field.held[id] - posts[id];
+    const garrison = field.rest[id];
+    const need = field.need[id];
     const reserve = Math.max(0, cell.force - field.held[id]);
     muster.garrison += garrison;
     muster.front += Math.min(cell.force - garrison, need);
@@ -97,5 +98,5 @@ export function mustersOf(state: State, viewer: number, lanes: Lane[], posts: nu
     }
   }
 
-  return { arming: forceWantedBy(state, field)[viewer], regions };
+  return { arming: armingOf(state)[viewer], regions };
 }

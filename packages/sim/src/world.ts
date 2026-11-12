@@ -174,6 +174,8 @@ export function createWorld(options: WorldOptions): State {
     seat.branches = START_MIX.map((share) => share * seat.level);
     seat.stock[0] = constants.startMatter;
     seat.force = constants.startForce;
+    seat.quarters = constants.startQuarters;
+    state.powers[power].holdings[cells[capital].region].garrison = constants.startQuarters;
   });
   explore(state, []);
   return state;
@@ -187,6 +189,7 @@ function emptyCell(powerCount: number): CellState {
     branches: BRANCHES.map(() => 0),
     stock: KINDS.map(() => 0),
     force: 0,
+    quarters: 0,
     supply: 1,
     siege: new Array<number>(powerCount).fill(0),
   };

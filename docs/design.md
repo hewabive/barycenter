@@ -80,7 +80,7 @@ Every order names a node or an edge between nodes. No order names a cell: which 
 | Target | Order                | Effect                                                                   |
 | ------ | -------------------- | ------------------------------------------------------------------------ |
 | Node   | development priority | one dial from "gives everything to the network" to "pulls toward itself" |
-| Node   | garrison             | how much force stays on the border cells of the holding                  |
+| Node   | garrison             | room for force built in the holding, where force rests                   |
 | Node   | pressure             | directs force at one holder's cells in the node                          |
 | Edge   | road                 | lays a trunk road between the holdings on its two sides                  |
 | Edge   | border               | closed, or trade: exchange of surpluses and spread of knowledge          |
@@ -89,7 +89,7 @@ Every order names a node or an edge between nodes. No order names a cell: which 
 | Power  | fold                 | hands a body over to self-rule                                           |
 | Power  | release              | lets a node go peacefully                                                |
 
-Development priority and garrison apply to the player's own holding in the node. A garrison stands on the cells that face other powers.
+Development priority and garrison apply to the player's own holding in the node. A garrison is built in the hub of the holding.
 
 Pressure names a node and whose cells in it to press: neutral ground or one power. It can be ordered wherever the player's cells touch such cells, from a neighboring node or from inside the same one, and it lapses when that holder has no cells left there.
 
@@ -112,6 +112,18 @@ Matter, energy and force move from cell to cell, and every hop loses a share of 
 
 The capacity of an edge is the sum of its crossings, the places where a cell of one node touches a cell of the other.
 
+## Garrisons
+
+Force is tied to the land through garrisons.
+
+- The garrison order names a node and a size. The simulation builds room for that much force in the hub of the player's holding there. Room costs matter, takes time to build and needs energy upkeep even when empty. A hub can house more as its level grows. Room that no order asks for is slowly run down.
+- The room in all garrisons of a power caps its force. Shipyards build up to the cap, and force above it melts away, so a lost garrison shrinks the army it housed.
+- Force that no front asks for rests in a garrison. A front draws force from the nearest garrisons that have it, for attack and for defense alike, and force that a front lets go returns to a garrison with room.
+- Force at rest needs a fraction of the energy of force in the field, and force on the move loses a share on every hop like everything else. A far front reached over poor ground is dear.
+- A cell cut off from its capital is stranded, and force there melts quickly. A strip one cell wide is a supply line that one captured cell cuts.
+- A captured cell loses part of its garrison room along with its level.
+- A power starts with a garrison in its capital.
+
 ## Conflict
 
 - There are no tactical battles.
@@ -119,7 +131,7 @@ The capacity of an edge is the sum of its crossings, the places where a cell of 
 - A cell changes owner once pressure on it has exceeded its defense for long enough, so a border moves cell by cell and can come to rest inside a node.
 - Pressure consumes force on both sides, the attacker's faster.
 - Pressure is limited by the width of the line of contact. A strong holding has to be pressed on a wide front or along a road.
-- Along that line the simulation concentrates force. An attacking cell presses its weakest neighbor first and holds back from neutral ground it cannot take, and a cell under attack draws force from the rest of its holding.
+- Along that line the simulation concentrates force. An attacking cell presses its weakest neighbor first and holds back from neutral ground it cannot take, and a cell under attack draws force from the garrisons nearby.
 - An attack on a holding is announced to everyone who sees it and takes effect only after a delay. This binds the player as much as the rivals.
 - A neutral cell has a small defense of its own and is taken by the same pressure. Powers that enter a neutral node from different sides each keep the cells they take.
 - A captured cell loses part of its level.
@@ -213,7 +225,7 @@ Stage 2 tests whether the game gains depth without the player gaining work.
 Play of stage 2 found the game a race of expansion. Land cost nothing to hold, the shape of a power did not matter and a severed piece lived on as before, so the winning way was to grow in thin strips and fence rivals off. The economy ran itself and drew no attention, and the leaning stayed untouched, while the war asked for finer control. Three changes answer this. They are built one after another, and balance is left until all three are in.
 
 - Roads, as described under Logistics. Built.
-- Bases that house force, cap it and make force in the field dearer.
+- Garrisons that house force, cap it and make force in the field dearer. Built.
 - An aim for pressure, one level below the node.
 
 Deferred with them: a travel time for what moves, to be designed together with orbits, where it is the main rule, and roads that improve with knowledge.

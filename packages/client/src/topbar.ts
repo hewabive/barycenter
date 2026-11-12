@@ -23,7 +23,8 @@ const TRIGGER_LABELS: [keyof Triggers, string][] = [
 ];
 
 const STATS = ["tick", "regions", "cells", "levels", "force", "matter"] as const;
-const FORCES_HINT = "Where your force stands and why";
+const FORCES_HINT =
+  "Your force and the room in your garrisons. Opens where your force stands and why";
 const SNAPSHOT_HINT = "Write the state of this game to a file on the server, for debugging";
 
 export function createTopbar(root: HTMLElement, actions: TopbarActions): Topbar {
@@ -116,7 +117,7 @@ export function createTopbar(root: HTMLElement, actions: TopbarActions): Topbar 
         String(totals.regions),
         String(totals.cells),
         String(totals.levels),
-        amount(totals.force),
+        `${amount(totals.force)} / ${amount(game.view.forceCap)}`,
         amount(totals.matter),
       ];
       stats.forEach((stat, index) => {

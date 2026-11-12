@@ -22,7 +22,8 @@ const BRANCH_LABELS: Record<Branch, string> = {
 };
 
 const LEANING_HINT = "50% builds a branch as the need appears, more builds it ahead of need";
-const GARRISON_HINT = "How much force stays on the border cells of your part";
+const GARRISON_HINT =
+  "Room for force to build in this region. Force rests in its garrisons, and their sum caps your force";
 const ROAD_HINT =
   "Build a trunk road between your land on the two sides. A road loses less on the way and carries more";
 
@@ -204,6 +205,25 @@ export function createPanel(root: HTMLElement, actions: PanelActions): Panel {
         garrison,
       ),
       el("div", { class: "hint touch" }, GARRISON_HINT),
+      row(
+        "Room built",
+        live((current) => {
+          const estate = current.view.regions[id].estate;
+          if (estate === null) {
+            return "";
+          }
+          const ordered = Math.min(estate.garrison, estate.quartersLimit);
+          return `${amount(estate.quarters)} of ${amount(ordered)}`;
+        }),
+      ),
+      el(
+        "div",
+        { class: "hint" },
+        live((current) => {
+          const limit = current.view.regions[id].estate?.quartersLimit ?? 0;
+          return `The hub of your land here can house ${amount(limit)}, more as its level grows`;
+        }),
+      ),
       row(
         "Matter held",
         live((current) => amount(current.view.regions[id].estate?.matter ?? 0)),
