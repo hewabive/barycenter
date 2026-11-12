@@ -749,7 +749,7 @@ dialog::backdrop {
   }
 
   .battles tr {
-    grid-template-columns: 3.4em 0.8fr 0.9fr 1.2fr 2fr 1fr;
+    grid-template-columns: 3.8fr 3.7fr 3.8fr 5.4fr 4.4fr 7fr 3.9fr;
   }
 
   .report th,
@@ -761,6 +761,15 @@ dialog::backdrop {
 
   .report th {
     font-size: 12px;
+  }
+
+  .battles th,
+  .battles td {
+    padding-inline: 2px;
+  }
+
+  .battles th {
+    font-size: 11px;
   }
 
   .report th:last-child,

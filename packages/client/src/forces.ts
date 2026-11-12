@@ -26,7 +26,16 @@ interface Sheet {
 
 const SHOWN = 0.05;
 const STAND_COLUMNS = ["Region", "Force", "Garrison", "Front", "Reserve", "Why it is there"];
-const BATTLE_COLUMNS = ["Cell", "Level", "Force", "Defense", "Pressure", "Siege", "Outlook"];
+const BATTLE_COLUMNS = [
+  "Cell",
+  "Level",
+  "Force",
+  "Defense",
+  "Facing",
+  "Pressure",
+  "Siege",
+  "Outlook",
+];
 const STAND_LEGEND =
   "Garrison and Front show the force standing there and the force wanted. " +
   "A reserve is force that no garrison and no front asks for: " +
@@ -173,7 +182,9 @@ function battleLegend(game: Game): string {
     "A cell falls when the pressure on it stays above its defense until the siege reaches 100%. " +
     `Defense is ${defenseBase}${neutral} plus ${defensePerLevel} a level ` +
     `and ${defensePerForce} a unit of force in the cell. ` +
-    "Pressure shows what is committed now and the most the touching cells can carry."
+    "Facing is the attacker's force on the cells that touch this one, less their garrison; " +
+    "a cell that touches several counts for each. " +
+    "Pressure shows what is committed now and the most the contacts can carry."
   );
 }
 
@@ -313,6 +324,7 @@ export function createForces(root: HTMLDialogElement, actions: ForcesActions): F
           String(siege.level),
           siege.force < SHOWN ? "—" : amount(siege.force),
           amount(siege.defense),
+          siege.facing < SHOWN ? "—" : amount(siege.facing),
           `${amount(siege.pressure)} / ${amount(siege.limit)}`,
           percent(siege.progress),
           outlookOf(siege, waiting),

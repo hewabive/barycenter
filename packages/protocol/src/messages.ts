@@ -1,6 +1,6 @@
 import type { Command, Constants, ForceReport, GameEvent, Outline, View } from "@barycenter/sim";
 
-export const PROTOCOL = 3;
+export const PROTOCOL = 4;
 export const SPEEDS = [1, 2, 4, 8];
 export const ROOM_NAME = /^[a-z0-9-]{1,32}$/;
 export const MAX_ORDERS = 256;

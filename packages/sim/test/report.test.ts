@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { forceReportFor, step, viewFor } from "../src/index.ts";
+import { forceReportFor, issue, step, viewFor } from "../src/index.ts";
 import { fresh, neutralNeighbor, ownNeighbor, run } from "./support.ts";
 
 test("force that no order asks for is a reserve with nowhere to go", () => {
@@ -122,6 +122,7 @@ test("a battle lists the pressed cells with their defense and the pressure on th
   assert.equal(siege.bare, siege.defense);
   assert.ok(siege.contacts >= 1 && siege.limit > siege.defense);
   assert.ok(siege.pressure > siege.defense);
+  assert.ok(siege.facing >= siege.pressure - 1e-9);
   assert.ok(siege.progress > 0 && siege.rate > 0);
   assert.ok(battle.attackerLoss > 0);
   assert.equal(battle.defenderLoss, 0);
@@ -129,6 +130,27 @@ test("a battle lists the pressed cells with their defense and the pressure on th
     assert.equal(after.cells[known.cell].owner, null);
     assert.equal(state.map.cells[known.cell].region, pressed);
   }
+});
+
+test("force too weak for a neutral cell faces it without pressing", () => {
+  const { state } = fresh();
+  const { from, to } = neutralNeighbor(state, 0);
+  const pressed = state.map.cells[to].region;
+  for (const cell of state.cells) {
+    if (cell.owner === 0) {
+      cell.force = 0;
+    }
+  }
+  state.cells[from].force = 1;
+  const ordered = issue(state, [
+    { kind: "pressure", power: 0, region: pressed, target: null, active: true },
+  ]).state;
+  const [battle] = forceReportFor(ordered, 0).battles;
+  const siege = battle.sieges.find((known) => known.cell === to);
+  assert.ok(siege);
+  assert.ok(siege.facing < siege.defense);
+  assert.equal(siege.facing, 1);
+  assert.equal(siege.pressure, 0);
 });
 
 test("a battle against a power is reported to it from the announcement on", () => {

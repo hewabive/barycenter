@@ -10,6 +10,7 @@ export interface Siege {
   force: number;
   defense: number;
   bare: number;
+  facing: number;
   pressure: number;
   limit: number;
   contacts: number;
@@ -56,6 +57,7 @@ export function battlesOf(state: State, viewer: number, lanes: Lane[], posts: nu
         force: pressed.force,
         defense,
         bare: defense - constants.defensePerForce * pressed.force,
+        facing: 0,
         pressure,
         limit: 0,
         contacts: 0,
@@ -64,6 +66,7 @@ export function battlesOf(state: State, viewer: number, lanes: Lane[], posts: nu
       };
       battle.sieges.push(siege);
     }
+    siege.facing += Math.max(0, cells[lane.from].force - posts[lane.from]);
     siege.limit += widthOf(state, lane);
     siege.contacts += 1;
   }
