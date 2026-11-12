@@ -104,7 +104,6 @@ export interface Pressure {
   region: number;
   target: number | null;
   activeAt: number;
-  commit: number;
 }
 
 export interface Constants {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createWorld, dot, outlineOf, type Vector } from "@barycenter/sim";
+import { createWorld, dot, outlineOf, subtract, type Vector } from "@barycenter/sim";
 import {
   arc,
   areaOf,
@@ -9,6 +9,8 @@ import {
   nearest,
   neighborsAcross,
   outlineOfCell,
+  rimmed,
+  teethAlong,
   triangulate,
 } from "../src/geometry.ts";
 
@@ -130,4 +132,59 @@ test("the heart of a holding is one of its cells, in its largest group", () => {
     assert.ok(group.includes(heartOf([lone, ...group], points, across)));
     assert.ok(group.includes(heartOf([...group, lone], points, across)));
   }
+});
+
+test("teeth stand on a side and point into the cell beyond it", () => {
+  const { points, land } = pointsOf(1);
+  const cells = buildCells(points);
+  const across = neighborsAcross(cells);
+  const pitch = 0.03;
+  const depth = 0.02;
+  let seen = 0;
+  for (let cell = 0; cell < land; cell++) {
+    across[cell].forEach((other, side) => {
+      const corners = cells[cell].corners;
+      const from = corners[side];
+      const to = corners[(side + 1) % corners.length];
+      const length = lengthOf(subtract(to, from));
+      if (other < 0 || length < 1e-6) {
+        return;
+      }
+      const toward = subtract(points[other], points[cell]);
+      const teeth = teethAlong(from, to, toward, pitch, 0.7, depth);
+      assert.equal(teeth.length, Math.max(1, Math.round(length / pitch)));
+      for (const tooth of teeth) {
+        const along =
+          lengthOf(subtract(tooth.left, from)) +
+          lengthOf(subtract(tooth.right, tooth.left)) +
+          lengthOf(subtract(to, tooth.right));
+        assert.ok(Math.abs(along - length) < 1e-9);
+        assert.ok(dot(subtract(tooth.tip, tooth.left), toward) > 0);
+        const foot = { x: 0, y: 0, z: 0 };
+        for (const axis of ["x", "y", "z"] as const) {
+          foot[axis] = (tooth.left[axis] + tooth.right[axis]) / 2;
+        }
+        const reach = lengthOf(subtract(tooth.tip, foot));
+        assert.ok(reach <= depth + 1e-12 && reach > 0);
+        assert.ok(Math.abs(dot(subtract(tooth.tip, foot), subtract(to, from))) < 1e-12);
+        seen += 1;
+      }
+    });
+  }
+  assert.ok(seen > land);
+});
+
+test("a rim keeps the same distance from every side of a tooth", () => {
+  const tooth = {
+    left: { x: -1, y: 0, z: 1 },
+    right: { x: 1, y: 0, z: 1 },
+    tip: { x: 0, y: 3, z: 1 },
+  };
+  const rim = rimmed(tooth, 0.25);
+  assert.ok(Math.abs(rim.left.y + 0.25) < 1e-12 && Math.abs(rim.right.y + 0.25) < 1e-12);
+  assert.ok(Math.abs(rim.left.z - 1) < 1e-12 && Math.abs(rim.tip.x) < 1e-12);
+  const slope = Math.hypot(1, 3);
+  const beyond = (point: Vector) => (3 * point.x + point.y - 3) / slope;
+  assert.ok(Math.abs(beyond(rim.right) - 0.25) < 1e-12);
+  assert.ok(Math.abs(beyond(rim.tip) - 0.25) < 1e-12);
 });

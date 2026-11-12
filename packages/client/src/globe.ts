@@ -3,6 +3,7 @@ import {
   GROUND,
   NEUTRAL,
   type Outline,
+  subtract,
   UNSEEN,
   type Vector,
   type View,
@@ -33,8 +34,19 @@ import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import { LineSegments2 } from "three/addons/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/addons/lines/LineSegmentsGeometry.js";
 import { el } from "./dom.ts";
-import { arc, buildCells, heartOf, nearest, neighborsAcross, triangulate } from "./geometry.ts";
 import {
+  arc,
+  buildCells,
+  heartOf,
+  nearest,
+  neighborsAcross,
+  rimmed,
+  type Tooth,
+  teethAlong,
+  triangulate,
+} from "./geometry.ts";
+import {
+  ADVANCING,
   BORDER,
   ENERGY,
   EXPANDING,
@@ -80,9 +92,11 @@ interface Front {
   region: number;
   line: LineSegments2;
   material: LineMaterial;
+  teeth: Mesh<BufferGeometry, MeshBasicMaterial>;
   label: HTMLElement;
   anchor: Vector3;
   shape: string | null;
+  bite: string;
 }
 
 interface Spot {
@@ -114,6 +128,11 @@ const CLICK_SLACK = 5;
 const TAP_SLACK = 12;
 const FIELD_OF_VIEW = 40;
 const FLOW_FRAME = 30;
+const TOOTH_PITCH = 0.03;
+const TOOTH_SHARE = 0.72;
+const TOOTH_RIM = 0.002;
+const STALLED_DEPTH = 0.014;
+const ADVANCING_DEPTH = 0.032;
 const HIDDEN = [0, 0, 0, 0, 0, 0];
 
 function along(from: Vector, to: Vector, share: number, radius: number, target: Vector3): void {
@@ -266,6 +285,11 @@ export function createGlobe(
       }
     }
   }
+  const jointBetween = new Map<number, number>();
+  outline.joints.forEach((joint, id) => {
+    jointBetween.set(joint.a * landCount + joint.b, id);
+    jointBetween.set(joint.b * landCount + joint.a, id);
+  });
   const straits = outline.joints
     .filter((joint) => joint.edge !== null && !adjacent.has(joint.a * landCount + joint.b))
     .map((joint) => {
@@ -367,6 +391,46 @@ export function createGlobe(
     return { text, tone: short ? "alert" : "plain" };
   };
 
+  const toothMaterial = new MeshBasicMaterial({ vertexColors: true, side: DoubleSide });
+  const rim = new Color(BORDER);
+  const point = new Vector3();
+  const lay = (
+    tooth: Tooth,
+    radius: number,
+    shade: Color,
+    positions: number[],
+    shades: number[],
+  ) => {
+    for (const corner of [tooth.left, tooth.right, tooth.tip]) {
+      point.set(corner.x, corner.y, corner.z).setLength(radius);
+      positions.push(point.x, point.y, point.z);
+      shades.push(shade.r, shade.g, shade.b);
+    }
+  };
+  const serrate = (
+    sides: Side[],
+    depth: number,
+    fill: Color,
+    positions: number[],
+    shades: number[],
+  ) => {
+    for (const { cell, side } of sides) {
+      const corners = cells[cell].corners;
+      const teeth = teethAlong(
+        corners[side],
+        corners[(side + 1) % corners.length],
+        subtract(sites[across[cell][side]], sites[cell]),
+        TOOTH_PITCH,
+        TOOTH_SHARE,
+        depth,
+      );
+      for (const tooth of teeth) {
+        lay(rimmed(tooth, TOOTH_RIM), 1.0064, rim, positions, shades);
+        lay(tooth, 1.0068, fill, positions, shades);
+      }
+    }
+  };
+
   const syncFronts = (current: Frame) => {
     const owners = current.view.cells.owner;
     const wanted = new Set<string>();
@@ -381,15 +445,20 @@ export function createGlobe(
         const line = new LineSegments2(new LineSegmentsGeometry(), material);
         line.frustumCulled = false;
         scene.add(line);
+        const teeth = new Mesh(new BufferGeometry(), toothMaterial);
+        teeth.frustumCulled = false;
+        scene.add(teeth);
         const label = el("div", { class: "label pressure" });
         labels.append(label);
         front = {
           region: pressure.region,
           line,
           material,
+          teeth,
           label,
           anchor: new Vector3(),
           shape: null,
+          bite: "",
         };
         fronts.set(key, front);
       }
@@ -416,6 +485,26 @@ export function createGlobe(
           front.anchor.setLength(1.02);
         }
       }
+      const among = (joints: number[]) =>
+        sides.filter(({ cell, side }) =>
+          joints.includes(jointBetween.get(cell * landCount + across[cell][side]) ?? -1),
+        );
+      const stalled = among(pressure.stalled);
+      const advancing = among(pressure.advancing);
+      const bite = [stalled, advancing]
+        .map((group) => group.map(({ cell, side }) => `${cell}:${side}`).join(","))
+        .join("|");
+      if (bite !== front.bite) {
+        front.bite = bite;
+        const positions: number[] = [];
+        const shades: number[] = [];
+        serrate(stalled, STALLED_DEPTH, tint.setHex(powerColor(pressure.power)), positions, shades);
+        serrate(advancing, ADVANCING_DEPTH, tint.setHex(ADVANCING), positions, shades);
+        front.teeth.geometry.dispose();
+        front.teeth.geometry = new BufferGeometry();
+        front.teeth.geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
+        front.teeth.geometry.setAttribute("color", new Float32BufferAttribute(shades, 3));
+      }
       const active = pressure.activeAt <= current.view.tick;
       front.material.color.setHex(powerColor(pressure.power));
       if (front.material.dashed === active) {
@@ -430,7 +519,8 @@ export function createGlobe(
     }
     for (const [key, front] of fronts) {
       if (!wanted.has(key)) {
-        scene.remove(front.line);
+        scene.remove(front.line, front.teeth);
+        front.teeth.geometry.dispose();
         front.line.geometry.dispose();
         front.material.dispose();
         lineMaterials.splice(lineMaterials.indexOf(front.material), 1);

@@ -151,7 +151,7 @@ function setPressure(
     return "target is out of reach";
   }
   const activeAt = state.tick + (target === null ? 0 : state.constants.announceTicks);
-  state.pressures.push({ power, region, target, activeAt, commit: 0 });
+  state.pressures.push({ power, region, target, activeAt });
   if (target !== null) {
     events.push({ kind: "announced", power, region, target, activeAt });
   }

@@ -5,6 +5,12 @@ export interface Cell {
   corners: Vector[];
 }
 
+export interface Tooth {
+  left: Vector;
+  right: Vector;
+  tip: Vector;
+}
+
 function scaled(vector: Vector, factor: number): Vector {
   return { x: vector.x * factor, y: vector.y * factor, z: vector.z * factor };
 }
@@ -124,6 +130,58 @@ export function outlineOfCell(cell: Cell, stepsPerSide: number, radius: number):
     loop.push(...arc(corner, next, stepsPerSide, radius, 0).slice(0, -1));
   });
   return loop;
+}
+
+export function teethAlong(
+  from: Vector,
+  to: Vector,
+  toward: Vector,
+  pitch: number,
+  share: number,
+  depth: number,
+): Tooth[] {
+  const span = subtract(to, from);
+  const length = Math.sqrt(dot(span, span));
+  if (length < 1e-9) {
+    return [];
+  }
+  const run = scaled(span, 1 / length);
+  const inward = normalize(subtract(toward, scaled(run, dot(toward, run))));
+  const count = Math.max(1, Math.round(length / pitch));
+  const step = length / count;
+  const half = (step * share) / 2;
+  const reach = depth * Math.min(1, step / pitch);
+  const teeth: Tooth[] = [];
+  for (let index = 0; index < count; index++) {
+    const foot = sum(from, scaled(run, step * (index + 0.5)));
+    teeth.push({
+      left: sum(foot, scaled(run, -half)),
+      right: sum(foot, scaled(run, half)),
+      tip: sum(foot, scaled(inward, reach)),
+    });
+  }
+  return teeth;
+}
+
+export function rimmed(tooth: Tooth, margin: number): Tooth {
+  const { left, right, tip } = tooth;
+  const span = (first: Vector, second: Vector) => {
+    const gap = subtract(second, first);
+    return Math.sqrt(dot(gap, gap));
+  };
+  const base = span(left, right);
+  const rise = span(right, tip);
+  const fall = span(tip, left);
+  const around = base + rise + fall;
+  const normal = cross(subtract(right, left), subtract(tip, left));
+  const inradius = Math.sqrt(dot(normal, normal)) / around;
+  const heart = scaled(
+    sum(sum(scaled(left, rise), scaled(right, fall)), scaled(tip, base)),
+    1 / around,
+  );
+  const grown = (corner: Vector) =>
+    sum(heart, scaled(subtract(corner, heart), 1 + margin / inradius));
+  return { left: grown(left), right: grown(right), tip: grown(tip) };
 }
 
 export function nearest(points: Vector[], direction: Vector): number {

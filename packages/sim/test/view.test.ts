@@ -78,6 +78,70 @@ test("an announced attack is visible to its target", () => {
   assert.equal(pressures[0].activeAt, state.constants.announceTicks);
 });
 
+test("a front tells where it advances, where it is stalled and where it rests", () => {
+  const { state } = fresh();
+  const { from, to } = neutralNeighbor(state, 0);
+  const region = state.map.cells[to].region;
+  const joint = state.map.links[from].find((link) => link.cell === to)?.joint;
+  state.cells[from].force = 8;
+  state.pressures.push({ power: 0, region, target: null, activeAt: 0 });
+
+  const open = viewFor(state, 0).pressures[0];
+  assert.ok(open.commit > state.constants.neutralDefense);
+  assert.ok(open.advancing.includes(joint ?? -1));
+  assert.deepEqual(open.stalled, []);
+  for (const pushed of open.advancing) {
+    const { a, b } = state.map.joints[pushed];
+    assert.deepEqual([state.cells[a].owner, state.cells[b].owner].sort(), [0, null]);
+  }
+
+  state.cells[to].owner = 1;
+  state.cells[to].force = 100;
+  state.pressures[0].target = 1;
+  const walled = viewFor(state, 0).pressures[0];
+  assert.ok(walled.stalled.includes(joint ?? -1));
+  assert.deepEqual(walled.advancing, []);
+
+  state.pressures[0].activeAt = state.tick + 1;
+  const announced = viewFor(state, 0).pressures[0];
+  assert.equal(announced.commit, 0);
+  assert.deepEqual([announced.stalled, announced.advancing], [[], []]);
+
+  state.pressures[0].activeAt = 0;
+  for (const cell of state.cells) {
+    cell.force = cell.owner === 0 ? 0 : cell.force;
+  }
+  const spent = viewFor(state, 0).pressures[0];
+  assert.deepEqual([spent.stalled, spent.advancing], [[], []]);
+});
+
+test("a front seen from afar hides the contacts that start out of sight", () => {
+  const { state, home } = fresh();
+  const near = state.map.neighbors[home].map((neighbor) => neighbor.region);
+  const seen = new Set([home, ...near]);
+  const edge = state.map.edges.find(
+    (candidate) =>
+      (near.includes(candidate.a) && !seen.has(candidate.b)) ||
+      (near.includes(candidate.b) && !seen.has(candidate.a)),
+  );
+  assert.ok(edge);
+  const { a, b } = state.map.joints[edge.joints[0]];
+  const [inside, outside] = seen.has(state.map.cells[a].region) ? [a, b] : [b, a];
+  const region = state.map.cells[inside].region;
+  state.cells[inside].owner = null;
+  state.cells[outside].owner = 1;
+  state.cells[outside].force = 8;
+  state.pressures.push({ power: 1, region, target: null, activeAt: 0 });
+
+  const attacker = viewFor(state, 1).pressures.find((pressure) => pressure.region === region);
+  assert.ok(attacker);
+  assert.ok(attacker.advancing.includes(edge.joints[0]));
+  const watcher = viewFor(state, 0).pressures.find((pressure) => pressure.region === region);
+  assert.ok(watcher);
+  assert.equal(watcher.commit, attacker.commit);
+  assert.deepEqual([watcher.stalled, watcher.advancing], [[], []]);
+});
+
 test("the outline carries geometry and topology but no natural data", () => {
   const outline = outlineOf(createWorld({ seed: 1 }).map);
   assert.deepEqual(Object.keys(outline.cells[0]).sort(), ["position", "region"]);

@@ -1,4 +1,6 @@
+import { commitmentOf } from "./conflict.ts";
 import { visibleRegions } from "./explore.ts";
+import { lanesOf, postsOf } from "./front.ts";
 import { capacityOf, defenseOf, heldOf } from "./rules.ts";
 import {
   BRANCHES,
@@ -18,6 +20,7 @@ export const UNSEEN = -2;
 export const GROUND = { unknown: 0, plain: 1, mountain: 2 };
 
 const FLOW_FLOOR = 1e-4;
+const PUSH_FLOOR = 0.05;
 
 export interface Outline {
   cells: { position: Vector; region: number }[];
@@ -80,6 +83,8 @@ export interface PressureView {
   target: number | null;
   activeAt: number;
   commit: number;
+  stalled: number[];
+  advancing: number[];
 }
 
 export interface CellLayer {
@@ -250,6 +255,39 @@ function loadOf(state: State, edge: MapEdge, viewer: number): number {
   return load;
 }
 
+function pressuresOf(state: State, viewer: number, visible: Set<number>): PressureView[] {
+  const { map } = state;
+  const shown = state.pressures.map(
+    (pressure) => pressure.power === viewer || visible.has(pressure.region),
+  );
+  const views = state.pressures.map(
+    ({ power, region, target, activeAt }): PressureView => ({
+      power,
+      region,
+      target,
+      activeAt,
+      commit: 0,
+      stalled: [],
+      advancing: [],
+    }),
+  );
+  if (shown.includes(true)) {
+    const { active, commits, walls, totals } = commitmentOf(state, lanesOf(state), postsOf(state));
+    active.forEach((lane, index) => {
+      const view = views[lane.pressure];
+      view.commit += commits[index];
+      const seen =
+        visible.has(map.cells[lane.from].region) && visible.has(map.cells[lane.to].region);
+      if (!seen || commits[index] < PUSH_FLOOR) {
+        return;
+      }
+      const yielding = (totals.get(lane.to)?.[view.power] ?? 0) > (walls.get(lane.to) ?? 0);
+      (yielding ? view.advancing : view.stalled).push(lane.joint);
+    });
+  }
+  return views.filter((_, index) => shown[index]);
+}
+
 export function viewFor(state: State, power: number): View {
   const { map } = state;
   const visible = visibleRegions(state, power);
@@ -295,10 +333,6 @@ export function viewFor(state: State, power: number): View {
     };
   });
 
-  const pressures = state.pressures
-    .filter((pressure) => pressure.power === power || visible.has(pressure.region))
-    .map((pressure) => ({ ...pressure }));
-
   const flows: FlowView[] = [];
   state.joints.forEach((flow, joint) => {
     const { a, b } = map.joints[joint];
@@ -324,7 +358,7 @@ export function viewFor(state: State, power: number): View {
     lean: state.powers[power].lean.slice(),
     regions,
     edges,
-    pressures,
+    pressures: pressuresOf(state, power, visible),
     cells: layer,
     flows,
   };

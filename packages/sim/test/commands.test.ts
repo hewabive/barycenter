@@ -107,11 +107,10 @@ test("an attack on a holding is announced and waits", () => {
 
   let current = first.state;
   while (current.tick < delay) {
-    assert.equal(current.pressures[0].commit, 0);
+    assert.equal(viewFor(current, 0).pressures[0].commit, 0);
     current = step(current, []).state;
   }
-  current = step(current, []).state;
-  assert.ok(current.pressures[0].commit > 0);
+  assert.ok(viewFor(current, 0).pressures[0].commit > 0);
 });
 
 test("a captured cell changes owner and loses part of its level", () => {

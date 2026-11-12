@@ -11,6 +11,7 @@ export const REGION_BORDER = 0x05070c;
 export const HOLDING_BORDER = 0xf2f5fa;
 export const STRAIT = 0x5fb9de;
 export const EXPANDING = 0xfff4a8;
+export const ADVANCING = 0xffffff;
 
 export const MATTER = 0xffa64d;
 export const ENERGY = 0xfff27a;

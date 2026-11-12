@@ -85,14 +85,8 @@ export function resolveConflict(
 ): void {
   const { constants, cells } = state;
   const powerCount = state.powers.length;
-  for (const pressure of state.pressures) {
-    pressure.commit = 0;
-  }
   const { active, commits, walls, totals } = commitmentOf(state, lanes, posts);
   const wallOf = (cell: number) => walls.get(cell) ?? 0;
-  active.forEach((lane, index) => {
-    state.pressures[lane.pressure].commit += commits[index];
-  });
 
   active.forEach((lane, index) => {
     const total = totals.get(lane.to)?.[state.pressures[lane.pressure].power] ?? 0;
