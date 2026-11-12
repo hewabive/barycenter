@@ -146,11 +146,41 @@ test("force too weak for a neutral cell faces it without pressing", () => {
     { kind: "pressure", power: 0, region: pressed, target: null, active: true },
   ]).state;
   const [battle] = forceReportFor(ordered, 0).battles;
-  const siege = battle.sieges.find((known) => known.cell === to);
-  assert.ok(siege);
-  assert.ok(siege.facing < siege.defense);
-  assert.equal(siege.facing, 1);
-  assert.equal(siege.pressure, 0);
+  const faced = battle.sieges.filter((siege) => siege.facing > 0);
+  assert.equal(faced.length, 1);
+  assert.equal(faced[0].facing, 1);
+  assert.ok(faced[0].facing < faced[0].defense);
+  assert.ok(ordered.map.links[faced[0].cell].some((link) => link.cell === from));
+  assert.ok(battle.sieges.every((siege) => siege.pressure === 0));
+  assert.ok(battle.sieges.some((siege) => siege.cell === to));
+});
+
+test("force that touches several pressed cells is counted once", () => {
+  const { state } = fresh();
+  const { to } = neutralNeighbor(state, 0);
+  const pressed = state.map.cells[to].region;
+  const after = run(state, 30, [
+    { kind: "pressure", power: 0, region: pressed, target: null, active: true },
+  ]);
+  const [battle] = forceReportFor(after, 0).battles;
+  assert.ok(battle);
+  const origins = new Set<number>();
+  let contacts = 0;
+  let facing = 0;
+  for (const siege of battle.sieges) {
+    assert.ok(siege.facing >= siege.pressure - 1e-9);
+    contacts += siege.contacts;
+    facing += siege.facing;
+    for (const link of after.map.links[siege.cell]) {
+      if (after.cells[link.cell].owner === 0) {
+        origins.add(link.cell);
+      }
+    }
+  }
+  const standing = [...origins].reduce((sum, cell) => sum + after.cells[cell].force, 0);
+  assert.ok(contacts > origins.size);
+  assert.ok(standing > 0);
+  assert.ok(Math.abs(facing - standing) < 1e-9);
 });
 
 test("a battle against a power is reported to it from the announcement on", () => {

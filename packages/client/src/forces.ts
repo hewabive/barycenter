@@ -182,8 +182,8 @@ function battleLegend(game: Game): string {
     "A cell falls when the pressure on it stays above its defense until the siege reaches 100%. " +
     `Defense is ${defenseBase}${neutral} plus ${defensePerLevel} a level ` +
     `and ${defensePerForce} a unit of force in the cell. ` +
-    "Facing is the attacker's force on the cells that touch this one, less their garrison; " +
-    "a cell that touches several counts for each. " +
+    "Facing is the attacker's force standing against the cell: what presses it and what waits to. " +
+    "Force that touches several cells is counted once, where it presses or would press next. " +
     "Pressure shows what is committed now and the most the contacts can carry."
   );
 }
