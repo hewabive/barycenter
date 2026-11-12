@@ -4,7 +4,7 @@ import { BRANCHES, type State } from "./types.ts";
 export function wantsOf(state: State, matterNeed: number[], forceNeed: number[]): number[][] {
   const { constants, cells, map } = state;
   const shortage = cells.map((cell) => (cell.owner === null ? 0 : 1 - cell.supply));
-  const energyNeed = spread(state, shortage, constants.needReach);
+  const energyNeed = spread(state, shortage);
   const tilt = state.powers.map((power) =>
     power.lean.map((value) => constants.leanSpan ** (2 * value - 1)),
   );

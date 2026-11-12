@@ -1,15 +1,16 @@
+import { advanceRoad, wantedGradeOf } from "./roads.ts";
 import {
   addTo,
   bestLink,
   capacityOf,
   dialOf,
   EPSILON,
-  expansionCostOf,
   heldOf,
   levelCostOf,
   matterYieldOf,
   outputOf,
   POWER,
+  passOf,
   SHIPYARD,
   signedFlow,
   spread,
@@ -18,7 +19,7 @@ import {
 import type { State } from "./types.ts";
 
 export interface Work {
-  edge: number;
+  joint: number;
   rate: number;
 }
 
@@ -27,29 +28,19 @@ export interface MatterField {
   potential: number[];
 }
 
-export function worksOf(state: State): Work[][] {
-  const { cells, map } = state;
+export function worksOf(state: State, trunks: boolean[]): Work[][] {
+  const { cells, map, constants } = state;
   const works: Work[][] = cells.map(() => []);
-  state.edges.forEach((edge, id) => {
-    const builder = edge.expanding;
-    if (builder === null) {
+  state.joints.forEach((joint, id) => {
+    const { a, b } = map.joints[id];
+    if (cells[a].owner === null || cells[a].owner !== cells[b].owner) {
       return;
     }
-    const crew = new Set<number>();
-    for (const joint of map.edges[id].joints) {
-      for (const cell of [map.joints[joint].a, map.joints[joint].b]) {
-        if (cells[cell].owner === builder) {
-          crew.add(cell);
-        }
-      }
-    }
-    if (crew.size === 0) {
-      edge.expanding = null;
+    if (joint.grade >= wantedGradeOf(state, id, trunks)) {
       return;
     }
-    for (const cell of crew) {
-      works[cell].push({ edge: id, rate: state.constants.expandRate / crew.size });
-    }
+    works[a].push({ joint: id, rate: constants.roadRate / 2 });
+    works[b].push({ joint: id, rate: constants.roadRate / 2 });
   });
   return works;
 }
@@ -89,7 +80,7 @@ export function matterFieldOf(state: State, works: Work[][], forceWanted: boolea
   const attraction = cells.map((cell, id) =>
     heldOf(cell.stock) < reserve[id] ? dialOf(state, id) : 0,
   );
-  return { reserve, potential: spread(state, attraction, constants.matterReach) };
+  return { reserve, potential: spread(state, attraction) };
 }
 
 export function produceMatter(state: State): void {
@@ -133,7 +124,7 @@ export function spendMatter(
     };
 
     for (const work of works[id]) {
-      advanceExpansion(state, work.edge, take(work.rate));
+      advanceRoad(state, work.joint, take(work.rate));
     }
     current.force += take(shipyard) / constants.forceCost;
     current.progress += take(build);
@@ -153,21 +144,6 @@ export function spendMatter(
   });
 }
 
-function advanceExpansion(state: State, edge: number, spent: number): void {
-  const current = state.edges[edge];
-  if (current.expanding === null) {
-    return;
-  }
-  current.progress += spent;
-  const cost = expansionCostOf(state.constants, current.expansions);
-  if (current.progress < cost) {
-    return;
-  }
-  current.progress = 0;
-  current.expansions += 1;
-  current.expanding = null;
-}
-
 export function routeMatter(state: State, field: MatterField): void {
   const { cells } = state;
   for (const joint of state.joints) {
@@ -185,7 +161,8 @@ export function routeMatter(state: State, field: MatterField): void {
       continue;
     }
     const amount = Math.min(spare, capacityOf(state, link.joint));
-    const moved = takeFrom(current.stock, amount);
+    const pass = passOf(state, link.joint);
+    const moved = takeFrom(current.stock, amount).map((taken) => taken * pass);
     if (arrivals[link.cell].length === 0) {
       arrivals[link.cell] = moved;
     } else {

@@ -42,7 +42,7 @@ function parseOrder(value: unknown): Order | null {
   if (kind === "lean" && isBranch(branch) && isNumber(amount)) {
     return { kind, branch, value: amount };
   }
-  if (kind === "expand" && isNumber(edge) && isBoolean(active)) {
+  if (kind === "road" && isNumber(edge) && isBoolean(active)) {
     return { kind, edge, active };
   }
   const targeted = target === null || isNumber(target);

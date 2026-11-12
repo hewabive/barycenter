@@ -1,6 +1,6 @@
 import type { Command, Constants, ForceReport, GameEvent, Outline, View } from "@barycenter/sim";
 
-export const PROTOCOL = 6;
+export const PROTOCOL = 7;
 export const SPEEDS = [1, 2, 4, 8];
 export const ROOM_NAME = /^[a-z0-9-]{1,32}$/;
 export const MAX_ORDERS = 256;
@@ -85,8 +85,8 @@ export function commandOf(order: Order, power: number): Command {
       return { kind: "garrison", power, region: order.region, value: order.value };
     case "lean":
       return { kind: "lean", power, branch: order.branch, value: order.value };
-    case "expand":
-      return { kind: "expand", power, edge: order.edge, active: order.active };
+    case "road":
+      return { kind: "road", power, edge: order.edge, active: order.active };
     case "pressure":
       return {
         kind: "pressure",
@@ -106,8 +106,8 @@ export function orderOf(command: Command): Order {
       return { kind: "garrison", region: command.region, value: command.value };
     case "lean":
       return { kind: "lean", branch: command.branch, value: command.value };
-    case "expand":
-      return { kind: "expand", edge: command.edge, active: command.active };
+    case "road":
+      return { kind: "road", edge: command.edge, active: command.active };
     case "pressure":
       return {
         kind: "pressure",

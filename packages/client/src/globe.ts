@@ -1,5 +1,4 @@
 import {
-  type Constants,
   GROUND,
   NEUTRAL,
   type Outline,
@@ -51,7 +50,6 @@ import {
   BORDER,
   BREACH,
   ENERGY,
-  EXPANDING,
   FORCE,
   HOLDING_BORDER,
   MATTER,
@@ -60,6 +58,8 @@ import {
   PLAIN,
   powerColor,
   REGION_BORDER,
+  ROAD,
+  ROAD_ORDER,
   SELECTION,
   STRAIT,
   UNEXPLORED,
@@ -67,7 +67,6 @@ import {
 
 export interface Frame {
   view: View;
-  constants: Constants;
   seat: number;
   running: boolean;
   speed: number;
@@ -136,10 +135,15 @@ interface Press {
 
 const SURFACE_DEPTH = 1;
 const STRAIT_STEPS = 12;
-const PARTICLES = 3;
+const PORTIONS = 8;
 const STREAM_ROOM = 6000;
-const ENERGY_UNIT = 0.3;
+const MATTER_PORTION = 0.25;
+const ENERGY_PORTION = 0.3;
+const FORCE_PORTION = 0.5;
 const FLOW_FLOOR = 0.005;
+const STAGGER = 0.618;
+const ROAD_STEPS = 3;
+const ROAD_WIDTHS = [1.5, 2.75, 4];
 const FLOW_SPEED = 0.6;
 const CLICK_SLACK = 5;
 const TAP_SLACK = 12;
@@ -297,7 +301,6 @@ export function createGlobe(
     1.002,
   );
   const holdingBorders = fatLine(HOLDING_BORDER, 2);
-  const works = fatLine(EXPANDING, 4);
   const selection = fatLine(SELECTION, 3);
 
   const adjacent = new Set<number>();
@@ -316,7 +319,14 @@ export function createGlobe(
   const crossings = outline.joints.flatMap((joint, id) =>
     adjacent.has(joint.a * landCount + joint.b) ? [] : [{ id, a: joint.a, b: joint.b }],
   );
+  const roadLines = ROAD_WIDTHS.map((width) => {
+    const line = fatLine(ROAD, width);
+    line.material.transparent = true;
+    line.material.opacity = 0.85;
+    return line;
+  });
   const straits = outline.joints
+    .map((joint, id) => ({ ...joint, id }))
     .filter((joint) => joint.edge !== null && !adjacent.has(joint.a * landCount + joint.b))
     .map((joint) => {
       const path = arc(sites[joint.a], sites[joint.b], STRAIT_STEPS, 1.004, 0.02);
@@ -334,7 +344,7 @@ export function createGlobe(
       line.computeLineDistances();
       line.visible = false;
       scene.add(line);
-      return { edge: joint.edge ?? 0, line, material };
+      return { edge: joint.edge ?? 0, joint: joint.id, line, material };
     });
 
   const createStream = (color: number, size: number): Stream => {
@@ -370,7 +380,7 @@ export function createGlobe(
   let frame: Frame | null = null;
   let shownSelection: number | null = null;
   let shownOwners = "";
-  let shownWorks = "";
+  let shownRoads = "";
   let phase = 0;
   let faced = false;
 
@@ -417,6 +427,7 @@ export function createGlobe(
     return { text, tone: short ? "alert" : "plain" };
   };
 
+  const roadPoint = new Vector3();
   const toothMaterial = new MeshBasicMaterial({ vertexColors: true, side: DoubleSide });
   const rim = new Color(BORDER);
   const fang = new Color(BREACH);
@@ -655,25 +666,32 @@ export function createGlobe(
       );
     }
 
-    const expanding = current.view.edges
-      .filter((edge) => edge.expanding !== null)
-      .map((edge) => edge.id);
-    if (expanding.join(",") !== shownWorks) {
-      shownWorks = expanding.join(",");
-      const pairs = new Set(expanding.map((id) => `${outline.edges[id].a}:${outline.edges[id].b}`));
-      redraw(
-        works,
-        sidesWhere(
-          (cell, other) => other < landCount && pairs.has(`${regionOf(cell)}:${regionOf(other)}`),
-        ),
-        1.005,
-      );
+    const grades = current.view.roads;
+    if (grades.join("") !== shownRoads) {
+      shownRoads = grades.join("");
+      const strokes: number[][] = roadLines.map(() => []);
+      grades.forEach((grade, joint) => {
+        const { a, b } = outline.joints[joint];
+        if (grade <= 0 || !adjacent.has(a * landCount + b)) {
+          return;
+        }
+        const values = strokes[Math.min(grade, strokes.length) - 1];
+        for (let step = 0; step < ROAD_STEPS; step++) {
+          along(sites[a], sites[b], step / ROAD_STEPS, 1.0045, roadPoint);
+          values.push(roadPoint.x, roadPoint.y, roadPoint.z);
+          along(sites[a], sites[b], (step + 1) / ROAD_STEPS, 1.0045, roadPoint);
+          values.push(roadPoint.x, roadPoint.y, roadPoint.z);
+        }
+      });
+      roadLines.forEach((line, index) => {
+        restring(line, strokes[index]);
+      });
     }
     for (const strait of straits) {
       const edge = current.view.edges[strait.edge];
       strait.line.visible = edge.kind !== null;
-      strait.material.color.setHex(edge.expanding === null ? STRAIT : EXPANDING);
-      strait.material.linewidth = 1.5 + 0.5 * (edge.expansions ?? 0);
+      strait.material.color.setHex(edge.road ? ROAD_ORDER : STRAIT);
+      strait.material.linewidth = 1.5 + 0.75 * (grades[strait.joint] ?? 0);
     }
 
     current.view.regions.forEach((_, id) => {
@@ -693,14 +711,15 @@ export function createGlobe(
   };
 
   const spot = new Vector3();
-  const emit = (stream: Stream, joint: number, signed: number, load: number, shift: number) => {
-    if (Math.abs(signed) < FLOW_FLOOR) {
+  const emit = (stream: Stream, joint: number, signed: number, portion: number, shift: number) => {
+    const flow = Math.abs(signed);
+    if (flow < FLOW_FLOOR) {
       return;
     }
     const { a, b } = outline.joints[joint];
-    const count = Math.max(1, Math.min(PARTICLES, Math.ceil(load * PARTICLES)));
-    for (let particle = 0; particle < count && stream.used < STREAM_ROOM; particle++) {
-      const share = (phase + shift + particle / count) % 1;
+    const gap = Math.max(portion / flow, 1 / PORTIONS);
+    const first = (phase + (shift + joint * STAGGER) * gap) % gap;
+    for (let share = first; share < 1 && stream.used < STREAM_ROOM; share += gap) {
       along(sites[a], sites[b], signed > 0 ? share : 1 - share, 1.008, spot);
       stream.positions.setXYZ(stream.used, spot.x, spot.y, spot.z);
       stream.used += 1;
@@ -712,17 +731,10 @@ export function createGlobe(
     for (const stream of streams) {
       stream.used = 0;
     }
-    const { landCapacity, forcePerCapacity } = current.constants;
     for (const flow of current.view.flows) {
-      emit(matterStream, flow.joint, flow.matter, Math.abs(flow.matter) / landCapacity, 0);
-      emit(energyStream, flow.joint, flow.energy, Math.abs(flow.energy) / ENERGY_UNIT, 0.33);
-      emit(
-        forceStream,
-        flow.joint,
-        flow.force,
-        Math.abs(flow.force) / (landCapacity * forcePerCapacity),
-        0.66,
-      );
+      emit(matterStream, flow.joint, flow.matter, MATTER_PORTION, 0);
+      emit(energyStream, flow.joint, flow.energy, ENERGY_PORTION, 0.33);
+      emit(forceStream, flow.joint, flow.force, FORCE_PORTION, 0.66);
     }
     for (const stream of streams) {
       stream.geometry.setDrawRange(0, stream.used);
@@ -867,7 +879,7 @@ export function createGlobe(
     controls.update();
     const flowing = frame?.running === true && frame.view.flows.length > 0;
     if (frame !== null && flowing) {
-      phase = (phase + elapsed * FLOW_SPEED * Math.sqrt(frame.speed)) % 1;
+      phase += elapsed * FLOW_SPEED * Math.sqrt(frame.speed);
     }
     const due = flowing && (!coarse.matches || now - presented >= FLOW_FRAME);
     if (stale || due) {

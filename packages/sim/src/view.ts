@@ -1,7 +1,7 @@
 import { commitmentOf } from "./conflict.ts";
 import { visibleRegions } from "./explore.ts";
 import { lanesOf, postsOf } from "./front.ts";
-import { capacityOf, defenseOf, heldOf } from "./rules.ts";
+import { capacityOf, defenseOf, heldOf, holds } from "./rules.ts";
 import {
   BRANCHES,
   type GameEvent,
@@ -71,8 +71,7 @@ export interface EdgeView {
   id: number;
   kind: JointKind | null;
   capacity: number | null;
-  expansions: number | null;
-  expanding: number | null;
+  road: boolean;
   open: boolean;
   load: number;
 }
@@ -115,6 +114,7 @@ export interface View {
   edges: EdgeView[];
   pressures: PressureView[];
   cells: CellLayer;
+  roads: number[];
   flows: FlowView[];
 }
 
@@ -241,20 +241,13 @@ function kindOf(state: State, edge: MapEdge): JointKind {
 }
 
 function loadOf(state: State, edge: MapEdge, viewer: number): number {
-  const { cells, map, constants } = state;
+  const { cells, map } = state;
   let load = 0;
   for (const joint of edge.joints) {
     const { a, b } = map.joints[joint];
-    if (cells[a].owner !== viewer || cells[b].owner !== viewer) {
-      continue;
+    if (cells[a].owner === viewer && cells[b].owner === viewer) {
+      load = Math.max(load, state.joints[joint].load);
     }
-    const capacity = capacityOf(state, joint);
-    const flow = state.joints[joint];
-    load = Math.max(
-      load,
-      Math.abs(flow.matterFlow) / capacity,
-      Math.abs(flow.forceFlow) / (capacity * constants.forcePerCapacity),
-    );
   }
   return load;
 }
@@ -318,21 +311,22 @@ export function viewFor(state: State, power: number): View {
 
   const edges = map.edges.map((edge): EdgeView => {
     const known = explored[edge.a] || explored[edge.b];
-    const seen = visible.has(edge.a) || visible.has(edge.b);
     return {
       id: edge.id,
       kind: known ? kindOf(state, edge) : null,
       capacity: known
         ? edge.joints.reduce((sum, joint) => sum + capacityOf(state, joint), 0)
         : null,
-      expansions: known ? state.edges[edge.id].expansions : null,
-      expanding: seen ? state.edges[edge.id].expanding : null,
-      open: edge.joints.some((joint) => {
-        const { a, b } = map.joints[joint];
-        return state.cells[a].owner === power || state.cells[b].owner === power;
-      }),
+      road: state.powers[power].roads[edge.id],
+      open: holds(state, power, edge.a) && holds(state, power, edge.b),
       load: loadOf(state, edge, power),
     };
+  });
+
+  const roads = state.joints.map((joint, id) => {
+    const { a, b } = map.joints[id];
+    const seen = visible.has(map.cells[a].region) && visible.has(map.cells[b].region);
+    return seen ? joint.grade : 0;
   });
 
   const flows: FlowView[] = [];
@@ -362,6 +356,7 @@ export function viewFor(state: State, power: number): View {
     edges,
     pressures: pressuresOf(state, power, visible),
     cells: layer,
+    roads,
     flows,
   };
 }

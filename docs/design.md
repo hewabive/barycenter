@@ -43,7 +43,7 @@ Nodes of the next scale are on the map from the start. A sufficiently developed 
 
 | Resource  | Behavior                                             | Source                                               | Use                                                                                         |
 | --------- | ---------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| Matter    | a stock: accumulates and moves slowly                | deposits such as mountains, asteroids and gas giants | building levels, edge capacity and force                                                    |
+| Matter    | a stock: accumulates and moves slowly                | deposits such as mountains, asteroids and gas giants | building levels, roads and force                                                            |
 | Energy    | a capacity: cannot be stored and fades with distance | bright and hot nodes, orbits close to the star       | upkeep of levels and force                                                                  |
 | Knowledge | a field: never spent, spreads to neighbors           | the science branch                                   | output multiplier; thresholds unlock abilities such as the spaceport and interstellar edges |
 | Force     | a stock that needs energy upkeep                     | built from matter at shipyards                       | pressure, defense, holding nodes                                                            |
@@ -82,7 +82,7 @@ Every order names a node or an edge between nodes. No order names a cell: which 
 | Node   | development priority | one dial from "gives everything to the network" to "pulls toward itself" |
 | Node   | garrison             | how much force stays on the border cells of the holding                  |
 | Node   | pressure             | directs force at one holder's cells in the node                          |
-| Edge   | expand               | raises capacity                                                          |
+| Edge   | road                 | lays a trunk road between the holdings on its two sides                  |
 | Edge   | border               | closed, or trade: exchange of surpluses and spread of knowledge          |
 | Edge   | gift                 | a flow into a foreign node, to aid an ally or to feed a rival's colony   |
 | Power  | leaning              | one dial per branch: how far that branch is built ahead of need          |
@@ -97,9 +97,20 @@ No order sets what a node specializes in. The leaning is the only say the player
 
 The dial sets how much of its building capacity a holding uses and how strongly it attracts matter. A holding that has enough for its own work stops attracting, so the strongest pull is served first and the rest goes on to weaker ones.
 
-The capacity of an edge is the sum of its crossings, the places where a cell of one node touches a cell of the other. One expand order adds one step of capacity to every crossing, and the builder's cells on that boundary pay for it.
+The player does not draw routes. Orders create demand, and the network carries matter and force to it. The player's concern is bottlenecks and long poor ways. Flows must always be visible on the map.
 
-The player does not draw routes. Orders create demand, and the network carries matter and force to it. The player's concern is bottlenecks, which are edges of low capacity. Flows must always be visible on the map.
+## Logistics
+
+Matter, energy and force move from cell to cell, and every hop loses a share of what moves. The road between the two cells sets that share and how much can pass in one tick.
+
+- A road belongs to the joint between two cells. It has a grade: each grade halves the loss and adds capacity. Open ground is grade zero, and mountains and straits carry less at any grade.
+- A flow takes the way that loses least, so roads draw traffic to themselves.
+- The simulation builds a road where traffic presses against capacity. The cells at both ends pay for it in matter.
+- A road needs energy upkeep, and a road that nothing uses wears away. The top grade is too dear to build everywhere, so a network forms.
+- The road order names an edge. The simulation then builds a trunk of the top grade between the hubs of the player's holdings in the two nodes, ahead of any traffic, and keeps it while the order stands. A chain of such orders is a road to a far province. The hub of a holding is the capital or, where there is none, its cell with the highest level cap.
+- A road outlasts a change of owner. Pressure across a joint is as wide as its road, so a road that leads to a border also leads an attack in.
+
+The capacity of an edge is the sum of its crossings, the places where a cell of one node touches a cell of the other.
 
 ## Conflict
 
@@ -107,7 +118,7 @@ The player does not draw routes. Orders create demand, and the network carries m
 - Force directed at a node becomes pressure along the whole line where the attacker's cells touch foreign cells of that node.
 - A cell changes owner once pressure on it has exceeded its defense for long enough, so a border moves cell by cell and can come to rest inside a node.
 - Pressure consumes force on both sides, the attacker's faster.
-- Pressure is limited by the width of the line of contact. A strong holding has to be pressed on a wide front or through a widened edge.
+- Pressure is limited by the width of the line of contact. A strong holding has to be pressed on a wide front or along a road.
 - Along that line the simulation concentrates force. An attacking cell presses its weakest neighbor first and holds back from neutral ground it cannot take, and a cell under attack draws force from the rest of its holding.
 - An attack on a holding is announced to everyone who sees it and takes effect only after a delay. This binds the player as much as the rivals.
 - A neutral cell has a small defense of its own and is taken by the same pressure. Powers that enter a neutral node from different sides each keep the cells they take.
@@ -198,6 +209,14 @@ Stage 2 moves the simulation onto cells. It is built.
 - Matter has one kind, stored as a list of kinds.
 
 Stage 2 tests whether the game gains depth without the player gaining work.
+
+Play of stage 2 found the game a race of expansion. Land cost nothing to hold, the shape of a power did not matter and a severed piece lived on as before, so the winning way was to grow in thin strips and fence rivals off. The economy ran itself and drew no attention, and the leaning stayed untouched, while the war asked for finer control. Three changes answer this. They are built one after another, and balance is left until all three are in.
+
+- Roads, as described under Logistics. Built.
+- Bases that house force, cap it and make force in the field dearer.
+- An aim for pressure, one level below the node.
+
+Deferred with them: a travel time for what moves, to be designed together with orbits, where it is the main rule, and roads that improve with knowledge.
 
 Stage 3 adds knowledge, cohesion, borders and trade, gifts, the moon and folding with governors. It tests whether the game stays manageable as it grows.
 

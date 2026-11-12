@@ -34,8 +34,8 @@ function applyCommand(state: State, command: Command, events: GameEvent[]): stri
       return setGarrison(state, command.power, command.region, command.value);
     case "lean":
       return setLean(state, command.power, command.branch, command.value);
-    case "expand":
-      return setExpand(state, command.power, command.edge, command.active);
+    case "road":
+      return setRoad(state, command.power, command.edge, command.active);
     case "pressure":
       return setPressure(
         state,
@@ -88,32 +88,15 @@ function setLean(state: State, power: number, branch: Branch, value: number): st
   return null;
 }
 
-function setExpand(state: State, power: number, edge: number, active: boolean): string | null {
+function setRoad(state: State, power: number, edge: number, active: boolean): string | null {
   const route = Number.isInteger(edge) ? state.map.edges[edge] : undefined;
   if (route === undefined) {
     return "unknown edge";
   }
-  const reaches = route.joints.some((joint) => {
-    const { a, b } = state.map.joints[joint];
-    return state.cells[a].owner === power || state.cells[b].owner === power;
-  });
-  if (!reaches) {
-    return "edge does not touch owned territory";
+  if (active && !(holds(state, power, route.a) && holds(state, power, route.b))) {
+    return "a road needs land on both sides of the edge";
   }
-  const current = state.edges[edge];
-  if (!active) {
-    if (current.expanding === power) {
-      current.expanding = null;
-    }
-    return null;
-  }
-  if (current.expansions >= state.constants.maxExpansions) {
-    return "edge is fully expanded";
-  }
-  if (current.expanding !== null && current.expanding !== power) {
-    return "edge is being expanded by another power";
-  }
-  current.expanding = power;
+  state.powers[power].roads[edge] = active;
   return null;
 }
 

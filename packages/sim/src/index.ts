@@ -11,7 +11,6 @@ export {
   type CellState,
   type Command,
   type Constants,
-  type EdgeState,
   type GameEvent,
   type HoldingOrders,
   type JointKind,

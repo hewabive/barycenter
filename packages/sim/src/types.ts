@@ -78,12 +78,9 @@ export interface JointState {
   matterFlow: number;
   forceFlow: number;
   energyFlow: number;
-}
-
-export interface EdgeState {
-  expansions: number;
+  grade: number;
   progress: number;
-  expanding: number | null;
+  load: number;
 }
 
 export interface HoldingOrders {
@@ -97,6 +94,7 @@ export interface PowerState {
   explored: boolean[];
   lean: number[];
   holdings: HoldingOrders[];
+  roads: boolean[];
 }
 
 export interface Pressure {
@@ -111,7 +109,6 @@ export interface Constants {
   matterRate: number;
   baseEnergy: number;
   energyRate: number;
-  energyFade: number;
   energyRounds: number;
   upkeepPerLevel: number;
   upkeepPerForce: number;
@@ -121,13 +118,18 @@ export interface Constants {
   buildRate: number;
   shipyardRate: number;
   forceCost: number;
-  expandRate: number;
-  expandCost: number;
-  expandGain: number;
-  maxExpansions: number;
+  hopLoss: number;
+  roadRelief: number;
+  roadGain: number;
+  maxGrade: number;
+  roadCost: number;
+  roadRate: number;
+  roadDemand: number;
+  roadKeep: number;
+  roadDecay: number;
+  roadMemory: number;
+  upkeepPerRoad: number;
   reserveTicks: number;
-  matterReach: number;
-  forceReach: number;
   garrisonPull: number;
   forcePerCapacity: number;
   pressurePerCapacity: number;
@@ -150,7 +152,6 @@ export interface Constants {
   powerGain: number;
   shipyardFloor: number;
   shipyardGain: number;
-  needReach: number;
   convertRate: number;
   visionRange: number;
   landCapacity: number;
@@ -168,7 +169,6 @@ export interface State {
   map: WorldMap;
   cells: CellState[];
   joints: JointState[];
-  edges: EdgeState[];
   powers: PowerState[];
   pressures: Pressure[];
 }
@@ -177,7 +177,7 @@ export type Command =
   | { kind: "dial"; power: number; region: number; value: number }
   | { kind: "garrison"; power: number; region: number; value: number }
   | { kind: "lean"; power: number; branch: Branch; value: number }
-  | { kind: "expand"; power: number; edge: number; active: boolean }
+  | { kind: "road"; power: number; edge: number; active: boolean }
   | { kind: "pressure"; power: number; region: number; target: number | null; active: boolean };
 
 export type GameEvent =

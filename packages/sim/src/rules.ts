@@ -15,10 +15,37 @@ export function capacityOf(state: State, joint: number): number {
       : route.kind === "pass"
         ? constants.passCapacity
         : constants.straitCapacity;
-  if (route.edge === null) {
-    return base;
-  }
-  return base * (1 + constants.expandGain * state.edges[route.edge].expansions);
+  return base * (1 + constants.roadGain * state.joints[joint].grade);
+}
+
+export function lossOf(constants: Constants, grade: number): number {
+  return constants.hopLoss * constants.roadRelief ** grade;
+}
+
+export function passOf(state: State, joint: number): number {
+  return 1 - lossOf(state.constants, state.joints[joint].grade);
+}
+
+export function roadCostOf(constants: Constants, grade: number): number {
+  return constants.roadCost * (grade + 1);
+}
+
+export function roadUpkeepOf(state: State): number[] {
+  const { cells, constants } = state;
+  const upkeep = new Array<number>(cells.length).fill(0);
+  state.joints.forEach((joint, id) => {
+    if (joint.grade <= 0) {
+      return;
+    }
+    const { a, b } = state.map.joints[id];
+    if (cells[a].owner === null || cells[a].owner !== cells[b].owner) {
+      return;
+    }
+    const share = (constants.upkeepPerRoad * joint.grade) / 2;
+    upkeep[a] += share;
+    upkeep[b] += share;
+  });
+  return upkeep;
 }
 
 export function defenseOf(state: State, cell: number): number {
@@ -30,10 +57,6 @@ export function defenseOf(state: State, cell: number): number {
 
 export function levelCostOf(constants: Constants, level: number): number {
   return constants.levelCost * (level + 1);
-}
-
-export function expansionCostOf(constants: Constants, expansions: number): number {
-  return constants.expandCost * (expansions + 1);
 }
 
 export function outputOf(constants: Constants, supply: number): number {
@@ -88,7 +111,7 @@ export function dialOf(state: State, cell: number): number {
   return owner === null ? 0 : state.powers[owner].holdings[state.map.cells[cell].region].dial;
 }
 
-export function spread(state: State, source: number[], reach: number): number[] {
+export function spread(state: State, source: number[]): number[] {
   const { cells, map } = state;
   const potential = source.slice();
   const waiting = new Array<boolean>(cells.length).fill(false);
@@ -104,9 +127,12 @@ export function spread(state: State, source: number[], reach: number): number[] 
     const cell = queue[head];
     waiting[cell] = false;
     const owner = cells[cell].owner;
-    const carried = potential[cell] * reach;
     for (const link of map.links[cell]) {
-      if (cells[link.cell].owner !== owner || carried <= potential[link.cell] + EPSILON) {
+      if (cells[link.cell].owner !== owner) {
+        continue;
+      }
+      const carried = potential[cell] * passOf(state, link.joint);
+      if (carried <= potential[link.cell] + EPSILON) {
         continue;
       }
       potential[link.cell] = carried;
@@ -121,18 +147,38 @@ export function spread(state: State, source: number[], reach: number): number[] 
 
 export function bestLink(state: State, cell: number, potential: number[]): Link | null {
   const owner = state.cells[cell].owner;
+  const floor = potential[cell] + EPSILON;
   let best: Link | null = null;
-  let bestPotential = potential[cell] + EPSILON;
+  let bestPull = 0;
   for (const link of state.map.links[cell]) {
-    if (state.cells[link.cell].owner !== owner) {
+    if (state.cells[link.cell].owner !== owner || potential[link.cell] <= floor) {
       continue;
     }
-    if (potential[link.cell] > bestPotential) {
+    const pull = potential[link.cell] * passOf(state, link.joint);
+    if (pull > bestPull) {
       best = link;
-      bestPotential = potential[link.cell];
+      bestPull = pull;
     }
   }
   return best;
+}
+
+export function hubOf(state: State, power: number, region: number): number | null {
+  const { cells, map } = state;
+  const capital = state.powers[power].capital;
+  if (map.cells[capital].region === region && cells[capital].owner === power) {
+    return capital;
+  }
+  let hub: number | null = null;
+  for (const cell of map.regions[region].cells) {
+    if (cells[cell].owner !== power) {
+      continue;
+    }
+    if (hub === null || map.cells[cell].levelCap > map.cells[hub].levelCap) {
+      hub = cell;
+    }
+  }
+  return hub;
 }
 
 export function signedFlow(state: State, joint: number, from: number, amount: number): number {

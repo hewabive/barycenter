@@ -241,7 +241,7 @@ test("constants can be tuned only where tuning is enabled", () => {
   assert.equal(last("constants").constants.buildRate, 2);
   assert.equal(room.save().state.constants.buildRate, 2);
 
-  room.handle(0, { type: "tune", constants: { matterReach: 1.5 } });
+  room.handle(0, { type: "tune", constants: { hopLoss: 1.5 } });
   assert.equal(last("error").reason, "constants are out of range");
   room.handle(0, { type: "tune", constants: { warpDrive: 1 } as never });
   assert.equal(last("error").reason, "constants are out of range");

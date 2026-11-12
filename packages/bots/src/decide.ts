@@ -39,7 +39,7 @@ interface Option {
 interface Plan {
   commands: Command[];
   staging: Map<number, number>;
-  widening: Set<number>;
+  fronts: Set<number>;
   active: boolean;
   committed: number;
 }
@@ -58,7 +58,8 @@ const GRAB_RATIO = 2;
 const HOLD_RATIO = 1.2;
 const RETREAT_RATIO = 0.7;
 const STRIKE_WIDTH = 2;
-const SATURATION = 0.95;
+const ROAD_START = 0.6;
+const ROAD_KEEP = 0.15;
 const THREAT_MARGIN = 1.15;
 const FORCE_GROWTH = 1.25;
 const FORCE_STEP = 5;
@@ -80,7 +81,7 @@ export function decide(
     ...setDials(survey, doctrine, plan),
     ...setGarrisons(survey, guard, plan),
     ...plan.commands,
-    ...expandEdges(survey, plan),
+    ...layRoads(survey, plan),
   ];
 }
 
@@ -175,7 +176,7 @@ function planPressure(survey: Survey, doctrine: Doctrine, guard: Guard): Plan {
   const plan: Plan = {
     commands: [],
     staging: new Map(),
-    widening: new Set(),
+    fronts: new Set(),
     active: false,
     committed: 0,
   };
@@ -200,6 +201,10 @@ function planPressure(survey: Survey, doctrine: Doctrine, guard: Guard): Plan {
         active: false,
       });
       continue;
+    }
+    const ground = neutral ? null : stagingGround(survey, pressure.region);
+    if (ground !== null) {
+      plan.fronts.add(ground);
     }
     const held = holding.defense * (neutral ? 1 : HOLD_RATIO);
     uncommitted -= held;
@@ -226,7 +231,6 @@ function planPressure(survey: Survey, doctrine: Doctrine, guard: Guard): Plan {
 
   const grabs: Option[] = [];
   const strikes: Option[] = [];
-  const blocked: Option[] = [];
   for (const region of view.regions) {
     if (region.holdings === null || region.nature === null) {
       continue;
@@ -268,8 +272,6 @@ function planPressure(survey: Survey, doctrine: Doctrine, guard: Guard): Plan {
       };
       if (holding.reach >= holding.defense * marginOf(doctrine)) {
         strikes.push(option);
-      } else {
-        blocked.push(option);
       }
     }
   }
@@ -308,20 +310,8 @@ function planPressure(survey: Survey, doctrine: Doctrine, guard: Guard): Plan {
     }
   };
   pursue(grabs, doctrine.frontage - landGrabs, true);
-  const ambitious = doctrine.aggression >= 0.5;
-  pursue(strikes, (doctrine.aggression > 0.7 ? 2 : 1) - attacks, ambitious);
+  pursue(strikes, (doctrine.aggression > 0.7 ? 2 : 1) - attacks, doctrine.aggression >= 0.5);
 
-  if (ambitious && strikes.length === 0 && attacks === 0) {
-    blocked.sort((left, right) => right.score - left.score || left.region - right.region);
-    const goal = blocked.find((option) => guarded + option.required <= survey.forceBudget);
-    if (goal !== undefined) {
-      for (const neighbor of survey.outline.neighbors[goal.region]) {
-        if (view.regions[neighbor.region].estate !== null) {
-          plan.widening.add(neighbor.edge);
-        }
-      }
-    }
-  }
   return plan;
 }
 
@@ -351,9 +341,7 @@ function setDials(survey: Survey, doctrine: Doctrine, plan: Plan): Command[] {
     if (forceWanted) {
       dial = Math.max(dial, 0.5 + 0.5 * doctrine.aggression);
     }
-    if (
-      outline.neighbors[holding.id].some((neighbor) => view.edges[neighbor.edge].expanding === me)
-    ) {
+    if (outline.neighbors[holding.id].some((neighbor) => view.edges[neighbor.edge].road)) {
       dial = Math.max(dial, 0.6);
     }
     if (Math.abs(dial - holding.estate.dial) > DIAL_STEP) {
@@ -387,17 +375,54 @@ function setGarrisons(survey: Survey, guard: Guard, plan: Plan): Command[] {
   return commands;
 }
 
-function expandEdges(survey: Survey, plan: Plan): Command[] {
-  const { constants, me, view } = survey;
+function coreOf(survey: Survey): number {
+  let core = survey.own[0];
+  for (const holding of survey.own) {
+    if (holding.mine.level > core.mine.level) {
+      core = holding;
+    }
+  }
+  return core.id;
+}
+
+function supplyLines(survey: Survey, plan: Plan): Set<number> {
+  const lines = new Set<number>();
+  if (plan.fronts.size === 0) {
+    return lines;
+  }
+  const { outline, view } = survey;
+  const core = coreOf(survey);
+  const via = new Map<number, { region: number; edge: number }>();
+  const reached = new Set([core]);
+  const queue = [core];
+  for (let head = 0; head < queue.length; head++) {
+    for (const neighbor of outline.neighbors[queue[head]]) {
+      if (reached.has(neighbor.region) || view.regions[neighbor.region].estate === null) {
+        continue;
+      }
+      reached.add(neighbor.region);
+      via.set(neighbor.region, { region: queue[head], edge: neighbor.edge });
+      queue.push(neighbor.region);
+    }
+  }
+  for (const front of plan.fronts) {
+    for (let step = via.get(front); step !== undefined; step = via.get(step.region)) {
+      lines.add(step.edge);
+    }
+  }
+  return lines;
+}
+
+function layRoads(survey: Survey, plan: Plan): Command[] {
+  const lines = supplyLines(survey, plan);
   const commands: Command[] = [];
-  for (const edge of view.edges) {
-    if (edge.capacity === null || edge.expansions === null) {
+  for (const edge of survey.view.edges) {
+    if (!edge.open) {
       continue;
     }
-    const expandable = edge.expansions < constants.maxExpansions;
-    const needed = plan.widening.has(edge.id) || edge.load >= SATURATION;
-    if (needed && expandable && edge.open && edge.expanding === null) {
-      commands.push({ kind: "expand", power: me, edge: edge.id, active: true });
+    const wanted = lines.has(edge.id) || edge.load >= (edge.road ? ROAD_KEEP : ROAD_START);
+    if (wanted !== edge.road) {
+      commands.push({ kind: "road", power: survey.me, edge: edge.id, active: wanted });
     }
   }
   return commands;

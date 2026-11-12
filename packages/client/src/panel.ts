@@ -1,7 +1,7 @@
 import type { Order } from "@barycenter/protocol";
 import { BRANCHES, type Branch, type HoldingView } from "@barycenter/sim";
 import { amount, button, el, percent } from "./dom.ts";
-import { expansionCostOf, type Game, nameOf, pressureOn, summarize } from "./model.ts";
+import { type Game, nameOf, pressureOn, summarize } from "./model.ts";
 import { css, powerColor } from "./palette.ts";
 
 export interface PanelActions {
@@ -23,6 +23,8 @@ const BRANCH_LABELS: Record<Branch, string> = {
 
 const LEANING_HINT = "50% builds a branch as the need appears, more builds it ahead of need";
 const GARRISON_HINT = "How much force stays on the border cells of your part";
+const ROAD_HINT =
+  "Build a trunk road between your land on the two sides. A road loses less on the way and carries more";
 
 function ownerChip(game: Game, owner: number | null): HTMLElement {
   if (owner === null) {
@@ -68,8 +70,7 @@ function signatureOf(game: Game, selected: number | null): string {
         view.regions[neighbor.region].estate !== null,
         edge.kind,
         edge.open,
-        edge.expanding,
-        edge.expansions,
+        edge.road,
       );
     }
   }
@@ -321,7 +322,6 @@ export function createPanel(root: HTMLElement, actions: PanelActions): Panel {
   };
 
   const buildNeighbor = (game: Game, neighbor: number, edgeId: number) => {
-    const me = game.seat;
     const edge = game.view.edges[edgeId];
     const other = game.view.regions[neighbor];
     const entry = el("div", { class: "neighbor" });
@@ -350,25 +350,21 @@ export function createPanel(root: HTMLElement, actions: PanelActions): Panel {
         }),
       ),
     );
-    const expandable = (edge.expansions ?? 0) < game.constants.maxExpansions;
-    if (!edge.open || !expandable) {
+    if (!edge.open) {
       return entry;
     }
-    if (edge.expanding === me) {
+    if (edge.road) {
       entry.append(
-        button("Stop widening", "Cancel the expansion of this edge", () => {
-          actions.order({ kind: "expand", edge: edgeId, active: false });
-        }),
-      );
-    } else if (edge.expanding === null) {
-      const cost = amount(expansionCostOf(game, edge.expansions ?? 0), 0);
-      entry.append(
-        button(`Widen (${cost} matter)`, "Add one step of capacity to this edge", () => {
-          actions.order({ kind: "expand", edge: edgeId, active: true });
+        button("Stop the road", "Stop building and keeping the road across this border", () => {
+          actions.order({ kind: "road", edge: edgeId, active: false });
         }),
       );
     } else {
-      entry.append(el("div", { class: "hint" }, "Being widened by another power"));
+      entry.append(
+        button("Lay a road", ROAD_HINT, () => {
+          actions.order({ kind: "road", edge: edgeId, active: true });
+        }),
+      );
     }
     return entry;
   };

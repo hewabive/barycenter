@@ -8,10 +8,9 @@ const REACH: Limit = [0, 0.99];
 const DEFAULT_LIMIT: Limit = [0, 1_000_000];
 
 const LIMITS: Partial<Record<keyof Constants, Limit>> = {
-  energyFade: REACH,
-  matterReach: REACH,
-  forceReach: REACH,
-  needReach: REACH,
+  hopLoss: REACH,
+  roadRelief: SHARE,
+  roadMemory: SHARE,
   garrisonPull: REACH,
   shortageOutput: SHARE,
   forceDecay: SHARE,
@@ -25,7 +24,7 @@ const LIMITS: Partial<Record<keyof Constants, Limit>> = {
   forceCost: [0.01, 1_000_000],
   energyRounds: [0, 64, true],
   visionRange: [0, 8, true],
-  maxExpansions: [0, 32, true],
+  maxGrade: [0, 8, true],
   announceTicks: [0, 10_000, true],
   startCells: [1, 64, true],
 };

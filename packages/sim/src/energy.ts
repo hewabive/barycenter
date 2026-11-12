@@ -3,6 +3,8 @@ import {
   EPSILON,
   energyNeedOf,
   energyProductionOf,
+  passOf,
+  roadUpkeepOf,
   signedFlow,
   spread,
 } from "./rules.ts";
@@ -14,7 +16,10 @@ export function distributeEnergy(state: State): void {
     joint.energyFlow = 0;
   }
 
-  const need = cells.map((cell, id) => (cell.owner === null ? 0 : energyNeedOf(state, id)));
+  const roads = roadUpkeepOf(state);
+  const need = cells.map((cell, id) =>
+    cell.owner === null ? 0 : energyNeedOf(state, id) + roads[id],
+  );
   const surplus = new Array<number>(cells.length).fill(0);
   const deficit = new Array<number>(cells.length).fill(0);
   for (let cell = 0; cell < cells.length; cell++) {
@@ -28,7 +33,7 @@ export function distributeEnergy(state: State): void {
 
   for (let round = 0; round < constants.energyRounds; round++) {
     const shortage = deficit.map((missing) => (missing > EPSILON ? 1 : 0));
-    const potential = spread(state, shortage, constants.energyFade);
+    const potential = spread(state, shortage);
     const arrivals = new Array<number>(cells.length).fill(0);
     let moved = false;
     for (let cell = 0; cell < cells.length; cell++) {
@@ -39,7 +44,7 @@ export function distributeEnergy(state: State): void {
       if (link === null) {
         continue;
       }
-      arrivals[link.cell] += surplus[cell] * constants.energyFade;
+      arrivals[link.cell] += surplus[cell] * passOf(state, link.joint);
       state.joints[link.joint].energyFlow += signedFlow(state, link.joint, cell, surplus[cell]);
       surplus[cell] = 0;
       moved = true;

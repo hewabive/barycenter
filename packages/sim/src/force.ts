@@ -5,6 +5,7 @@ import {
   defenseOf,
   EPSILON,
   FULL_SIEGE,
+  passOf,
   signedFlow,
   spread,
 } from "./rules.ts";
@@ -62,7 +63,7 @@ export function forceFieldOf(state: State, lanes: Lane[], posts: number[]): Forc
     }
     return fighting[id] ? 1 : constants.garrisonPull;
   });
-  return { held, potential: spread(state, demand, constants.forceReach) };
+  return { held, potential: spread(state, demand) };
 }
 
 export function routeForce(state: State, field: ForceField): void {
@@ -83,7 +84,7 @@ export function routeForce(state: State, field: ForceField): void {
     }
     const amount = Math.min(free, capacityOf(state, link.joint) * constants.forcePerCapacity);
     current.force -= amount;
-    arrivals[link.cell] += amount;
+    arrivals[link.cell] += amount * passOf(state, link.joint);
     state.joints[link.joint].forceFlow += signedFlow(state, link.joint, cell, amount);
   }
   for (let cell = 0; cell < cells.length; cell++) {

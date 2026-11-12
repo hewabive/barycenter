@@ -108,7 +108,3 @@ export function pressureOn(
       pressure.power === power && pressure.region === region && pressure.target === target,
   );
 }
-
-export function expansionCostOf(game: Game, expansions: number): number {
-  return game.constants.expandCost * (expansions + 1);
-}

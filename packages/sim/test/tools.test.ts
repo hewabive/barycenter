@@ -31,8 +31,8 @@ test("retuning refuses unknown names and values that would break the simulation"
   assert.equal(retune(state, { warpDrive: 1 } as never), null);
   assert.equal(retune(state, { buildRate: -1 }), null);
   assert.equal(retune(state, { buildRate: Number.NaN }), null);
-  assert.equal(retune(state, { matterReach: 1 }), null);
-  assert.equal(retune(state, { energyFade: 1.2 }), null);
+  assert.equal(retune(state, { hopLoss: 1 }), null);
+  assert.equal(retune(state, { roadRelief: 1.2 }), null);
   assert.equal(retune(state, { forceCost: 0 }), null);
   assert.equal(retune(state, { energyRounds: 2.5 }), null);
   assert.equal(retune(state, { leanSpan: 0.5 }), null);

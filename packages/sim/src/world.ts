@@ -147,14 +147,21 @@ export function createWorld(options: WorldOptions): State {
     constants,
     map: { seed: options.seed, cells, regions, joints, edges, links, neighbors, oceans },
     cells: cells.map(() => emptyCell(powerCount)),
-    joints: joints.map(() => ({ matterFlow: 0, forceFlow: 0, energyFlow: 0 })),
-    edges: edges.map(() => ({ expansions: 0, progress: 0, expanding: null })),
+    joints: joints.map(() => ({
+      matterFlow: 0,
+      forceFlow: 0,
+      energyFlow: 0,
+      grade: 0,
+      progress: 0,
+      load: 0,
+    })),
     powers: capitals.map((capital) => ({
       alive: true,
       capital,
       explored: new Array<boolean>(regions.length).fill(false),
       lean: BRANCHES.map(() => constants.defaultLean),
       holdings: regions.map(() => ({ dial: constants.defaultDial, garrison: 0 })),
+      roads: edges.map(() => false),
     })),
     pressures: [],
   };

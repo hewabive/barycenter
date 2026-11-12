@@ -44,7 +44,6 @@ const refresh = () => {
   }
   globe?.draw({
     view: game.view,
-    constants: game.constants,
     seat: game.seat,
     running: !game.time.paused,
     speed: game.time.speed,

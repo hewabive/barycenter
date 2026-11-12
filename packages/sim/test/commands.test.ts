@@ -30,7 +30,7 @@ test("malformed values are rejected", () => {
   assert.ok(rejected(state, { kind: "dial", power: 0, region: 9999, value: 1 }));
   assert.ok(rejected(state, { kind: "garrison", power: 0, region: home, value: -1 }));
   assert.ok(rejected(state, { kind: "dial", power: 9, region: home, value: 1 }));
-  assert.ok(rejected(state, { kind: "expand", power: 0, edge: 9999, active: true }));
+  assert.ok(rejected(state, { kind: "road", power: 0, edge: 9999, active: true }));
   assert.ok(rejected(state, { kind: "lean", power: 0, branch: "power", value: 2 }));
   assert.ok(rejected(state, { kind: "lean", power: 0, branch: "science" as never, value: 0.5 }));
   assert.ok(rejected(state, { kind: "pressure", power: 0, region: home, target: 0, active: true }));
@@ -145,27 +145,6 @@ test("withdrawing pressure removes the order", () => {
   assert.equal(ordered.pressures.length, 1);
   const withdrawn = step(ordered, [{ ...order, active: false }]).state;
   assert.equal(withdrawn.pressures.length, 0);
-});
-
-test("one expansion order raises the capacity of an edge by one step", () => {
-  const { state } = fresh();
-  const joint = state.map.joints.find((candidate) => candidate.edge !== null);
-  assert.ok(joint && joint.edge !== null);
-  const edge = joint.edge;
-  const region = state.map.cells[joint.a].region;
-  state.cells[joint.a].owner = 0;
-  state.cells[joint.a].stock[0] = 1000;
-  state.powers[0].holdings[region].dial = 1;
-  const before = viewFor(state, 0).edges[edge].capacity ?? 0;
-
-  let current = step(state, [{ kind: "expand", power: 0, edge, active: true }]).state;
-  assert.equal(current.edges[edge].expanding, 0);
-  for (let tick = 0; tick < 300 && current.edges[edge].expansions === 0; tick++) {
-    current = step(current, []).state;
-  }
-  assert.equal(current.edges[edge].expansions, 1);
-  assert.equal(current.edges[edge].expanding, null);
-  assert.ok((viewFor(current, 0).edges[edge].capacity ?? 0) > before);
 });
 
 test("the leaning is an order for the whole power", () => {
