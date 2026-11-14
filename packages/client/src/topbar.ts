@@ -7,6 +7,7 @@ export interface TopbarActions {
   time(paused: boolean | null, speed: number | null): void;
   triggers(triggers: Triggers): void;
   forces(): void;
+  economy(): void;
   snapshot(): void;
   restart(): void;
 }
@@ -25,6 +26,8 @@ const TRIGGER_LABELS: [keyof Triggers, string][] = [
 const STATS = ["tick", "regions", "cells", "levels", "force", "matter"] as const;
 const FORCES_HINT =
   "Your force and the room in your garrisons. Opens where your force stands and why";
+const ECONOMY_HINT =
+  "Matter held by your power. Opens what your land makes, where it goes and what is lost";
 const SNAPSHOT_HINT = "Write the state of this game to a file on the server, for debugging";
 
 export function createTopbar(root: HTMLElement, actions: TopbarActions): Topbar {
@@ -39,11 +42,12 @@ export function createTopbar(root: HTMLElement, actions: TopbarActions): Topbar 
   const stats = STATS.map((name) => {
     const value = el("span", { class: "value" });
     const label = el("span", { class: "name" }, name);
-    if (name !== "force") {
+    if (name !== "force" && name !== "matter") {
       return { value, item: el("span", { class: "stat" }, label, value) };
     }
-    const item = el("button", { type: "button", class: "stat", title: FORCES_HINT }, label, value);
-    item.addEventListener("click", actions.forces);
+    const title = name === "force" ? FORCES_HINT : ECONOMY_HINT;
+    const item = el("button", { type: "button", class: "stat", title }, label, value);
+    item.addEventListener("click", name === "force" ? actions.forces : actions.economy);
     return { value, item };
   });
   const seats = el("span", { class: "seats" });

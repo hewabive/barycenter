@@ -1,6 +1,14 @@
-import type { Command, Constants, ForceReport, GameEvent, Outline, View } from "@barycenter/sim";
+import type {
+  Command,
+  Constants,
+  EconomyReport,
+  ForceReport,
+  GameEvent,
+  Outline,
+  View,
+} from "@barycenter/sim";
 
-export const PROTOCOL = 9;
+export const PROTOCOL = 10;
 export const SPEEDS = [1, 2, 4, 8];
 export const ROOM_NAME = /^[a-z0-9-]{1,32}$/;
 export const MAX_ORDERS = 256;
@@ -33,6 +41,8 @@ export interface SeatInfo {
   connected: boolean;
 }
 
+export type Watch = { subject: "force" } | { subject: "economy"; region: number | null };
+
 export interface RejectedOrder {
   order: Order;
   reason: string;
@@ -50,7 +60,7 @@ export type ClientMessage =
   | { type: "orders"; orders: Order[] }
   | { type: "time"; paused: boolean | null; speed: number | null }
   | { type: "triggers"; triggers: Triggers }
-  | { type: "report"; active: boolean }
+  | { type: "report"; watch: Watch | null }
   | { type: "snapshot"; selected: number | null }
   | { type: "tune"; constants: Partial<Constants> };
 
@@ -70,7 +80,13 @@ export type ServerMessage =
       triggers: Triggers;
       view: View;
     }
-  | { type: "view"; view: View; events: GameEvent[]; report: ForceReport | null }
+  | {
+      type: "view";
+      view: View;
+      events: GameEvent[];
+      force: ForceReport | null;
+      economy: EconomyReport | null;
+    }
   | { type: "room"; time: TimeState; seats: SeatInfo[] }
   | { type: "constants"; constants: Constants }
   | { type: "rejected"; rejections: RejectedOrder[] }

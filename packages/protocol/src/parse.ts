@@ -7,6 +7,7 @@ import {
   ROOM_NAME,
   type Setup,
   type Triggers,
+  type Watch,
 } from "./messages.ts";
 
 type Fields = Record<string, unknown>;
@@ -21,6 +22,10 @@ function isNumber(value: unknown): value is number {
 
 function isBoolean(value: unknown): value is boolean {
   return typeof value === "boolean";
+}
+
+function isIndex(value: unknown): value is number {
+  return isNumber(value) && Number.isInteger(value) && value >= 0;
 }
 
 function isBranch(value: unknown): value is Branch {
@@ -100,6 +105,18 @@ function parseTriggers(value: unknown): Triggers | null {
   return { announced, territory, discovered };
 }
 
+function parseWatch(value: unknown): Watch | null {
+  if (!isFields(value)) {
+    return null;
+  }
+  if (value.subject === "force") {
+    return { subject: "force" };
+  }
+  const region = value.region ?? null;
+  const placed = region === null || isIndex(region);
+  return value.subject === "economy" && placed ? { subject: "economy", region } : null;
+}
+
 function parseConstants(value: unknown): Partial<Constants> | null {
   if (!isFields(value)) {
     return null;
@@ -159,12 +176,15 @@ export function parseClientMessage(text: string): ClientMessage | null {
     return triggers === null ? null : { type: "triggers", triggers };
   }
   if (value.type === "report") {
-    return isBoolean(value.active) ? { type: "report", active: value.active } : null;
+    if (value.watch === null) {
+      return { type: "report", watch: null };
+    }
+    const watch = parseWatch(value.watch);
+    return watch === null ? null : { type: "report", watch };
   }
   if (value.type === "snapshot") {
     const selected = value.selected ?? null;
-    const region = isNumber(selected) && Number.isInteger(selected) && selected >= 0;
-    return selected === null || region ? { type: "snapshot", selected } : null;
+    return selected === null || isIndex(selected) ? { type: "snapshot", selected } : null;
   }
   if (value.type === "tune") {
     const constants = parseConstants(value.constants);

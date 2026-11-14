@@ -95,15 +95,21 @@ export function energyProductionOf(state: State, cell: number): number {
   return state.map.cells[cell].energyRichness * (constants.baseEnergy + generation);
 }
 
-export function energyNeedOf(state: State, cell: number, resting: number): number {
+export interface Upkeep {
+  levels: number;
+  force: number;
+  quarters: number;
+}
+
+export function upkeepOf(state: State, cell: number, resting: number): Upkeep {
   const { constants } = state;
   const current = state.cells[cell];
   const fielded = current.force - resting * (1 - constants.restUpkeep);
-  return (
-    constants.upkeepPerLevel * current.level +
-    constants.upkeepPerForce * fielded +
-    constants.upkeepPerQuarter * current.quarters
-  );
+  return {
+    levels: constants.upkeepPerLevel * current.level,
+    force: constants.upkeepPerForce * fielded,
+    quarters: constants.upkeepPerQuarter * current.quarters,
+  };
 }
 
 export function heldOf(stock: number[]): number {

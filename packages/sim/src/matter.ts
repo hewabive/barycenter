@@ -1,4 +1,5 @@
 import { quarterUseOf } from "./bases.ts";
+import type { Ledger } from "./ledger.ts";
 import { advanceRoad, wantedGradeOf } from "./roads.ts";
 import {
   addTo,
@@ -46,14 +47,19 @@ export function worksOf(state: State, trunks: boolean[]): Work[][] {
   return works;
 }
 
-function shipyardUse(state: State, cell: number, arming: boolean[]): number {
+function yardOf(state: State, cell: number): number {
   const { constants } = state;
+  const current = state.cells[cell];
+  const output = outputOf(constants, current.supply);
+  return current.branches[SHIPYARD] * constants.shipyardRate * output;
+}
+
+function shipyardUse(state: State, cell: number, arming: boolean[]): number {
   const current = state.cells[cell];
   if (current.owner === null || !arming[current.owner]) {
     return 0;
   }
-  const output = outputOf(constants, current.supply);
-  return current.branches[SHIPYARD] * constants.shipyardRate * constants.forceCost * output;
+  return yardOf(state, cell) * state.constants.forceCost;
 }
 
 function canGrow(state: State, cell: number): boolean {
@@ -93,7 +99,7 @@ export function matterFieldOf(
   return { reserve, potential: spread(state, attraction) };
 }
 
-export function produceMatter(state: State): void {
+export function produceMatter(state: State, ledger: Ledger | null = null): void {
   state.cells.forEach((cell, id) => {
     if (cell.owner === null) {
       return;
@@ -102,6 +108,9 @@ export function produceMatter(state: State): void {
     const deposits = state.map.cells[id].deposits;
     for (let kind = 0; kind < cell.stock.length; kind++) {
       cell.stock[kind] += deposits[kind] * yielded;
+    }
+    if (ledger !== null) {
+      ledger.matter.made[id] = heldOf(deposits) * yielded;
     }
   });
 }
@@ -112,6 +121,7 @@ export function spendMatter(
   room: number[],
   quarters: number[],
   wants: number[][],
+  ledger: Ledger | null = null,
 ): void {
   const { constants } = state;
   const arming = room.map((left) => left > EPSILON);
@@ -128,6 +138,10 @@ export function spendMatter(
     );
     const housing = quarterUseOf(state, id, quarters);
     const total = worksUse(works[id]) + housing + shipyard + build;
+    if (ledger !== null) {
+      ledger.force.yards[id] = yardOf(state, id);
+      ledger.matter.asked[id] = dialOf(state, id) * total;
+    }
     if (total <= 0) {
       return;
     }
@@ -139,14 +153,20 @@ export function spendMatter(
       return spent;
     };
 
+    let paved = 0;
     for (const work of works[id]) {
-      advanceRoad(state, work.joint, take(work.rate));
+      const spent = take(work.rate);
+      advanceRoad(state, work.joint, spent);
+      paved += spent;
     }
-    current.quarters += take(housing) / constants.quarterCost;
-    const armed = take(shipyard) / constants.forceCost;
+    const housed = take(housing);
+    current.quarters += housed / constants.quarterCost;
+    const arms = take(shipyard);
+    const armed = arms / constants.forceCost;
     current.force += armed;
     room[current.owner] -= armed;
-    current.progress += take(build);
+    const raised = take(build);
+    current.progress += raised;
 
     const cap = state.map.cells[id].levelCap;
     while (current.level < cap && current.progress >= levelCostOf(constants, current.level)) {
@@ -156,14 +176,19 @@ export function spendMatter(
         current.branches[branch] += short ? (branch === POWER ? 1 : 0) : wants[id][branch];
       }
     }
-    if (current.level >= cap) {
-      current.stock[0] += current.progress;
-      current.progress = 0;
+    const returned = current.level >= cap ? current.progress : 0;
+    current.stock[0] += returned;
+    current.progress -= returned;
+    if (ledger !== null) {
+      ledger.matter.roads[id] = paved;
+      ledger.matter.quarters[id] = housed;
+      ledger.matter.force[id] = arms;
+      ledger.matter.levels[id] = raised - returned;
     }
   });
 }
 
-export function routeMatter(state: State, field: MatterField): void {
+export function routeMatter(state: State, field: MatterField, ledger: Ledger | null = null): void {
   const { cells } = state;
   for (const joint of state.joints) {
     joint.matterFlow = 0;
@@ -188,6 +213,7 @@ export function routeMatter(state: State, field: MatterField): void {
       addTo(arrivals[link.cell], moved);
     }
     state.joints[link.joint].matterFlow += signedFlow(state, link.joint, cell, amount);
+    ledger?.matter.hauls.push({ from: cell, to: link.cell, sent: amount, arrived: heldOf(moved) });
   }
   for (let cell = 0; cell < cells.length; cell++) {
     if (arrivals[cell].length > 0) {

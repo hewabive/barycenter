@@ -91,8 +91,20 @@ test("time, triggers and tuning messages are checked", () => {
   const triggers = { announced: true, territory: false, discovered: true };
   assert.deepEqual(parse({ type: "triggers", triggers }), { type: "triggers", triggers });
   assert.equal(parse({ type: "triggers", triggers: { announced: true } }), null);
-  assert.deepEqual(parse({ type: "report", active: true }), { type: "report", active: true });
+  const force = { type: "report", watch: { subject: "force" } };
+  assert.deepEqual(parse({ type: "report", watch: { subject: "force", region: 3 } }), force);
+  assert.deepEqual(parse({ type: "report", watch: { subject: "economy", region: 3 } }), {
+    type: "report",
+    watch: { subject: "economy", region: 3 },
+  });
+  assert.deepEqual(parse({ type: "report", watch: { subject: "economy" } }), {
+    type: "report",
+    watch: { subject: "economy", region: null },
+  });
+  assert.deepEqual(parse({ type: "report", watch: null }), { type: "report", watch: null });
   assert.equal(parse({ type: "report" }), null);
+  assert.equal(parse({ type: "report", watch: { subject: "weather" } }), null);
+  assert.equal(parse({ type: "report", watch: { subject: "economy", region: -1 } }), null);
   assert.deepEqual(parse({ type: "tune", constants: { buildRate: 1 } }), {
     type: "tune",
     constants: { buildRate: 1 },

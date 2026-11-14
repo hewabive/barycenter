@@ -182,30 +182,59 @@ test("a seat gets the force report only while it asks for it", () => {
   const { room, sent, last } = seated();
   const home = homeOf(room, 0);
   room.handle(0, { type: "orders", orders: [{ kind: "garrison", region: home, value: 2 }] });
-  assert.equal(last("view").report, null);
+  assert.equal(last("view").force, null);
 
   const before = sent.length;
-  room.handle(0, { type: "report", active: true });
+  room.handle(0, { type: "report", watch: { subject: "force" } });
   assert.equal(sent.length, before + 1);
   const asked = last("view");
   assert.deepEqual(asked.events, []);
-  assert.ok(asked.report);
-  assert.equal(asked.report.arming, true);
-  assert.ok(asked.report.musters[home]);
+  assert.ok(asked.force);
+  assert.equal(asked.economy, null);
+  assert.equal(asked.force.arming, true);
+  assert.ok(asked.force.musters[home]);
 
   room.handle(0, { type: "time", paused: false, speed: null });
   room.pump(1000);
-  assert.ok(last("view").report);
+  assert.ok(last("view").force);
 
-  room.handle(0, { type: "report", active: false });
+  room.handle(0, { type: "report", watch: null });
   room.pump(1000);
-  assert.equal(last("view").report, null);
+  assert.equal(last("view").force, null);
 
-  room.handle(0, { type: "report", active: true });
+  room.handle(0, { type: "report", watch: { subject: "force" } });
   room.leave(0);
   room.join(0, room.save().tokens[0]);
   room.handle(0, { type: "orders", orders: [] });
-  assert.equal(last("view").report, null);
+  assert.equal(last("view").force, null);
+});
+
+test("a seat gets the economy report with the cells of the region it names", () => {
+  const { room, sent, last } = seated();
+  const home = homeOf(room, 0);
+
+  const before = sent.length;
+  room.handle(0, { type: "report", watch: { subject: "economy", region: null } });
+  assert.equal(sent.length, before + 1);
+  const whole = last("view");
+  assert.equal(whole.force, null);
+  assert.ok(whole.economy);
+  assert.ok(whole.economy.books.matter.made > 0);
+  assert.deepEqual(
+    whole.economy.regions.map((account) => account.region),
+    [home],
+  );
+  assert.deepEqual(whole.economy.cells, []);
+
+  room.handle(0, { type: "report", watch: { subject: "economy", region: home } });
+  const focused = last("view").economy;
+  assert.ok(focused);
+  assert.equal(focused.focus, home);
+  assert.equal(focused.cells.length, focused.books.cells);
+
+  room.handle(0, { type: "report", watch: { subject: "force" } });
+  assert.equal(last("view").economy, null);
+  assert.ok(last("view").force);
 });
 
 test("bots play their seats while time runs", () => {

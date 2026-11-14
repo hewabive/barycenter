@@ -11,11 +11,13 @@ import {
   SPEEDS,
   type TimeState,
   type Triggers,
+  type Watch,
 } from "@barycenter/protocol";
 import {
   type Command,
   type Constants,
   createWorld,
+  economyReportFor,
   eventsFor,
   forceReportFor,
   type GameEvent,
@@ -60,7 +62,7 @@ interface Seat {
   label: string;
   token: string | null;
   connected: boolean;
-  reporting: boolean;
+  watch: Watch | null;
   triggers: Triggers;
 }
 
@@ -114,7 +116,7 @@ export class Room {
         label: rival ?? "human",
         token: saved?.tokens[index] ?? null,
         connected: false,
-        reporting: false,
+        watch: null,
         triggers: { announced: true, territory: true, discovered: true },
       };
     });
@@ -175,7 +177,7 @@ export class Room {
     }
     seat.token ??= randomUUID();
     seat.connected = true;
-    seat.reporting = false;
+    seat.watch = null;
     this.announce();
     return { seat: index, token: seat.token };
   }
@@ -186,7 +188,7 @@ export class Room {
       return;
     }
     seat.connected = false;
-    seat.reporting = false;
+    seat.watch = null;
     if (!this.occupied) {
       this.paused = true;
       this.pausedFor = null;
@@ -228,8 +230,8 @@ export class Room {
         this.seats[index].triggers = message.triggers;
         return;
       case "report":
-        this.seats[index].reporting = message.active;
-        if (message.active) {
+        this.seats[index].watch = message.watch;
+        if (message.watch !== null) {
           this.sink(index, this.viewMessage(index, []));
         }
         return;
@@ -342,11 +344,14 @@ export class Room {
   }
 
   private viewMessage(power: number, events: GameEvent[]): ServerMessage {
+    const watch = this.seats[power].watch;
     return {
       type: "view",
       view: viewFor(this.state, power),
       events,
-      report: this.seats[power].reporting ? forceReportFor(this.state, power) : null,
+      force: watch?.subject === "force" ? forceReportFor(this.state, power) : null,
+      economy:
+        watch?.subject === "economy" ? economyReportFor(this.state, power, watch.region) : null,
     };
   }
 

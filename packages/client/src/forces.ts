@@ -1,27 +1,18 @@
+import type { Watch } from "@barycenter/protocol";
 import type { Battle, Estate, ForceReport, Muster, Siege } from "@barycenter/sim";
 import { amount, button, el, percent, write } from "./dom.ts";
 import { capitalized, type Game, nameOf, pressureOn } from "./model.ts";
+import { createSheet, fill } from "./sheet.ts";
 
 export interface Forces {
   open(): void;
-  watching(): boolean;
+  watch(): Watch | null;
   show(game: Game): void;
 }
 
 export interface ForcesActions {
   select(region: number): void;
-  watch(active: boolean): void;
-}
-
-interface Line {
-  row: HTMLElement;
-  cells: HTMLElement[];
-}
-
-interface Sheet {
-  block: HTMLElement;
-  line(key: string): Line;
-  arrange(keys: string[]): void;
+  watch(watch: Watch | null): void;
 }
 
 const SHOWN = 0.05;
@@ -40,57 +31,6 @@ const STAND_LEGEND =
   "Garrison shows the force resting in the garrison of the region and the room it has. " +
   "Front shows the force standing at a front and the force wanted there. " +
   "Moving is force on its way: to a front that is short, or back to a garrison with room.";
-
-function createSheet(
-  name: string,
-  columns: string[],
-  empty: string,
-  create: (key: string) => Line,
-): Sheet {
-  const lines = new Map<string, Line>();
-  let shown = "";
-  const body = el("tbody");
-  const heads = columns.map((column) => el("th", {}, column));
-  const table = el("table", { class: name, hidden: "" }, el("thead", {}, el("tr", {}, ...heads)));
-  table.append(body);
-  const blank = el("div", { class: "hint" }, empty);
-
-  const line = (key: string): Line => {
-    const known = lines.get(key);
-    if (known !== undefined) {
-      return known;
-    }
-    const created = create(key);
-    lines.set(key, created);
-    return created;
-  };
-
-  return {
-    block: el("div", {}, table, blank),
-    line,
-    arrange(keys) {
-      const order = keys.join("|");
-      if (order === shown) {
-        return;
-      }
-      shown = order;
-      body.replaceChildren(...keys.map((key) => line(key).row));
-      for (const key of [...lines.keys()]) {
-        if (!keys.includes(key)) {
-          lines.delete(key);
-        }
-      }
-      table.hidden = keys.length === 0;
-      blank.hidden = keys.length > 0;
-    },
-  };
-}
-
-function fill(line: Line, texts: string[]): void {
-  texts.forEach((text, index) => {
-    write(line.cells[index], text);
-  });
-}
 
 function share(standing: number, wanted: number): string {
   return wanted < SHOWN ? "—" : `${amount(standing)} / ${amount(wanted)}`;
@@ -257,7 +197,7 @@ export function createForces(root: HTMLDialogElement, actions: ForcesActions): F
       root.close();
     }
   });
-  root.addEventListener("close", () => actions.watch(false));
+  root.addEventListener("close", () => actions.watch(null));
 
   const reveal = (ready: boolean) => {
     waiting.hidden = ready;
@@ -352,17 +292,17 @@ export function createForces(root: HTMLDialogElement, actions: ForcesActions): F
       }
       reveal(false);
       root.showModal();
-      actions.watch(true);
+      actions.watch({ subject: "force" });
     },
-    watching() {
-      return root.open;
+    watch() {
+      return root.open ? { subject: "force" } : null;
     },
     show(game) {
-      if (!root.open || game.report === null) {
+      if (!root.open || game.force === null) {
         return;
       }
-      showStands(game, game.report);
-      showBattles(game, game.report);
+      showStands(game, game.force);
+      showBattles(game, game.force);
       reveal(true);
     },
   };

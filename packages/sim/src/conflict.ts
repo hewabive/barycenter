@@ -1,5 +1,6 @@
 import { widthOf } from "./force.ts";
 import type { Lane } from "./front.ts";
+import type { Ledger } from "./ledger.ts";
 import { cellsOf, defenseOf, EPSILON, FULL_SIEGE, holds } from "./rules.ts";
 import type { Constants, GameEvent, State } from "./types.ts";
 
@@ -82,11 +83,19 @@ export function resolveConflict(
   lanes: Lane[],
   posts: number[],
   events: GameEvent[],
+  ledger: Ledger | null = null,
 ): void {
   const { constants, cells } = state;
   const powerCount = state.powers.length;
   const { active, commits, walls, totals } = commitmentOf(state, lanes, posts);
   const wallOf = (cell: number) => walls.get(cell) ?? 0;
+  const wear = (cell: number, loss: number) => {
+    const worn = Math.min(cells[cell].force, loss);
+    cells[cell].force -= worn;
+    if (ledger !== null) {
+      ledger.force.fought[cell] += worn;
+    }
+  };
 
   active.forEach((lane, index) => {
     const total = totals.get(lane.to)?.[state.pressures[lane.pressure].power] ?? 0;
@@ -94,8 +103,7 @@ export function resolveConflict(
       return;
     }
     const engaged = wearOf(constants, total, wallOf(lane.to));
-    const source = cells[lane.from];
-    source.force = Math.max(0, source.force - (engaged * commits[index]) / total);
+    wear(lane.from, (engaged * commits[index]) / total);
   });
 
   const fallen: [cell: number, winner: number][] = [];
@@ -116,13 +124,14 @@ export function resolveConflict(
         winner = power;
       }
     }
-    cell.force = Math.max(0, cell.force - loss);
+    wear(target, loss);
     if (winner >= 0) {
       fallen.push([target, winner]);
     }
   });
 
   for (const [target, winner] of fallen) {
+    wear(target, cells[target].force);
     capture(state, target, winner, events);
   }
   if (fallen.length > 0) {

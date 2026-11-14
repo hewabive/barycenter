@@ -526,6 +526,59 @@ dialog::backdrop {
   white-space: normal;
 }
 
+#economy {
+  width: min(1180px, calc(100vw - 16px));
+}
+
+.ledgers {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 4px 24px;
+}
+
+.ledgers > div {
+  flex: 1 1 300px;
+}
+
+.report .books td:last-child {
+  min-width: 0;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.report .branches td:last-child {
+  min-width: 0;
+}
+
+.regions th,
+.cells th {
+  white-space: normal;
+  vertical-align: bottom;
+}
+
+.regions td:first-child {
+  padding: 0;
+}
+
+.report .books .part td:first-child {
+  padding-left: 20px;
+  color: var(--muted);
+}
+
+.regions .node-link {
+  display: block;
+  padding: 4px 8px;
+}
+
+.regions .focused td {
+  background: var(--raised);
+}
+
+.report .row h3 {
+  margin: 12px 0 4px;
+}
+
 #tuning .grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -737,30 +790,31 @@ dialog::backdrop {
 }
 
 @media (max-width: 620px) {
-  .report table,
-  .report thead,
-  .report tbody {
+  .stands,
+  .battles,
+  :is(.stands, .battles) :is(thead, tbody) {
     display: block;
   }
 
-  .report thead {
+  :is(.stands, .battles) thead {
     position: sticky;
     top: 0;
     background: var(--surface);
   }
 
-  .report tr {
+  .stands tr {
     display: grid;
     grid-template-columns: 4em 1fr 1.5fr 1.5fr 1fr;
     border-top: 1px solid var(--line);
   }
 
   .battles tr {
+    display: grid;
     grid-template-columns: 3.8fr 3.7fr 3.8fr 5.4fr 4.4fr 7fr 3.9fr;
+    border-top: 1px solid var(--line);
   }
 
-  .report th,
-  .report td {
+  :is(.stands, .battles) :is(th, td) {
     position: static;
     padding-inline: 4px;
     border-top: 0;
@@ -779,16 +833,24 @@ dialog::backdrop {
     font-size: 11px;
   }
 
-  .report th:last-child,
-  .report td:last-child:empty {
+  :is(.stands, .battles) th:last-child,
+  :is(.stands, .battles) td:last-child:empty {
     display: none;
   }
 
-  .report td:last-child {
+  :is(.stands, .battles) td:last-child {
     grid-column: 1 / -1;
     min-width: 0;
     padding-top: 0;
     color: var(--muted);
+  }
+
+  .report :is(.regions, .cells) td:last-child {
+    min-width: 260px;
+  }
+
+  .report .books td:first-child {
+    white-space: normal;
   }
 
   .battles .front td {

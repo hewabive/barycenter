@@ -5,6 +5,7 @@ import { distributeEnergy } from "./energy.ts";
 import { explore } from "./explore.ts";
 import { decayForce, forceFieldOf, forceRoomOf, routeForce } from "./force.ts";
 import { lanesOf, lapseAims } from "./front.ts";
+import { createLedger, type Ledger } from "./ledger.ts";
 import { matterFieldOf, produceMatter, routeMatter, spendMatter, worksOf } from "./matter.ts";
 import { convert, wantsOf } from "./profile.ts";
 import { lapseRoads, trunksOf, wearRoads } from "./roads.ts";
@@ -40,14 +41,12 @@ export function issue(previous: State, commands: Command[]): StepResult {
   return { state, events, rejections };
 }
 
-export function step(previous: State, commands: Command[]): StepResult {
-  const { state, events, rejections } = issue(previous, commands);
-
+function advance(state: State, events: GameEvent[], ledger: Ledger | null): void {
   lapseRoads(state);
   lapseAims(state);
   const lanes = lanesOf(state);
   const field = forceFieldOf(state, lanes);
-  distributeEnergy(state, field.rest);
+  distributeEnergy(state, field.rest, ledger);
   const room = forceRoomOf(state);
   const arming = room.map((left) => left > 0);
   const trunks = trunksOf(state);
@@ -57,17 +56,32 @@ export function step(previous: State, commands: Command[]): StepResult {
   const forceNeed = field.toFront.map((front, cell) => Math.max(front, field.toHome[cell]));
   const wants = wantsOf(state, matterField.potential, forceNeed);
 
-  produceMatter(state);
-  spendMatter(state, works, room, quarters, wants);
-  routeMatter(state, matterField);
-  routeForce(state, field);
+  produceMatter(state, ledger);
+  spendMatter(state, works, room, quarters, wants, ledger);
+  routeMatter(state, matterField, ledger);
+  routeForce(state, field, ledger);
   wearRoads(state, trunks);
   settleQuarters(state, quarters);
-  resolveConflict(state, lanes, field.rest, events);
-  decayForce(state);
+  resolveConflict(state, lanes, field.rest, events, ledger);
+  decayForce(state, ledger);
   convert(state, wants);
   explore(state, events);
+  if (ledger !== null) {
+    ledger.wants = wants;
+  }
 
   state.tick += 1;
+}
+
+export function step(previous: State, commands: Command[]): StepResult {
+  const { state, events, rejections } = issue(previous, commands);
+  advance(state, events, null);
   return { state, events, rejections };
+}
+
+export function foresee(previous: State): Ledger {
+  const state = cloneState(previous);
+  const ledger = createLedger(state);
+  advance(state, [], ledger);
+  return ledger;
 }

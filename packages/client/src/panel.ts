@@ -1,7 +1,7 @@
 import type { Order } from "@barycenter/protocol";
-import { BRANCHES, type Branch, type HoldingView } from "@barycenter/sim";
+import { BRANCHES, type HoldingView } from "@barycenter/sim";
 import { amount, button, el, percent } from "./dom.ts";
-import { type Aiming, type Game, nameOf, pressureOn, summarize } from "./model.ts";
+import { type Aiming, BRANCH_LABELS, type Game, nameOf, pressureOn, summarize } from "./model.ts";
 import { css, powerColor } from "./palette.ts";
 
 export interface PanelActions {
@@ -15,12 +15,6 @@ export interface Panel {
 }
 
 type Refresh = (game: Game) => void;
-
-const BRANCH_LABELS: Record<Branch, string> = {
-  extraction: "Extraction",
-  power: "Power",
-  shipyard: "Shipyards",
-};
 
 const LEANING_HINT = "50% builds a branch as the need appears, more builds it ahead of need";
 const GARRISON_HINT =

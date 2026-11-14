@@ -48,7 +48,7 @@ Messages are JSON over one WebSocket. A client first joins a room. A room that d
 | `orders`    | orders for the seat's own power; the server stamps the seat on them                              |
 | `time`      | pause, resume or change speed                                                                    |
 | `triggers`  | which events pause time for this seat                                                            |
-| `report`    | start or stop sending the force report with this seat's views                                    |
+| `report`    | which report to send with this seat's views, the force report or the economy report, or none     |
 | `snapshot`  | write the whole room to a file on the server, for debugging                                      |
 | `tune`      | change constants, where the server allows it                                                     |
 
@@ -62,7 +62,7 @@ Messages are JSON over one WebSocket. A client first joins a room. A room that d
 | `snapshot`  | the name of the snapshot that was written                                                        |
 | `error`     | a message the server could not act on                                                            |
 
-- A `view` also goes out at once when a seat asks for the force report, and carries that report until the seat tells the server to stop.
+- A `view` also goes out at once when a seat asks for a report, and every view carries that report until the seat asks for the other one or for none. A request for the economy report may name one region, and the report then lists the cells the seat holds there.
 - For every pressure a view gives the force committed and its breaches: the contacts that carry force into a cell whose siege has begun, each with the progress of that siege. The force is worked out for the coming tick with the function the tick uses, so the map and the force report agree. Breaches that start in a region the seat cannot see are left out.
 - The first join of a seat returns a secret token. Rejoining that seat requires the token, and the newer connection replaces the older one.
 - Everything a client sends is parsed field by field, and unknown fields are dropped. The core then checks ownership and ranges.
@@ -87,6 +87,8 @@ Messages are JSON over one WebSocket. A client first joins a room. A room that d
 - Labels and panels are plain HTML over the canvas. A panel is rebuilt only when its structure changes; between rebuilds only its numbers are updated.
 - A region's label stands on the center cell of the region. Where the player holds cells in the region it stands on one of them instead: the cell nearest the middle of the largest connected group of the player's cells. A pressure label that would cover the label of its region is moved just above or below it.
 - The force total in the top bar opens a report meant for debugging. One table lists the player's regions with the force resting in the garrison, standing at a front and on the move, the orders that ask for it and the region the moving force is heading to. The other lists, for every line of pressure the player takes part in, each pressed cell with its defense, the attacker's force facing it, the pressure on it and the most its contacts can carry, the progress of the siege and whether the cell can fall. The server works both out with the functions the tick uses, only for a seat that has the report open: the client asks when the dialog opens and tells the server to stop when it closes. An open report adds about 3 KB of JSON to each view of that seat.
+- The matter total in the top bar opens the economy report, also meant for debugging. Three tables give one tick of the whole power: matter made and what it was built into, energy made, needed and met, force built and lost, each with what was lost on the way. A table of branches shows the levels built, the share the cells would build now and what each branch makes. A table of regions shows for each the matter and energy made and used, what it builds, what building waits for matter, and what it sends to and gets from other regions. Picking a region lists its cells in the same way, with the progress of the next level.
+- The tick can keep a ledger: what every cell made, spent, needed and lost, and every hop of matter, energy and force. For the economy report the server runs the coming tick on a copy of the state with a ledger and sums it by cell, region and power, so the report shows the effect of an order at once, also while time is paused. A normal tick keeps no ledger. A report costs about as much as a tick. It adds 9 to 12 KB of JSON to a view, and about 0.9 KB more for every cell of the region picked.
 - The `Snapshot` button in the top bar asks the server for a snapshot and shows the name it was given.
 - The globe is drawn on demand: after a new view, a camera move or a resize, and continuously only while flows are moving. A paused game with a still camera draws nothing.
 - One page serves desktop and handheld. On a narrow upright screen the panel becomes a sheet under the globe that opens on selecting a region, and on any small screen the top bar keeps time controls and totals and moves the rest into a menu. Targets grow where the pointer is coarse.

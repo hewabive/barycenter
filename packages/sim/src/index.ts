@@ -1,5 +1,16 @@
 export type { Battle, Siege } from "./battle.ts";
 export { defaultConstants } from "./constants.ts";
+export {
+  type Books,
+  type CellAccount,
+  type EconomyReport,
+  type EnergyBooks,
+  economyReportFor,
+  type ForceBooks,
+  type MatterBooks,
+  type RegionAccount,
+  type Shipment,
+} from "./economy.ts";
 export type { Duty, Muster, Route } from "./muster.ts";
 export { type ForceReport, forceReportFor } from "./report.ts";
 export { hullFaces } from "./sphere.ts";

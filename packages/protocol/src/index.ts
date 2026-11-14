@@ -14,5 +14,6 @@ export {
   SPEEDS,
   type TimeState,
   type Triggers,
+  type Watch,
 } from "./messages.ts";
 export { parseClientMessage } from "./parse.ts";

@@ -3,6 +3,7 @@ import { ROOM_NAME, type ServerMessage, type Setup, SPEEDS } from "@barycenter/p
 import type { GameEvent } from "@barycenter/sim";
 import { connect } from "./connection.ts";
 import { required } from "./dom.ts";
+import { createEconomy } from "./economy.ts";
 import { createForces } from "./forces.ts";
 import { createGlobe, type Globe } from "./globe.ts";
 import { createJournal } from "./journal.ts";
@@ -53,6 +54,7 @@ const refresh = () => {
   panel.show(game, selected, aiming);
   topbar.show(game, notice);
   forces.show(game);
+  economy.show(game);
 };
 
 const select = (region: number | null) => {
@@ -81,7 +83,12 @@ const focus = (region: number) => {
 
 const forces = createForces(required<HTMLDialogElement>("#forces"), {
   select: focus,
-  watch: (active) => link.send({ type: "report", active }),
+  watch: (watch) => link.send({ type: "report", watch }),
+});
+
+const economy = createEconomy(required<HTMLDialogElement>("#economy"), {
+  select: focus,
+  watch: (watch) => link.send({ type: "report", watch }),
 });
 
 const topbar = createTopbar(required<HTMLElement>("#topbar"), {
@@ -93,6 +100,10 @@ const topbar = createTopbar(required<HTMLElement>("#topbar"), {
     link.send({ type: "triggers", triggers });
   },
   forces: forces.open,
+  economy: () => {
+    const held = selected !== null && game?.view.regions[selected].estate !== null;
+    economy.open(held ? selected : null);
+  },
   snapshot: () => link.send({ type: "snapshot", selected }),
   restart: () => {
     const fresh = new URLSearchParams(window.location.search);
@@ -145,10 +156,12 @@ function receive(message: ServerMessage): void {
       seats: message.seats,
       triggers: message.triggers,
       view: message.view,
-      report: null,
+      force: null,
+      economy: null,
     };
-    if (forces.watching()) {
-      link.send({ type: "report", active: true });
+    const watch = forces.watch() ?? economy.watch();
+    if (watch !== null) {
+      link.send({ type: "report", watch });
     }
     if (globe === null) {
       globe = createGlobe(stage, message.outline, pick);
@@ -175,7 +188,8 @@ function receive(message: ServerMessage): void {
   }
   if (message.type === "view") {
     game.view = message.view;
-    game.report = message.report;
+    game.force = message.force;
+    game.economy = message.economy;
     const current = game;
     journal.add(
       message.events

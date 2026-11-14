@@ -1,12 +1,20 @@
 import type { SeatInfo, TimeState, Triggers } from "@barycenter/protocol";
 import type {
+  Branch,
   Constants,
+  EconomyReport,
   ForceReport,
   GameEvent,
   Outline,
   PressureView,
   View,
 } from "@barycenter/sim";
+
+export const BRANCH_LABELS: Record<Branch, string> = {
+  extraction: "Extraction",
+  power: "Power",
+  shipyard: "Shipyards",
+};
 
 export interface Game {
   room: string;
@@ -19,7 +27,8 @@ export interface Game {
   seats: SeatInfo[];
   triggers: Triggers;
   view: View;
-  report: ForceReport | null;
+  force: ForceReport | null;
+  economy: EconomyReport | null;
 }
 
 export interface Aiming {

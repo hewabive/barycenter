@@ -114,9 +114,9 @@ test("the force report comes over the socket when a client asks for it", async (
     const home = welcome.view.regions.findIndex((region) => region.estate !== null);
 
     client.send({ type: "orders", orders: [] });
-    assert.equal((await client.next("view")).report, null);
-    client.send({ type: "report", active: true });
-    const report = (await client.next("view")).report;
+    assert.equal((await client.next("view")).force, null);
+    client.send({ type: "report", watch: { subject: "force" } });
+    const report = (await client.next("view")).force;
     assert.ok(report);
     assert.ok(report.musters[home]);
     assert.deepEqual(report.battles, []);

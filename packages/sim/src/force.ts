@@ -1,4 +1,5 @@
 import type { Lane } from "./front.ts";
+import type { Ledger } from "./ledger.ts";
 import {
   bestLink,
   capacityOf,
@@ -125,7 +126,7 @@ export function headingOf(field: ForceField, cell: number): number[] | null {
   return field.need[cell] > EPSILON ? null : field.toHome;
 }
 
-export function routeForce(state: State, field: ForceField): void {
+export function routeForce(state: State, field: ForceField, ledger: Ledger | null = null): void {
   const { constants, cells } = state;
   for (const joint of state.joints) {
     joint.forceFlow = 0;
@@ -143,9 +144,11 @@ export function routeForce(state: State, field: ForceField): void {
       continue;
     }
     const amount = Math.min(free, capacityOf(state, link.joint) * constants.forcePerCapacity);
+    const arrived = amount * passOf(state, link.joint);
     current.force -= amount;
-    arrivals[link.cell] += amount * passOf(state, link.joint);
+    arrivals[link.cell] += arrived;
     state.joints[link.joint].forceFlow += signedFlow(state, link.joint, cell, amount);
+    ledger?.force.hauls.push({ from: cell, to: link.cell, sent: amount, arrived });
   }
   for (let cell = 0; cell < cells.length; cell++) {
     cells[cell].force += arrivals[cell];
@@ -173,7 +176,7 @@ export function linkedOf(state: State): boolean[] {
   return linked;
 }
 
-export function decayForce(state: State): void {
+export function decayForce(state: State, ledger: Ledger | null = null): void {
   const { constants, cells } = state;
   const linked = linkedOf(state);
   const caps = forceCapsOf(state);
@@ -185,6 +188,11 @@ export function decayForce(state: State): void {
     const starved = linked[id] ? constants.forceDecay * (1 - cell.supply) : constants.strandedDecay;
     const excess = Math.max(0, totals[cell.owner] - caps[cell.owner]) / totals[cell.owner];
     const lost = starved + constants.excessDecay * excess;
+    if (ledger !== null && lost > 0) {
+      const scale = (cell.force * Math.min(1, lost)) / lost;
+      (linked[id] ? ledger.force.starved : ledger.force.stranded)[id] = starved * scale;
+      ledger.force.crowded[id] = constants.excessDecay * excess * scale;
+    }
     cell.force -= cell.force * Math.min(1, lost);
   });
 }
