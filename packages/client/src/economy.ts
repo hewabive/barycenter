@@ -51,6 +51,7 @@ const BRANCH_LEGEND =
   "and your leaning. Built levels move toward it slowly.";
 const REGION_LEGEND =
   "Matter used is what the region builds with. Supply is the share of its energy need that is met. " +
+  "A cell without a level makes nothing, and its flag falls when no energy reaches it. " +
   "Force on the move is in the force report. Pick a region to see its cells.";
 const CELL_LEGEND =
   "A branch shows the levels built and, after the arrow, where they are heading. " +
@@ -79,23 +80,22 @@ function usedOf(books: Books): number {
 
 function needOf(books: Books): number {
   const { energy } = books;
-  return energy.levels + energy.force + energy.quarters + energy.roads;
+  return energy.flags + energy.levels + energy.force + energy.quarters + energy.roads;
 }
 
 function matterEntries(books: Books): Entry[] {
   const { matter } = books;
   const used = usedOf(books);
-  const left = matter.made - used - matter.lost;
+  const left = matter.made - used - matter.lost - matter.abandoned;
   const made = (part: number) => shareOf(part, matter.made, "made");
   return [
     ["Made", rate(matter.made), ""],
-    ["· by the land itself", rate(matter.made - matter.mined), made(matter.made - matter.mined)],
-    ["· by extraction levels", rate(matter.mined), made(matter.mined)],
     ["Built into levels", rate(matter.levels), made(matter.levels)],
     ["Built into roads", rate(matter.roads), made(matter.roads)],
     ["Built into garrison room", rate(matter.quarters), made(matter.quarters)],
     ["Built into force", rate(matter.force), made(matter.force)],
     ["Lost on the way", rate(matter.lost), made(matter.lost)],
+    ["Lost with fallen flags", rate(matter.abandoned), made(matter.abandoned)],
     ["Left in stock", signed(left), made(left)],
     ["Held in stock", amount(matter.held), ""],
     ["Building that waits for matter", rate(matter.asked - used), ""],
@@ -109,13 +109,8 @@ function energyEntries(books: Books): Entry[] {
   const needed = (part: number) => shareOf(part, need, "need");
   return [
     ["Made", rate(energy.made), ""],
-    [
-      "· by the land itself",
-      rate(energy.made - energy.generated),
-      made(energy.made - energy.generated),
-    ],
-    ["· by power levels", rate(energy.generated), made(energy.generated)],
     ["Needed", rate(need), ""],
+    ["· by flags", rate(energy.flags), needed(energy.flags)],
     ["· by levels", rate(energy.levels), needed(energy.levels)],
     ["· by force", rate(energy.force), needed(energy.force)],
     ["· by garrison room", rate(energy.quarters), needed(energy.quarters)],
@@ -129,7 +124,8 @@ function energyEntries(books: Books): Entry[] {
 
 function forceEntries(books: Books): Entry[] {
   const { force, matter } = books;
-  const gone = force.fought + force.starved + force.stranded + force.crowded + force.lost;
+  const gone =
+    force.fought + force.starved + force.stranded + force.crowded + force.lost + force.abandoned;
   const cost = matter.force < SHOWN ? "" : `takes ${rate(matter.force)} matter`;
   return [
     ["Held", amount(force.held), `room for ${amount(force.room)}`],
@@ -140,14 +136,15 @@ function forceEntries(books: Books): Entry[] {
     ["Lost cut off from the capital", rate(force.stranded, 3), ""],
     ["Lost above the room in garrisons", rate(force.crowded, 3), ""],
     ["Lost on the way", rate(force.lost, 3), ""],
+    ["Lost with fallen flags", rate(force.abandoned, 3), ""],
     ["Change", signed(force.built - gone, 3), ""],
   ];
 }
 
 function branchTexts(books: Books, index: number): string[] {
   const makes = [
-    `${rate(books.matter.mined)} matter`,
-    `${rate(books.energy.generated)} energy`,
+    `${rate(books.matter.made)} matter`,
+    `${rate(books.energy.made)} energy`,
     `${rate(books.force.built, 3)} force of ${rate(books.force.yards, 3)} possible`,
   ];
   const share = (levels: number) => (books.level > 0 ? percent(levels / books.level) : "—");
@@ -183,6 +180,18 @@ function shipped(
       .map((shipment) => `${rate(shipment[cargo])} ${side} ${place(shipment.place)}`);
     return parts.length === 0 ? [] : [`${verb} ${cargo}: ${parts.join(", ")}`];
   });
+}
+
+function flagNotes(falling: number, fallsIn: number | null): string[] {
+  if (fallsIn === null) {
+    return [];
+  }
+  const wait = `${fallsIn} ${fallsIn === 1 ? "tick" : "ticks"}`;
+  return [
+    falling === 1
+      ? `No energy for the flag: it falls in ${wait}`
+      : `No energy for ${falling} flags: the first falls in ${wait}`,
+  ];
 }
 
 function notesOf(books: Books): string[] {
@@ -338,7 +347,8 @@ export function createEconomy(root: HTMLDialogElement, actions: EconomyActions):
     write(
       totals,
       `${books.cells} cells in ${held} · level ${books.level} of ${books.cap} · ` +
-        `${books.capped} cells built to their cap`,
+        `${books.capped} cells built to their cap · ${books.bare} without a level` +
+        (books.falling > 0 ? ` · ${books.falling} with a falling flag` : ""),
     );
     showEntries(matter, matterEntries(books));
     showEntries(energy, energyEntries(books));
@@ -363,6 +373,7 @@ export function createEconomy(root: HTMLDialogElement, actions: EconomyActions):
         `${books.level} / ${books.cap}`,
         ...ledgerTexts(books),
         [
+          ...flagNotes(books.falling, account.fallsIn),
           ...notesOf(books),
           ...shipped("Sends", "to", account.sends, regionName),
           ...shipped("Gets", "from", account.receives, regionName),
@@ -392,7 +403,11 @@ export function createEconomy(root: HTMLDialogElement, actions: EconomyActions):
         nextLevelOf(account),
         ...BRANCHES.map((_, index) => headingOf(books, index)),
         ...ledgerTexts(books),
-        [...notesOf(books), ...shipped("Sends", "to", account.sends, cellName)].join("\n"),
+        [
+          ...flagNotes(books.falling, account.fallsIn),
+          ...notesOf(books),
+          ...shipped("Sends", "to", account.sends, cellName),
+        ].join("\n"),
       ]);
     }
     write(

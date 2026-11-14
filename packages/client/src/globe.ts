@@ -42,6 +42,7 @@ import {
   nearest,
   neighborsAcross,
   rimmed,
+  rimShares,
   type Tooth,
   teethAlong,
   triangulate,
@@ -137,6 +138,7 @@ interface Press {
 }
 
 const SURFACE_DEPTH = 1;
+const FLAG_RETREAT = 2;
 const STRAIT_STEPS = 12;
 const PORTIONS = 8;
 const STREAM_ROOM = 6000;
@@ -210,12 +212,14 @@ export function createGlobe(
 
   const ranges: { start: number; count: number }[] = [];
   const surfacePositions: number[] = [];
+  const rims: number[] = [];
   for (const cell of cells) {
     const vertices = triangulate(cell, SURFACE_DEPTH);
     ranges.push({ start: surfacePositions.length / 3, count: vertices.length });
     for (const vertex of vertices) {
       surfacePositions.push(vertex.x, vertex.y, vertex.z);
     }
+    rims.push(...rimShares(cell, SURFACE_DEPTH));
   }
   const surface = new BufferGeometry();
   surface.setAttribute("position", new Float32BufferAttribute(surfacePositions, 3));
@@ -224,11 +228,16 @@ export function createGlobe(
   scene.add(new Mesh(surface, new MeshBasicMaterial({ vertexColors: true, side: DoubleSide })));
 
   const tint = new Color();
-  const paint = (cell: number, color: number, brightness: number) => {
+  const bared = new Color();
+  const mixed = new Color();
+  const paint = (cell: number, color: number, brightness: number, soil = color, fallen = 0) => {
     tint.setHex(color).multiplyScalar(brightness);
+    bared.setHex(soil);
     const range = ranges[cell];
     for (let vertex = range.start; vertex < range.start + range.count; vertex++) {
-      colors.setXYZ(vertex, tint.r, tint.g, tint.b);
+      const share = Math.max(0, Math.min(1, FLAG_RETREAT * fallen - (1 - rims[vertex])));
+      mixed.copy(tint).lerp(bared, share);
+      colors.setXYZ(vertex, mixed.r, mixed.g, mixed.b);
     }
     colors.needsUpdate = true;
   };
@@ -656,7 +665,7 @@ export function createGlobe(
         paint(cell, soil, 1);
       } else {
         const growth = layer.cap[cell] > 0 ? layer.level[cell] / layer.cap[cell] : 0;
-        paint(cell, powerColor(owner), 0.4 + 0.6 * growth);
+        paint(cell, powerColor(owner), 0.4 + 0.6 * growth, soil, 1 - layer.flag[cell]);
       }
     }
 

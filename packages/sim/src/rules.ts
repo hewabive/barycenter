@@ -86,16 +86,17 @@ export function matterYieldOf(state: State, cell: number): number {
   const { constants } = state;
   const current = state.cells[cell];
   const extraction = constants.matterRate * current.branches[EXTRACTION];
-  return (constants.baseMatter + extraction) * outputOf(constants, current.supply);
+  return extraction * outputOf(constants, current.supply);
 }
 
 export function energyProductionOf(state: State, cell: number): number {
   const { constants } = state;
   const generation = constants.energyRate * state.cells[cell].branches[POWER];
-  return state.map.cells[cell].energyRichness * (constants.baseEnergy + generation);
+  return state.map.cells[cell].energyRichness * generation;
 }
 
 export interface Upkeep {
+  flag: number;
   levels: number;
   force: number;
   quarters: number;
@@ -106,6 +107,7 @@ export function upkeepOf(state: State, cell: number, resting: number): Upkeep {
   const current = state.cells[cell];
   const fielded = current.force - resting * (1 - constants.restUpkeep);
   return {
+    flag: constants.flagUpkeep,
     levels: constants.upkeepPerLevel * current.level,
     force: constants.upkeepPerForce * fielded,
     quarters: constants.upkeepPerQuarter * current.quarters,

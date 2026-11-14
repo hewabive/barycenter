@@ -19,6 +19,9 @@ type Refresh = (game: Game) => void;
 const LEANING_HINT = "50% builds a branch as the need appears, more builds it ahead of need";
 const GARRISON_HINT =
   "Room for force to build in this region. Force rests in its garrisons, and their sum caps your force";
+const FLAG_HINT =
+  "A cell without a level makes nothing. Its flag needs energy and falls when none reaches it: " +
+  "the cell fades on the globe and turns neutral";
 const AIM_HINT =
   "Pick one of its cells on the globe. The attack then presses only where it is nearest to that cell";
 const ROAD_HINT =
@@ -233,6 +236,25 @@ export function createPanel(root: HTMLElement, actions: PanelActions): Panel {
         "Energy supply",
         live((current) => percent(current.view.regions[id].estate?.supply ?? 1)),
       ),
+      row(
+        "Cells without a level",
+        live((current) => {
+          const estate = current.view.regions[id].estate;
+          const cells = holdingIn(current, id, current.seat)?.cells ?? 0;
+          return estate === null ? "" : `${estate.bare} of ${cells}`;
+        }),
+      ),
+      row(
+        "Falling flags",
+        live((current) => {
+          const estate = current.view.regions[id].estate;
+          if (estate === null || estate.fallsIn === null) {
+            return "none";
+          }
+          return `${estate.falling} · the first falls in ${estate.fallsIn} ticks`;
+        }),
+      ),
+      el("div", { class: "hint" }, FLAG_HINT),
       row(
         "Rival force at the border",
         live((current) => amount(current.view.regions[id].estate?.hostile ?? 0)),

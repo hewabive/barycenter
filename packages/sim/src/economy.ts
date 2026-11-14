@@ -1,23 +1,24 @@
+import { ticksToFallOf } from "./flags.ts";
 import type { Haul } from "./ledger.ts";
-import { EXTRACTION, heldOf, levelCostOf, POWER } from "./rules.ts";
+import { heldOf, levelCostOf } from "./rules.ts";
 import { foresee } from "./step.ts";
 import { BRANCHES, type State } from "./types.ts";
 
 export interface MatterBooks {
   held: number;
   made: number;
-  mined: number;
   asked: number;
   levels: number;
   roads: number;
   quarters: number;
   force: number;
   lost: number;
+  abandoned: number;
 }
 
 export interface EnergyBooks {
   made: number;
-  generated: number;
+  flags: number;
   levels: number;
   force: number;
   quarters: number;
@@ -37,10 +38,13 @@ export interface ForceBooks {
   stranded: number;
   crowded: number;
   lost: number;
+  abandoned: number;
 }
 
 export interface Books {
   cells: number;
+  bare: number;
+  falling: number;
   capped: number;
   level: number;
   cap: number;
@@ -62,12 +66,15 @@ export interface CellAccount {
   cell: number;
   progress: number;
   price: number;
+  flag: number;
+  fallsIn: number | null;
   books: Books;
   sends: Shipment[];
 }
 
 export interface RegionAccount {
   region: number;
+  fallsIn: number | null;
   books: Books;
   sends: Shipment[];
   receives: Shipment[];
@@ -87,6 +94,8 @@ const CARGOES: Cargo[] = ["matter", "energy", "force"];
 function blankBooks(): Books {
   return {
     cells: 0,
+    bare: 0,
+    falling: 0,
     capped: 0,
     level: 0,
     cap: 0,
@@ -95,17 +104,17 @@ function blankBooks(): Books {
     matter: {
       held: 0,
       made: 0,
-      mined: 0,
       asked: 0,
       levels: 0,
       roads: 0,
       quarters: 0,
       force: 0,
       lost: 0,
+      abandoned: 0,
     },
     energy: {
       made: 0,
-      generated: 0,
+      flags: 0,
       levels: 0,
       force: 0,
       quarters: 0,
@@ -124,6 +133,7 @@ function blankBooks(): Books {
       stranded: 0,
       crowded: 0,
       lost: 0,
+      abandoned: 0,
     },
   };
 }
@@ -134,12 +144,10 @@ function addInto<Part extends Record<keyof Part, number>>(sum: Part, part: Part)
   }
 }
 
-function shareOf(part: number, whole: number): number {
-  return whole > 0 ? part / whole : 0;
-}
-
 function addBooks(sum: Books, part: Books): void {
   sum.cells += part.cells;
+  sum.bare += part.bare;
+  sum.falling += part.falling;
   sum.capped += part.capped;
   sum.level += part.level;
   sum.cap += part.cap;
@@ -177,9 +185,10 @@ export function economyReportFor(state: State, power: number, focus: number | nu
     }
     const place = map.cells[id];
     const books = blankBooks();
-    const mining = constants.matterRate * cell.branches[EXTRACTION];
-    const generating = constants.energyRate * cell.branches[POWER];
+    const fallsIn = ticksToFallOf(state, id);
     books.cells = 1;
+    books.bare = cell.level === 0 ? 1 : 0;
+    books.falling = fallsIn === null ? 0 : 1;
     books.capped = cell.level >= place.levelCap ? 1 : 0;
     books.level = cell.level;
     books.cap = place.levelCap;
@@ -188,17 +197,17 @@ export function economyReportFor(state: State, power: number, focus: number | nu
     books.matter = {
       held: heldOf(cell.stock),
       made: ledger.matter.made[id],
-      mined: ledger.matter.made[id] * shareOf(mining, constants.baseMatter + mining),
       asked: ledger.matter.asked[id],
       levels: ledger.matter.levels[id],
       roads: ledger.matter.roads[id],
       quarters: ledger.matter.quarters[id],
       force: ledger.matter.force[id],
       lost: 0,
+      abandoned: ledger.matter.abandoned[id],
     };
     books.energy = {
       made: ledger.energy.made[id],
-      generated: ledger.energy.made[id] * shareOf(generating, constants.baseEnergy + generating),
+      flags: ledger.energy.flags[id],
       levels: ledger.energy.levels[id],
       force: ledger.energy.force[id],
       quarters: ledger.energy.quarters[id],
@@ -217,11 +226,14 @@ export function economyReportFor(state: State, power: number, focus: number | nu
       stranded: ledger.force.stranded[id],
       crowded: ledger.force.crowded[id],
       lost: 0,
+      abandoned: ledger.force.abandoned[id],
     };
     accounts.set(id, {
       cell: id,
       progress: cell.progress,
       price: levelCostOf(constants, cell.level),
+      flag: cell.flag,
+      fallsIn,
       books,
       sends: [],
     });
@@ -232,7 +244,7 @@ export function economyReportFor(state: State, power: number, focus: number | nu
     const id = map.cells[cell].region;
     let account = regions.get(id);
     if (account === undefined) {
-      account = { region: id, books: blankBooks(), sends: [], receives: [] };
+      account = { region: id, fallsIn: null, books: blankBooks(), sends: [], receives: [] };
       regions.set(id, account);
     }
     return account;
@@ -257,8 +269,12 @@ export function economyReportFor(state: State, power: number, focus: number | nu
 
   const books = blankBooks();
   for (const account of accounts.values()) {
-    addBooks(regionOf(account.cell).books, account.books);
+    const region = regionOf(account.cell);
+    addBooks(region.books, account.books);
     addBooks(books, account.books);
+    if (account.fallsIn !== null) {
+      region.fallsIn = Math.min(region.fallsIn ?? account.fallsIn, account.fallsIn);
+    }
   }
 
   const byPlace = (left: Shipment, right: Shipment) => left.place - right.place;

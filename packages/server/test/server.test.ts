@@ -263,7 +263,7 @@ test("a save from another format is set aside and a fresh game starts", async ()
     const kept = JSON.parse(await readFile(join(folder, "eta.unsupported.json"), "utf8"));
     assert.equal(kept.state.tick, 9);
     const saved = JSON.parse(await readFile(join(folder, "eta.json"), "utf8"));
-    assert.equal(saved.version, 5);
+    assert.equal(saved.version, 6);
   } finally {
     await rm(folder, { recursive: true, force: true });
   }

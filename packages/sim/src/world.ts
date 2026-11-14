@@ -45,8 +45,8 @@ const EXTRA_STRAITS = 2;
 const WAVES = 6;
 const RIPPLE = 0.7;
 const GRAIN = 0.5;
-const CAPITAL_LEVEL_CAP = 5;
-const START_MIX = [0.4, 0.3, 0.3];
+const CAPITAL_LEVEL_CAP = 6;
+const START_MIX = [0.3, 0.45, 0.25];
 
 export function createWorld(options: WorldOptions): State {
   const constants = options.constants ?? defaultConstants;
@@ -192,6 +192,7 @@ function emptyCell(powerCount: number): CellState {
     quarters: 0,
     supply: 1,
     siege: new Array<number>(powerCount).fill(0),
+    flag: 1,
   };
 }
 

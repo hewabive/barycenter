@@ -106,6 +106,14 @@ export function report(game: Game, event: GameEvent): Report {
     const text = `${who} ${verb} driven out of region ${region} by ${nameOf(game, event.by)}`;
     return { tick, text, region, urgent: event.power === me };
   }
+  if (event.kind === "lapsed") {
+    const lost = event.cells === 1 ? "a cell" : `${event.cells} cells`;
+    const cause = event.cells === 1 ? "its flag fell" : "their flags fell";
+    const text = event.left
+      ? `${who} left region ${region}: no energy reached the last flag`
+      : `${who} lost ${lost} in region ${region}: ${cause} without energy`;
+    return { tick, text, region, urgent: event.power === me };
+  }
   const wait = Math.max(0, event.activeAt - tick);
   const text = `${who} will press ${nameOf(game, event.target)} in region ${region} in ${wait} ticks`;
   return { tick, text, region, urgent: event.target === me };

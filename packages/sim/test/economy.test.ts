@@ -36,6 +36,8 @@ function close(actual: number, expected: number): void {
 function figuresOf(books: Books): number[] {
   return [
     books.cells,
+    books.bare,
+    books.falling,
     books.capped,
     books.level,
     books.cap,
@@ -75,9 +77,8 @@ test("matter made is spent, lost on the way or left in stock", () => {
     const held = (from: State) => totalOf(owned, (cell) => from.cells[cell].stock[0]);
     const spent = matter.levels + matter.roads + matter.quarters + matter.force;
     close(matter.held, held(state));
-    close(held(next) - held(state), matter.made - spent - matter.lost);
+    close(held(next) - held(state), matter.made - spent - matter.lost - matter.abandoned);
     assert.ok(spent <= matter.asked + CLOSE);
-    assert.ok(matter.mined <= matter.made);
     moved += matter.lost;
     state = next;
   }
@@ -89,10 +90,9 @@ test("energy made reaches a use, is lost on the way or finds no use", () => {
   let lost = 0;
   for (let tick = 0; tick < 40; tick++) {
     const { energy } = economyReportFor(state, 0, null).books;
-    const need = energy.levels + energy.force + energy.quarters + energy.roads;
+    const need = energy.flags + energy.levels + energy.force + energy.quarters + energy.roads;
     close(energy.made, energy.met + energy.spare + energy.lost);
     assert.ok(energy.met <= need + CLOSE);
-    assert.ok(energy.generated <= energy.made);
     lost += energy.lost;
     state = step(state, []).state;
   }
@@ -108,7 +108,8 @@ test("force changes by what is built and what is lost", () => {
     const { force } = economyReportFor(state, 0, null).books;
     const next = step(state, []).state;
     const held = (from: State) => totalOf(owned, (cell) => from.cells[cell].force);
-    const gone = force.fought + force.starved + force.stranded + force.crowded + force.lost;
+    const gone =
+      force.fought + force.starved + force.stranded + force.crowded + force.lost + force.abandoned;
     close(force.held, held(state));
     close(held(next) - held(state), force.built - gone);
     assert.ok(force.built <= force.yards + CLOSE);
@@ -154,19 +155,22 @@ test("regions add up to the power and cells to their region", () => {
 });
 
 test("what one region sends another receives less the loss on the way", () => {
-  const { state } = grown(400);
-  const report = economyReportFor(state, 0, null);
+  let { state } = grown(20);
   let crossings = 0;
-  for (const account of report.regions) {
-    for (const sent of account.sends) {
-      const other = report.regions.find((known) => known.region === sent.place);
-      const received = other?.receives.find((known) => known.place === account.region);
-      assert.ok(received);
-      assert.ok(received.matter <= sent.matter);
-      assert.ok(received.matter >= sent.matter * (1 - state.constants.hopLoss) - CLOSE);
-      assert.ok(received.energy <= sent.energy);
-      crossings += 1;
+  for (let tick = 0; tick < 120; tick++) {
+    const report = economyReportFor(state, 0, null);
+    for (const account of report.regions) {
+      for (const sent of account.sends) {
+        const other = report.regions.find((known) => known.region === sent.place);
+        const received = other?.receives.find((known) => known.place === account.region);
+        assert.ok(received);
+        assert.ok(received.matter <= sent.matter);
+        assert.ok(received.matter >= sent.matter * (1 - state.constants.hopLoss) - CLOSE);
+        assert.ok(received.energy <= sent.energy);
+        crossings += 1;
+      }
     }
+    state = step(state, []).state;
   }
   assert.ok(crossings > 0);
 });

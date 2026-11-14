@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { type State, step, viewFor } from "../src/index.ts";
+import { retune, type State, step, viewFor } from "../src/index.ts";
 import { routeMatter, worksOf } from "../src/matter.ts";
 import { fresh, ownNeighbor, run } from "./support.ts";
 
@@ -35,7 +35,8 @@ test("matter loses a share on every hop and less along a road", () => {
     state.cells[donor].stock[0] = 50;
     state.joints[joint].grade = grade;
     const potential = state.cells.map((_, id) => (id === capital ? 1 : 0));
-    routeMatter(state, { reserve: state.cells.map(() => 0), potential });
+    const idle = state.cells.map(() => 0);
+    routeMatter(state, { reserve: idle, potential, pace: idle });
     assert.ok(Math.abs(state.joints[joint].matterFlow) > 0);
     return state.cells[capital].stock[0] / Math.abs(state.joints[joint].matterFlow);
   };
@@ -117,7 +118,8 @@ test("a road order needs land on both sides and lapses when one side is lost", (
 });
 
 test("a road that nothing uses wears away", () => {
-  const { state, capital } = fresh();
+  const { state: base, capital } = fresh();
+  const state = retune(base, { flagUpkeep: 0, matterRate: 0 }) ?? base;
   const joint = jointBetween(state, ownNeighbor(state, capital), capital);
   state.joints[joint].grade = 1;
   for (const cell of state.cells) {

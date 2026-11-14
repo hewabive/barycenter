@@ -28,6 +28,7 @@ export interface Work {
 export interface MatterField {
   reserve: number[];
   potential: number[];
+  pace: number[];
 }
 
 export function worksOf(state: State, trunks: boolean[]): Work[][] {
@@ -81,22 +82,29 @@ export function matterFieldOf(
   quarters: number[],
 ): MatterField {
   const { constants, cells } = state;
-  const reserve = cells.map((cell, id) => {
-    if (cell.owner === null) {
-      return 0;
-    }
-    const build = canGrow(state, id) ? constants.buildRate : 0;
+  const kept = (id: number, build: number) => {
     const total =
       worksUse(works[id]) +
       quarterUseOf(state, id, quarters) +
       shipyardUse(state, id, arming) +
       build;
     return dialOf(state, id) * total * constants.reserveTicks;
-  });
+  };
+  const eager = cells.map((cell, id) =>
+    cell.owner !== null && canGrow(state, id) ? dialOf(state, id) / (cell.level + 1) : 0,
+  );
+  const waiting = eager.map((pull, id) =>
+    pull > 0 && heldOf(cells[id].stock) < kept(id, constants.buildRate) ? pull : 0,
+  );
+  const rival = spread(state, waiting);
+  const pace = eager.map((pull, id) => (pull > 0 ? pull / Math.max(pull, rival[id]) : 1));
+  const reserve = cells.map((cell, id) =>
+    cell.owner === null ? 0 : kept(id, canGrow(state, id) ? constants.buildRate * pace[id] : 0),
+  );
   const attraction = cells.map((cell, id) =>
     heldOf(cell.stock) < reserve[id] ? dialOf(state, id) : 0,
   );
-  return { reserve, potential: spread(state, attraction) };
+  return { reserve, potential: spread(state, attraction), pace };
 }
 
 export function produceMatter(state: State, ledger: Ledger | null = null): void {
@@ -121,6 +129,7 @@ export function spendMatter(
   room: number[],
   quarters: number[],
   wants: number[][],
+  yielding: number[],
   ledger: Ledger | null = null,
 ): void {
   const { constants } = state;
@@ -130,7 +139,7 @@ export function spendMatter(
       return;
     }
     const short = current.supply < 1 - EPSILON;
-    const pace = short ? wants[id][POWER] : 1;
+    const pace = (short ? wants[id][POWER] : 1) * yielding[id];
     const build = canGrow(state, id) ? constants.buildRate * pace : 0;
     const shipyard = Math.min(
       shipyardUse(state, id, arming),
@@ -161,11 +170,12 @@ export function spendMatter(
     }
     const housed = take(housing);
     current.quarters += housed / constants.quarterCost;
+    const urgent = short ? take(build) : 0;
     const arms = take(shipyard);
     const armed = arms / constants.forceCost;
     current.force += armed;
     room[current.owner] -= armed;
-    const raised = take(build);
+    const raised = urgent + (short ? 0 : take(build));
     current.progress += raised;
 
     const cap = state.map.cells[id].levelCap;

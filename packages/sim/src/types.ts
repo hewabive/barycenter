@@ -73,6 +73,7 @@ export interface CellState {
   quarters: number;
   supply: number;
   siege: number[];
+  flag: number;
 }
 
 export interface JointState {
@@ -107,15 +108,16 @@ export interface Pressure {
 }
 
 export interface Constants {
-  baseMatter: number;
   matterRate: number;
-  baseEnergy: number;
   energyRate: number;
   energyRounds: number;
   upkeepPerLevel: number;
   upkeepPerForce: number;
   restUpkeep: number;
   upkeepPerQuarter: number;
+  flagUpkeep: number;
+  flagFall: number;
+  flagRise: number;
   shortageOutput: number;
   forceDecay: number;
   strandedDecay: number;
@@ -197,6 +199,7 @@ export type GameEvent =
   | { kind: "entered"; power: number; region: number }
   | { kind: "secured"; power: number; region: number }
   | { kind: "expelled"; power: number; region: number; by: number }
+  | { kind: "lapsed"; power: number; region: number; cells: number; left: boolean }
   | { kind: "discovered"; power: number; region: number }
   | { kind: "eliminated"; power: number };
 

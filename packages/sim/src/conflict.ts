@@ -135,12 +135,24 @@ export function resolveConflict(
     capture(state, target, winner, events);
   }
   if (fallen.length > 0) {
-    state.pressures = state.pressures.filter(
-      (pressure) =>
-        state.powers[pressure.power].alive &&
-        cellsOf(state, pressure.region, pressure.target).length > 0,
-    );
+    prunePressures(state);
   }
+}
+
+export function prunePressures(state: State): void {
+  state.pressures = state.pressures.filter(
+    (pressure) =>
+      state.powers[pressure.power].alive &&
+      cellsOf(state, pressure.region, pressure.target).length > 0,
+  );
+}
+
+export function vacate(state: State, power: number, region: number): boolean {
+  if (holds(state, power, region)) {
+    return false;
+  }
+  state.powers[power].holdings[region] = { dial: state.constants.defaultDial, garrison: 0 };
+  return true;
 }
 
 function capture(state: State, target: number, winner: number, events: GameEvent[]): void {
@@ -160,6 +172,7 @@ function capture(state: State, target: number, winner: number, events: GameEvent
   cell.quarters *= 1 - constants.captureLevelLoss;
   cell.supply = 1;
   cell.siege.fill(0);
+  cell.flag = 1;
 
   if (entering) {
     events.push({ kind: "entered", power: winner, region });
@@ -170,14 +183,13 @@ function capture(state: State, target: number, winner: number, events: GameEvent
   if (loser === null) {
     return;
   }
-  if (!holds(state, loser, region)) {
-    state.powers[loser].holdings[region] = { dial: constants.defaultDial, garrison: 0 };
+  if (vacate(state, loser, region)) {
     events.push({ kind: "expelled", power: loser, region, by: winner });
   }
   relocateCapital(state, loser, events);
 }
 
-function relocateCapital(state: State, power: number, events: GameEvent[]): void {
+export function relocateCapital(state: State, power: number, events: GameEvent[]): void {
   const holder = state.powers[power];
   if (state.cells[holder.capital].owner === power) {
     return;

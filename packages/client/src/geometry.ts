@@ -123,6 +123,34 @@ export function triangulate(cell: Cell, depth: number): Vector[] {
   return triangles;
 }
 
+function subdivideShares(
+  first: number,
+  second: number,
+  third: number,
+  depth: number,
+  output: number[],
+): void {
+  if (depth === 0) {
+    output.push(first, second, third);
+    return;
+  }
+  const a = (first + second) / 2;
+  const b = (second + third) / 2;
+  const c = (third + first) / 2;
+  subdivideShares(first, a, c, depth - 1, output);
+  subdivideShares(a, second, b, depth - 1, output);
+  subdivideShares(c, b, third, depth - 1, output);
+  subdivideShares(a, b, c, depth - 1, output);
+}
+
+export function rimShares(cell: Cell, depth: number): number[] {
+  const shares: number[] = [];
+  for (let side = 0; side < cell.corners.length; side++) {
+    subdivideShares(0, 1, 1, depth, shares);
+  }
+  return shares;
+}
+
 export function outlineOfCell(cell: Cell, stepsPerSide: number, radius: number): Vector[] {
   const loop: Vector[] = [];
   cell.corners.forEach((corner, index) => {

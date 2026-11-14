@@ -1,6 +1,7 @@
 import { quartersLimitOf } from "./bases.ts";
 import { commitmentOf } from "./conflict.ts";
 import { visibleRegions } from "./explore.ts";
+import { ticksToFallOf } from "./flags.ts";
 import { forceCapsOf, forceFieldOf } from "./force.ts";
 import { lanesOf } from "./front.ts";
 import { capacityOf, defenseOf, heldOf, holds, hubOf } from "./rules.ts";
@@ -60,6 +61,9 @@ export interface Estate {
   quartersLimit: number;
   supply: number;
   levelCap: number;
+  bare: number;
+  falling: number;
+  fallsIn: number | null;
   exposure: number;
   hostile: number;
 }
@@ -102,6 +106,7 @@ export interface CellLayer {
   level: number[];
   force: number[];
   quarters: number[];
+  flag: number[];
 }
 
 export interface FlowView {
@@ -229,6 +234,7 @@ function estateOf(state: State, region: MapRegion, viewer: number): Estate | nul
     hostile += cells[cell].force;
   }
   const hub = hubOf(state, viewer, region.id);
+  const falls = own.flatMap((cell) => ticksToFallOf(state, cell) ?? []);
   return {
     matter: own.reduce((sum, cell) => sum + heldOf(cells[cell].stock), 0),
     dial: orders.dial,
@@ -237,6 +243,9 @@ function estateOf(state: State, region: MapRegion, viewer: number): Estate | nul
     quartersLimit: hub === null ? 0 : quartersLimitOf(state, hub),
     supply: own.reduce((sum, cell) => sum + cells[cell].supply, 0) / own.length,
     levelCap: own.reduce((sum, cell) => sum + map.cells[cell].levelCap, 0),
+    bare: own.filter((cell) => cells[cell].level === 0).length,
+    falling: falls.length,
+    fallsIn: falls.length > 0 ? Math.min(...falls) : null,
     exposure: rivals.size,
     hostile,
   };
@@ -300,7 +309,15 @@ export function viewFor(state: State, power: number): View {
   const visible = visibleRegions(state, power);
   const explored = state.powers[power].explored;
 
-  const layer: CellLayer = { ground: [], cap: [], owner: [], level: [], force: [], quarters: [] };
+  const layer: CellLayer = {
+    ground: [],
+    cap: [],
+    owner: [],
+    level: [],
+    force: [],
+    quarters: [],
+    flag: [],
+  };
   state.cells.forEach((cell, id) => {
     const place = map.cells[id];
     const known = explored[place.region];
@@ -311,6 +328,7 @@ export function viewFor(state: State, power: number): View {
     layer.level.push(seen ? cell.level : 0);
     layer.force.push(seen ? cell.force : 0);
     layer.quarters.push(seen ? Math.round(cell.quarters) : 0);
+    layer.flag.push(seen ? Math.round(cell.flag * 100) / 100 : 1);
   });
 
   const regions = map.regions.map(

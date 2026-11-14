@@ -34,6 +34,7 @@ export interface MatchSummary {
   settled: number[];
   seized: number[];
   ceded: number[];
+  lapsed: number[];
   lateSeized: number;
   sharedRegions: number;
   attacks: number;
@@ -93,6 +94,7 @@ export function runMatch(options: MatchOptions): MatchSummary {
     settled: options.doctrines.map(() => 0),
     seized: options.doctrines.map(() => 0),
     ceded: options.doctrines.map(() => 0),
+    lapsed: options.doctrines.map(() => 0),
     lateSeized: 0,
     sharedRegions: 0,
     attacks: 0,
@@ -132,6 +134,8 @@ export function runMatch(options: MatchOptions): MatchSummary {
     for (const event of result.events) {
       if (event.kind === "eliminated") {
         summary.eliminatedAt[event.power] = state.tick;
+      } else if (event.kind === "lapsed") {
+        summary.lapsed[event.power] += event.cells;
       } else if (event.kind === "announced") {
         summary.attacks += 1;
         if (late) {

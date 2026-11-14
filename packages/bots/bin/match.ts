@@ -68,7 +68,8 @@ function printMatch(summary: MatchSummary): void {
     const fate = summary.eliminatedAt[power];
     print(
       `${name}: settled ${summary.settled[power]} cells, seized ${summary.seized[power]}, ` +
-        `ceded ${summary.ceded[power]}${fate === null ? "" : `, eliminated at ${fate}`}`,
+        `ceded ${summary.ceded[power]}, lost ${summary.lapsed[power]} to fallen flags` +
+        `${fate === null ? "" : `, eliminated at ${fate}`}`,
     );
   });
   print(
@@ -78,28 +79,36 @@ function printMatch(summary: MatchSummary): void {
 }
 
 function printSeries(summaries: MatchSummary[]): void {
-  const totals = new Map<string, { share: number; leads: number; out: number; seized: number }>();
+  const totals = new Map<
+    string,
+    { share: number; leads: number; out: number; seized: number; lapsed: number }
+  >();
+  let claimed = 0;
   for (const summary of summaries) {
     const held = summary.standings.reduce((sum, standing) => sum + standing.cells, 0);
+    claimed += held;
     const most = Math.max(...summary.standings.map((standing) => standing.cells));
     summary.doctrines.forEach((name, power) => {
-      const total = totals.get(name) ?? { share: 0, leads: 0, out: 0, seized: 0 };
+      const total = totals.get(name) ?? { share: 0, leads: 0, out: 0, seized: 0, lapsed: 0 };
       total.share += summary.standings[power].cells / Math.max(1, held);
       total.leads += summary.standings[power].cells === most ? 1 : 0;
       total.out += summary.eliminatedAt[power] === null ? 0 : 1;
       total.seized += summary.seized[power];
+      total.lapsed += summary.lapsed[power];
       totals.set(name, total);
     });
   }
   const count = summaries.length;
   print(`${count} matches of ${ticks} ticks, seeds ${seed}..${seed + count - 1}`);
   print(
-    `${cell("doctrine", 14)}${cell("share", 8)}${cell("leads", 8)}${cell("out", 6)}${cell("seized", 9)}`,
+    `${cell("doctrine", 14)}${cell("share", 8)}${cell("leads", 8)}${cell("out", 6)}` +
+      `${cell("seized", 9)}${cell("flags fallen", 14)}`,
   );
   for (const [name, total] of totals) {
     print(
       `${cell(name, 14)}${cell(`${((100 * total.share) / count).toFixed(0)}%`, 8)}` +
-        `${cell(total.leads, 8)}${cell(total.out, 6)}${cell((total.seized / count).toFixed(1), 9)}`,
+        `${cell(total.leads, 8)}${cell(total.out, 6)}${cell((total.seized / count).toFixed(1), 9)}` +
+        `${cell((total.lapsed / count).toFixed(1), 14)}`,
     );
   }
   const decided = summaries.filter((summary) => summary.ticks < ticks);
@@ -113,6 +122,7 @@ function printSeries(summaries: MatchSummary[]): void {
   );
   const shared = summaries.reduce((sum, summary) => sum + summary.sharedRegions, 0);
   print(`regions shared at the end: ${(shared / count).toFixed(1)} per match`);
+  print(`cells held at the end: ${(claimed / count).toFixed(0)} per match`);
   print(`rejected commands ${rejected}`);
 }
 

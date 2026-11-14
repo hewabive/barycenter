@@ -21,11 +21,14 @@ test("every doctrine settles neutral land and issues only valid commands", () =>
   }
 });
 
-test("all land is claimed in the course of a match", () => {
+test("bots claim land no faster than they can hold it", () => {
   const summary = runMatch({ seed: 4, doctrines: lineup, ticks: 3000 });
   const world = createWorld({ seed: 4 });
   const held = summary.standings.reduce((sum, standing) => sum + standing.cells, 0);
-  assert.equal(held, world.map.cells.length);
+  const settled = summary.settled.reduce((sum, cells) => sum + cells, 0);
+  const lapsed = summary.lapsed.reduce((sum, cells) => sum + cells, 0);
+  assert.ok(held >= world.map.cells.length / 3);
+  assert.ok(lapsed <= settled / 10);
 });
 
 test("wars move borders cell by cell and leave regions shared", () => {

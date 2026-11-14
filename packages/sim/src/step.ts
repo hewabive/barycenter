@@ -3,6 +3,7 @@ import { applyCommands } from "./commands.ts";
 import { resolveConflict } from "./conflict.ts";
 import { distributeEnergy } from "./energy.ts";
 import { explore } from "./explore.ts";
+import { settleFlags } from "./flags.ts";
 import { decayForce, forceFieldOf, forceRoomOf, routeForce } from "./force.ts";
 import { lanesOf, lapseAims } from "./front.ts";
 import { createLedger, type Ledger } from "./ledger.ts";
@@ -57,12 +58,13 @@ function advance(state: State, events: GameEvent[], ledger: Ledger | null): void
   const wants = wantsOf(state, matterField.potential, forceNeed);
 
   produceMatter(state, ledger);
-  spendMatter(state, works, room, quarters, wants, ledger);
+  spendMatter(state, works, room, quarters, wants, matterField.pace, ledger);
   routeMatter(state, matterField, ledger);
   routeForce(state, field, ledger);
   wearRoads(state, trunks);
   settleQuarters(state, quarters);
   resolveConflict(state, lanes, field.rest, events, ledger);
+  settleFlags(state, events, ledger);
   decayForce(state, ledger);
   convert(state, wants);
   explore(state, events);

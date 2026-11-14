@@ -66,7 +66,7 @@ interface Seat {
   triggers: Triggers;
 }
 
-const SAVE_VERSION = 5;
+const SAVE_VERSION = 6;
 const THINK_EVERY = 5;
 const MAX_BURST = 32;
 
@@ -80,6 +80,9 @@ function fires(triggers: Triggers, event: GameEvent, power: number): boolean {
   }
   if (event.kind === "entered" || event.kind === "expelled") {
     return triggers.territory && event.power === power;
+  }
+  if (event.kind === "lapsed") {
+    return triggers.territory && event.power === power && event.left;
   }
   if (event.kind === "discovered") {
     return triggers.discovered && event.power === power;

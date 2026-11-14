@@ -14,11 +14,13 @@ export interface MatterLedger {
   roads: number[];
   quarters: number[];
   force: number[];
+  abandoned: number[];
   hauls: Haul[];
 }
 
 export interface EnergyLedger {
   made: number[];
+  flags: number[];
   levels: number[];
   force: number[];
   quarters: number[];
@@ -34,6 +36,7 @@ export interface ForceLedger {
   starved: number[];
   stranded: number[];
   crowded: number[];
+  abandoned: number[];
   hauls: Haul[];
 }
 
@@ -54,10 +57,12 @@ export function createLedger(state: State): Ledger {
       roads: blank(),
       quarters: blank(),
       force: blank(),
+      abandoned: blank(),
       hauls: [],
     },
     energy: {
       made: blank(),
+      flags: blank(),
       levels: blank(),
       force: blank(),
       quarters: blank(),
@@ -72,6 +77,7 @@ export function createLedger(state: State): Ledger {
       starved: blank(),
       stranded: blank(),
       crowded: blank(),
+      abandoned: blank(),
       hauls: [],
     },
     wants: [],

@@ -28,6 +28,8 @@ interface Survey {
   totalForce: number;
   levels: number;
   supply: number;
+  bare: number;
+  fallsIn: number;
 }
 
 interface Option {
@@ -72,6 +74,10 @@ const ROAD_KEEP = 0.15;
 const THREAT_MARGIN = 1.15;
 const FORCE_GROWTH = 1.25;
 const FORCE_STEP = 5;
+const BARE_ROOM = 2;
+const BARE_PER_LEVEL = 0.25;
+const BARE_RESUME = 0.5;
+const FALL_ALARM = 400;
 
 export function decide(
   outline: Outline,
@@ -128,6 +134,8 @@ function look(outline: Outline, constants: Constants, view: View): Survey {
     totalForce: own.reduce((sum, holding) => sum + holding.mine.force, 0),
     levels: own.reduce((sum, holding) => sum + holding.mine.level, 0),
     supply: cells > 0 ? supplied / cells : 1,
+    bare: own.reduce((sum, holding) => sum + holding.estate.bare, 0),
+    fallsIn: Math.min(...own.map((holding) => holding.estate.fallsIn ?? Number.POSITIVE_INFINITY)),
   };
 }
 
@@ -136,7 +144,7 @@ function armyOf(survey: Survey, doctrine: Doctrine): number {
     (sum, holding) => sum + Math.min(holding.estate.garrison, holding.estate.quartersLimit),
     0,
   );
-  const ceiling = Math.max(FORCE_FLOOR, survey.levels * (0.3 + doctrine.aggression));
+  const ceiling = Math.max(FORCE_FLOOR, survey.levels * (0.2 + 0.4 * doctrine.aggression));
   let wanted = ordered;
   if (survey.supply < SUPPLY_SHORT) {
     wanted = ordered * FORCE_SHRINK;
@@ -195,6 +203,17 @@ function stagingGround(survey: Survey, region: number): number | null {
   return best?.id ?? null;
 }
 
+function canSettle(survey: Survey): boolean {
+  const settling = [...survey.campaigns.values()].some((pressure) => pressure.target === null);
+  const room = BARE_ROOM + BARE_PER_LEVEL * survey.levels;
+  if (survey.fallsIn < FALL_ALARM) {
+    return false;
+  }
+  return settling
+    ? survey.bare <= room
+    : survey.supply >= SUPPLY_AMPLE && survey.bare <= room * BARE_RESUME;
+}
+
 function planPressure(survey: Survey, doctrine: Doctrine, guard: Guard): Plan {
   const { me, view } = survey;
   const plan: Plan = {
@@ -206,6 +225,7 @@ function planPressure(survey: Survey, doctrine: Doctrine, guard: Guard): Plan {
   };
   const guarded = total(guard.urgent) + doctrine.caution * total(guard.routine);
   let uncommitted = survey.totalForce - guarded;
+  const settling = canSettle(survey);
   let landGrabs = 0;
   let attacks = 0;
 
@@ -215,6 +235,7 @@ function planPressure(survey: Survey, doctrine: Doctrine, guard: Guard): Plan {
     const futile =
       holding === undefined ||
       holding.contact === 0 ||
+      (neutral && !settling) ||
       (!neutral && Math.min(uncommitted, holding.reach) < holding.defense * RETREAT_RATIO);
     if (futile) {
       plan.commands.push({
@@ -333,7 +354,7 @@ function planPressure(survey: Survey, doctrine: Doctrine, guard: Guard): Plan {
       });
     }
   };
-  pursue(grabs, doctrine.frontage - landGrabs, true);
+  pursue(grabs, settling ? doctrine.frontage - landGrabs : 0, true);
   pursue(strikes, (doctrine.aggression > 0.7 ? 2 : 1) - attacks, doctrine.aggression >= 0.5);
 
   return plan;

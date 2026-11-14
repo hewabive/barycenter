@@ -44,13 +44,13 @@ Nodes of the next scale are on the map from the start. A sufficiently developed 
 | Resource  | Behavior                                             | Source                                               | Use                                                                                         |
 | --------- | ---------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | Matter    | a stock: accumulates and moves slowly                | deposits such as mountains, asteroids and gas giants | building levels, roads and force                                                            |
-| Energy    | a capacity: cannot be stored and fades with distance | bright and hot nodes, orbits close to the star       | upkeep of levels and force                                                                  |
+| Energy    | a capacity: cannot be stored and fades with distance | bright and hot nodes, orbits close to the star       | upkeep of flags, levels and force                                                           |
 | Knowledge | a field: never spent, spreads to neighbors           | the science branch                                   | output multiplier; thresholds unlock abilities such as the spaceport and interstellar edges |
 | Force     | a stock that needs energy upkeep                     | built from matter at shipyards                       | pressure, defense, holding nodes                                                            |
 
 Matter sets the speed of growth and energy sets its ceiling. When energy falls short, cells work at reduced output, force decays, and only the power branch keeps growing.
 
-Every owned cell yields a little matter and energy whatever its profile.
+Only levels yield. A cell without a level makes neither matter nor energy, so new land is an investment and not an income.
 
 ## Nodes and cells
 
@@ -64,6 +64,8 @@ A cell has:
 Every cell holds all four branches, and no cell is a single mine or school. A node shows the combined profile of its cells, and so does every larger unit, so specialization looks the same at every scale.
 
 The simulation decides what a cell builds from its natural data, from what is short nearby and from the leaning of its power. New levels follow that choice at once. Levels already built change branch only slowly, so a cell full of mines cannot quickly become a center of science, and the priorities of the past stay on the map.
+
+Matter goes first to where a level is cheapest. A cell holds back from its own next level while a cheaper one nearby waits for matter, and that pull fades with distance like everything that moves. A new cell therefore gets its first level before an old one gets a dear one.
 
 A holding has:
 
@@ -114,6 +116,19 @@ Matter, energy and force move from cell to cell, and every hop loses a share of 
 - A road outlasts a change of owner. Pressure across a joint is as wide as its road, so a road that leads to a border also leads an attack in.
 
 The capacity of an edge is the sum of its crossings, the places where a cell of one node touches a cell of the other.
+
+## Flags
+
+Holding land has a price, and land that is not held goes back to nobody.
+
+- Every owned cell flies a flag, and a flag needs as much energy as one level.
+- A cell with at least one level keeps its flag whatever happens. The flag of a cell without a level falls while energy does not reach it, the faster the less of it arrives, and rises again once it does.
+- When a flag has fallen, the cell turns neutral, and the matter and force on it are lost.
+- A falling flag is shown on the map long before the cell is lost: the owner's color drains from the edges of the cell toward its middle.
+- A cell short of energy builds its power level before force, so a cell that gets matter can raise its own flag.
+- A taken cell starts with its flag raised.
+
+Energy fades with distance, so far land is dearer to hold than near land, and a strip of empty cells is a standing cost.
 
 ## Garrisons
 
@@ -233,6 +248,11 @@ Play of stage 2 found the game a race of expansion. Land cost nothing to hold, t
 
 Deferred with them: a travel time for what moves, to be designed together with orbits, where it is the main rule, and roads that improve with knowledge.
 
+Play with these three found the economy still out of sight, and the report on it showed why. Land paid from the tick it was taken and cost nothing to hold: early in a game the land itself, apart from anything built on it, gave over half of the matter and four fifths of the energy, so energy limited nothing. Two changes answer this. Both are built, and their constants are set only coarsely.
+
+- Land yields nothing until a level stands on it. A capital starts more developed instead.
+- Flags, as described under Flags.
+
 Stage 3 adds knowledge, cohesion, borders and trade, gifts, the moon and folding with governors. It tests whether the game stays manageable as it grows.
 
 Stage 4 splits matter into kinds with prices and values. It is not designed in detail. Until then matter has one kind.
@@ -240,15 +260,19 @@ Stage 4 splits matter into kinds with prices and values. It is not designed in d
 ## Open questions
 
 - No human has played with roads, garrisons and aims yet.
-- Land is still free to hold. A taken cell pays from the first tick and has no upkeep, so expansion stays the best move, and roads and garrisons punish only its shape. The brake meant for this is cohesion.
-- While a power expands, its cells build themselves and matter hardly moves, so the loss on the way takes only a few percent of what is produced.
+- No human has played with flags yet.
+- A flag has one price everywhere, so it slows expansion and does not limit size: built land still pays for itself, and the larger power stays the stronger. The brake meant for size is cohesion.
+- Bot powers now reach about 23 cells by tick 1200 and 47 by tick 2500. Before flags it was 62 and 83.
+- Energy now sets the ceiling through the first half of a game. Flags are a quarter to a third of the need, and one percent of the energy made finds no use. Late in a game a tenth to a quarter is idle again.
+- Bare land cannot build itself, so matter has to travel to it, and the loss on the way takes 6 to 12 percent of what is produced.
+- Bots settle land only while none of their flags is about to fall and few of their cells lack a level. The rule is coarse, and so is the size of the army each doctrine keeps.
 - Bots do not aim their attacks and cut a supply line only by chance.
 - Energy is not limited by capacity, so a strip one cell wide carries any amount of it.
 - The hub of a holding, where its garrison stands and its trunk roads meet, is chosen by the simulation. The player may need a say in it.
 - The leaning went untouched in play. Whether the player keeps it is undecided.
 - The constants are preliminary. They were adjusted only until bots played sensibly, and real tuning needs play with the constants panel.
-- In a series of 12 bot matches of 6000 ticks each doctrine ended with about a third of the cells, two powers were eliminated, no match was left with a single power, and four regions on average were shared at the end. About 22 cells a match changed hands between powers.
-- In 2 of those 12 matches no cell changed hands in the last third. Before roads and garrisons it was 8 of 12.
+- In a series of 12 bot matches of 6000 ticks the builder ended with 43 percent of the held cells, the opportunist with 32 and the aggressor with 25. Eight powers were eliminated, two matches were left with a single power, and three regions on average were shared at the end. About 37 cells a match changed hands between powers, and two were lost to fallen flags.
+- In 3 of the 10 matches that lasted no cell changed hands in the last third.
 - A power that has built every cell to its cap has nothing left to spend matter on. Its surplus then circulates and a tenth to a fifth of its output is lost on the way.
 - The client shows regions by number and lets values other than flows jump between ticks.
 - Kinds of matter: how many functions there are and which, and whether energy, force and knowledge are split in the same way. Kinds of force would be unit types and kinds of knowledge a technology tree, and both are absent so far.

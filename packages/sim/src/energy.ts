@@ -24,12 +24,13 @@ export function distributeEnergy(state: State, rest: number[], ledger: Ledger | 
     }
     const upkeep = upkeepOf(state, id, rest[id]);
     if (ledger !== null) {
+      ledger.energy.flags[id] = upkeep.flag;
       ledger.energy.levels[id] = upkeep.levels;
       ledger.energy.force[id] = upkeep.force;
       ledger.energy.quarters[id] = upkeep.quarters;
       ledger.energy.roads[id] = roads[id];
     }
-    return upkeep.levels + upkeep.force + upkeep.quarters + roads[id];
+    return upkeep.flag + upkeep.levels + upkeep.force + upkeep.quarters + roads[id];
   });
   const surplus = new Array<number>(cells.length).fill(0);
   const deficit = new Array<number>(cells.length).fill(0);

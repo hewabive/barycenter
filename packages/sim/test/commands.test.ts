@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { type Command, type State, step, viewFor } from "../src/index.ts";
+import { type Command, retune, type State, step, viewFor } from "../src/index.ts";
 import { cellsHeld, fresh, neutralNeighbor, run } from "./support.ts";
 
 function rejected(state: State, command: Command): string | undefined {
@@ -42,7 +42,8 @@ test("malformed values are rejected", () => {
 });
 
 test("pressure settles a neutral region cell by cell and lapses when none are left", () => {
-  const { state, home } = fresh();
+  const { state: base, home } = fresh();
+  const state = retune(base, { flagUpkeep: 0 }) ?? base;
   const size = state.map.regions[home].cells.length;
   let current = state;
   let commands: Command[] = [

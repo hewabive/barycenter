@@ -12,6 +12,7 @@ import {
   neighborsAcross,
   outlineOfCell,
   rimmed,
+  rimShares,
   teethAlong,
   triangulate,
 } from "../src/geometry.ts";
@@ -226,4 +227,26 @@ test("a bar lies across a heading with its middle on the given point", () => {
   assert.ok(Math.abs(left.x) < 1e-12 && Math.abs(right.x) < 1e-12);
   assert.ok(Math.abs(left.y + right.y) < 1e-12);
   assert.ok(Math.abs(left.z - 1) < 1e-12 && Math.abs(right.z - 1) < 1e-12);
+});
+
+test("rim shares follow the vertices of a cell from its middle to its edge", () => {
+  const { points } = pointsOf(1);
+  const cell = buildCells(points)[0];
+  for (const depth of [0, 1, 2]) {
+    const vertices = triangulate(cell, depth);
+    const shares = rimShares(cell, depth);
+    assert.equal(shares.length, vertices.length);
+    const reach = Math.max(...cell.corners.map((corner) => angleBetween(cell.center, corner)));
+    vertices.forEach((vertex, index) => {
+      assert.ok(shares[index] >= 0 && shares[index] <= 1);
+      const away = angleBetween(cell.center, vertex);
+      if (shares[index] === 0) {
+        assert.ok(away < 1e-6);
+      }
+      if (away > reach * 0.999) {
+        assert.equal(shares[index], 1);
+      }
+    });
+    assert.ok(shares.includes(0) && shares.includes(1));
+  }
 });

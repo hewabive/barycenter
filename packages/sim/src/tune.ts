@@ -15,6 +15,8 @@ const LIMITS: Partial<Record<keyof Constants, Limit>> = {
   forceDecay: SHARE,
   strandedDecay: SHARE,
   excessDecay: SHARE,
+  flagFall: SHARE,
+  flagRise: SHARE,
   restUpkeep: SHARE,
   defenderLossShare: SHARE,
   captureLevelLoss: SHARE,
