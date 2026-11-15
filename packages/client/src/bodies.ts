@@ -1,4 +1,4 @@
-import type { Body, BodyKind } from "@barycenter/sim";
+import { type Body, type BodyKind, createRandom } from "@barycenter/sim";
 import {
   AdditiveBlending,
   BackSide,
@@ -16,6 +16,7 @@ import {
   ShaderMaterial,
   UnsignedByteType,
   Vector3,
+  Vector4,
   WebGLCubeRenderTarget,
   type WebGLRenderer,
 } from "three";
@@ -29,6 +30,7 @@ import {
   SHELL_FRAGMENT,
   SHELL_VERTEX,
   STAR_FRAGMENT,
+  STORM_ROOM,
 } from "./shaders.ts";
 
 export interface Look {
@@ -46,14 +48,24 @@ interface Skin {
   air: number;
 }
 
+interface Storm {
+  height: number;
+  turn: number;
+  size: number;
+  year: number;
+}
+
 const SHELL_SCALE = 1.04;
 const FLARE_REACH = 4.5;
 const PALETTE_ROOM = 8;
 const CLOUD_TURN = 2400;
 const JET_TURN = 1800;
+const COARSE_SIDE = 32;
+const STORM_SIZES = [0.26, 0.13, 0.1, 0.08];
+const STORM_YEAR = 5000;
 
-const WARM_GAS = [0xc9a57a, 0x8a5a3a, 0xe8d6b4, 0x6f5a4a];
-const COLD_GAS = [0x5f8fc0, 0x2f5f9a, 0xa9cfe6, 0x35507a];
+const WARM_GAS = [0xc9a57a, 0x8a5a3a, 0xe8d6b4, 0x6f5a4a, 0xb5553a, 0xf0e3c8];
+const COLD_GAS = [0x5f8fc0, 0x2f5f9a, 0xa9cfe6, 0x35507a, 0xe9f4fb, 0x24467a];
 
 const SKINS: Record<Exclude<BodyKind, "gas">, Skin> = {
   star: { palette: [0xfff3d1, 0xff9a3c], haze: 0xffd9a0, air: 0 },
@@ -77,6 +89,19 @@ function skinOf(body: Body): Skin {
   }
   const palette = body.seed % 2 === 0 ? WARM_GAS : COLD_GAS;
   return { palette, haze: palette[2], air: 0.8 };
+}
+
+function stormsOf(body: Body): Storm[] {
+  if (body.kind !== "gas") {
+    return [];
+  }
+  const random = createRandom(body.seed);
+  return STORM_SIZES.slice(0, STORM_ROOM).map((size, index) => ({
+    height: (index % 2 === 0 ? 1 : -1) * (0.15 + 0.45 * random.next()),
+    turn: 2 * Math.PI * random.next(),
+    size,
+    year: (random.next() < 0.5 ? -1 : 1) * STORM_YEAR * (1 + random.next()),
+  }));
 }
 
 export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: number): Look[] {
@@ -140,6 +165,8 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
     );
     const haze = new Color(skin.haze);
     const sun = new Vector3(1, 0, 0);
+    const storms = stormsOf(body);
+    const spots = Array.from({ length: STORM_ROOM }, () => new Vector4());
     let size = detail;
     let target = bake(body, size);
     const uniforms = {
@@ -151,6 +178,8 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
       span: { value: body.relief.peak - (body.relief.sea ?? 0) },
       air: { value: skin.air },
       drift: { value: 0 },
+      grain: { value: Math.log2(size / COARSE_SIDE) },
+      storms: { value: spots },
     };
 
     const frame = new Group();
@@ -217,6 +246,16 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
         uniforms.chart.value = chart;
         const turn = body.kind === "gas" ? JET_TURN : CLOUD_TURN;
         uniforms.drift.value = (2 * Math.PI * (tick % turn)) / turn;
+        storms.forEach((storm, index) => {
+          const angle = storm.turn + (2 * Math.PI * tick) / storm.year;
+          const level = Math.sqrt(1 - storm.height ** 2);
+          spots[index].set(
+            level * Math.cos(angle),
+            storm.height,
+            level * Math.sin(angle),
+            storm.size,
+          );
+        });
       },
       refine(wanted) {
         if (wanted === size) {
@@ -226,6 +265,7 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
         size = wanted;
         target = bake(body, size);
         uniforms.relief.value = target.texture;
+        uniforms.grain.value = Math.log2(size / COARSE_SIDE);
         old.dispose();
       },
       restore() {

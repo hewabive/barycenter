@@ -90,7 +90,14 @@ float elevation(vec3 at) {
 
 const SLOPE_RANGE = 8;
 const SLOPE_SPAN = 5;
-const JET_COUNT = 7;
+const JET_WAVES = 11;
+const JET_REACH = 1.4;
+const EDDY_REACH = 0.07;
+const FLOW_BEATS = 6;
+const STORM_TWIST = 3.5;
+const STORM_STRETCH = 1.5;
+
+export const STORM_ROOM = 4;
 const HEIGHT_RANGE = 2.5;
 
 export const BAKE_VERTEX = `
@@ -153,10 +160,6 @@ vec3 spun(vec3 at, float angle) {
   return vec3(along * at.x + across * at.z, at.y, along * at.z - across * at.x);
 }
 
-vec4 surveyTurned(vec3 at, float angle, vec3 right, vec3 down) {
-  return decoded(textureGrad(relief, spun(at, angle), spun(right, angle), spun(down, angle)));
-}
-
 vec3 tilted(vec3 at, vec3 slope, float depth) {
   vec3 lean = slope * depth;
   return normalize(at - lean / (1.0 + 1.5 * length(lean)));
@@ -184,7 +187,7 @@ void main() {
 }
 `;
 
-const SKINS: Record<Exclude<BodyKind, "star">, string> = {
+const SKINS: Record<Exclude<BodyKind, "star" | "gas">, string> = {
   terran: `
   float rise = height / span;
   float cold = smoothstep(0.88, 0.97, abs(at.y) + 0.06 * rise + 0.05 * other);
@@ -231,33 +234,51 @@ const SKINS: Record<Exclude<BodyKind, "star">, string> = {
   albedo = mix(land, palette[2], crack * 0.45);
   bump = 0.035;
 `,
-  gas: `
-  float lane = at.y * 9.0 + height * 1.1 + other * 0.3;
-  float band = 0.5 + 0.5 * sin(lane * 2.0);
-  float fine = 0.5 + 0.5 * sin(lane * 5.3 + 1.7);
-  vec3 cloud = mix(palette[0], palette[1], band);
-  cloud = mix(cloud, palette[2], fine * 0.35);
-  albedo = mix(cloud, palette[3], smoothstep(0.7, 0.95, abs(at.y)));
-  bump = 0.0;
-`,
 };
 
-const STILL = `
+function solid(skin: string): string {
+  return `
   vec4 ground = survey(at);
+  float height = ground.a;
   float other = survey(at.zxy).a;
+  float edge = fwidth(height) + 1e-4;
+  slope = ground.rgb;
+  ${skin}
 `;
+}
 
-const JETS = `
-  float belt = (at.y * 0.5 + 0.5) * ${real(JET_COUNT)};
-  float lower = floor(belt);
-  vec3 right = dFdx(at);
-  vec3 down = dFdy(at);
-  vec4 ground = mix(
-    surveyTurned(at, paceOf(lower) * drift, right, down),
-    surveyTurned(at, paceOf(lower + 1.0) * drift, right, down),
-    smoothstep(0.3, 0.7, belt - lower)
+const GAS = `
+  vec4 eddies = decoded(textureLod(relief, spun(at, drift).zxy, grain));
+  vec3 east = cross(vec3(0.0, 1.0, 0.0), at);
+  vec3 flow = ${real(JET_REACH)} * sin(at.y * ${real(JET_WAVES)}) * east
+    + ${real(EDDY_REACH)} * cross(at, spun(eddies.rgb.yzx, -drift));
+  vec3 stain = vec3(0.0);
+  float stained = 0.0;
+  for (int storm = 0; storm < ${STORM_ROOM}; storm++) {
+    vec3 from = at - storms[storm].xyz;
+    float size = storms[storm].w;
+    float core = exp(-(dot(from, from) + ${real(STORM_STRETCH)} * from.y * from.y) / (size * size + 1e-6));
+    bool warm = storm % 2 == 0;
+    flow += (warm ? 1.0 : -1.0) * ${real(STORM_TWIST)} * core * cross(storms[storm].xyz, at);
+    stain += core * (warm ? palette[4] : palette[5]);
+    stained += core;
+  }
+  float beat = drift * ${real(FLOW_BEATS / (2 * Math.PI))} + 0.4 * eddies.a;
+  vec2 phase = fract(vec2(beat, beat + 0.5));
+  vec2 share = 1.0 - abs(2.0 * phase - 1.0);
+  vec3 first = normalize(at - flow * (phase.x - 0.5));
+  vec3 second = normalize(at - flow * (phase.y - 0.5));
+  vec2 rough = vec2(survey(first).a, survey(second).a);
+  vec2 lane = vec2(first.y, second.y) * 9.0 + rough * 1.1 + eddies.a * 0.3;
+  float band = dot(share, 0.5 + 0.5 * sin(lane * 2.0));
+  float fine = dot(share, 0.5 + 0.5 * sin(lane * 5.3 + 1.7));
+  vec3 cloud = mix(mix(palette[0], palette[1], band), palette[2], fine * 0.35);
+  cloud = mix(
+    cloud,
+    stain / max(stained, 1e-4) * (0.85 + 0.5 * dot(share, rough) - 0.2 * stained),
+    0.85 * smoothstep(0.2, 0.7, stained)
   );
-  float other = survey(spun(at, drift).zxy).a;
+  albedo = mix(cloud, palette[3], smoothstep(0.7, 0.95, abs(at.y)));
 `;
 
 export function bodyFragment(kind: Exclude<BodyKind, "star">): string {
@@ -270,25 +291,20 @@ uniform float chart;
 uniform float span;
 uniform float air;
 uniform float drift;
+uniform float grain;
+uniform vec4 storms[${STORM_ROOM}];
 uniform mat4 modelMatrix;
 varying vec3 vAt;
 varying vec3 vPlace;
 
-float paceOf(float belt) {
-  return (mod(belt, 2.0) * 2.0 - 1.0) * (1.0 + mod(belt * 2.0 + 1.0, 3.0));
-}
-
 void main() {
   vec3 at = normalize(vAt);
-  ${kind === "gas" ? JETS : STILL}
-  float height = ground.a;
-  vec3 slope = ground.rgb;
-  float edge = fwidth(height) + 1e-4;
   vec3 albedo;
+  vec3 slope = vec3(0.0);
   float wet = 0.0;
   float cover = 0.0;
-  float bump;
-  ${SKINS[kind]}
+  float bump = 0.0;
+  ${kind === "gas" ? GAS : solid(SKINS[kind])}
   float depth = bump * mix(1.0, 0.3, wet);
   vec3 charted = albedo * hillshade(at, slope, depth);
 
