@@ -9,12 +9,14 @@ import {
   IcosahedronGeometry,
   LinearFilter,
   LinearMipmapLinearFilter,
+  MathUtils,
   Mesh,
   OrthographicCamera,
   PlaneGeometry,
   Scene,
   ShaderMaterial,
   UnsignedByteType,
+  Vector2,
   Vector3,
   Vector4,
   WebGLCubeRenderTarget,
@@ -25,10 +27,15 @@ import {
   BAKE_VERTEX,
   BODY_VERTEX,
   bodyFragment,
+  EXPOSURE,
   FLARE_FRAGMENT,
   FLARE_VERTEX,
+  LIMB,
+  LIMB_DEPTH,
   SHELL_FRAGMENT,
   SHELL_VERTEX,
+  SPOT_ROOM,
+  STAR_BAKE_FRAGMENT,
   STAR_FRAGMENT,
   STORM_ROOM,
 } from "./shaders.ts";
@@ -48,8 +55,24 @@ interface Skin {
   air: number;
 }
 
-interface Flame extends Skin {
-  shine: number;
+interface Flame {
+  tint: number;
+  kelvin: number;
+  grain: number;
+  chill: number;
+  poles: number;
+  regions: number;
+  girth: number;
+  belt: number;
+}
+
+interface Region {
+  span: number;
+  shift: number;
+  cycle: number;
+  height: number;
+  turn: number;
+  girth: number;
 }
 
 interface Storm {
@@ -64,7 +87,13 @@ const FLARE_REACH = 3;
 const PALETTE_ROOM = 8;
 const CLOUD_TURN = 2400;
 const JET_TURN = 1800;
-const STAR_TURN = 2400;
+const GRANULE_LIFE = 24;
+const GRANULE_CHURN = 0.02;
+const GOLDEN_TURN = 2.39996;
+const REGION_LIFE = 1400;
+const SHINE_PALE = 0.6;
+const WIEN = 14388;
+const WAVES = [0.61, 0.55, 0.465];
 const COARSE_SIDE = 32;
 const STORM_SIZES = [0.26, 0.13, 0.1, 0.08];
 const STORM_YEAR = 5000;
@@ -73,14 +102,49 @@ const WARM_GAS = [0xc9a57a, 0x8a5a3a, 0xe8d6b4, 0x6f5a4a, 0xb5553a, 0xf0e3c8];
 const COLD_GAS = [0x5f8fc0, 0x2f5f9a, 0xa9cfe6, 0x35507a, 0xe9f4fb, 0x24467a];
 
 const STARS: Flame[] = [
-  { palette: [0xfff4d6, 0xff9a3c, 0x5a1e0c], haze: 0xffd9a0, air: 0, shine: 0xfff3e0 },
-  { palette: [0xffe2b4, 0xff6f24, 0x4a1608], haze: 0xffb878, air: 0, shine: 0xffe6c8 },
-  { palette: [0xf6f9ff, 0x9fc0ff, 0x35436e], haze: 0xcfe0ff, air: 0, shine: 0xeef4ff },
-  { palette: [0xffc48a, 0xe24a22, 0x3a0f06], haze: 0xff8a5a, air: 0, shine: 0xffd9bd },
+  {
+    tint: 0xffb663,
+    kelvin: 5800,
+    grain: 0.07,
+    chill: 0.58,
+    poles: 0,
+    regions: 7,
+    girth: 0.03,
+    belt: 0.55,
+  },
+  {
+    tint: 0xff9545,
+    kelvin: 4700,
+    grain: 0.055,
+    chill: 0.62,
+    poles: 0,
+    regions: 8,
+    girth: 0.036,
+    belt: 0.7,
+  },
+  { tint: 0xccdeff, kelvin: 8200, grain: 0, chill: 1, poles: 0.2, regions: 0, girth: 0, belt: 0 },
+  {
+    tint: 0xff6f2c,
+    kelvin: 3400,
+    grain: 0.03,
+    chill: 0.8,
+    poles: 0,
+    regions: 8,
+    girth: 0.05,
+    belt: 1.1,
+  },
 ];
 
 function flameOf(star: Body): Flame {
   return STARS[star.seed % STARS.length];
+}
+
+function regionsOf(star: Body, flame: Flame): Region[] {
+  const random = createRandom(star.seed);
+  return Array.from({ length: Math.min(flame.regions, SPOT_ROOM / 2) }, () => {
+    const span = REGION_LIFE * (0.7 + 0.6 * random.next());
+    return { span, shift: span * random.next(), cycle: Number.NaN, height: 0, turn: 0, girth: 0 };
+  });
 }
 
 const SKINS: Record<Exclude<BodyKind, "gas" | "star">, Skin> = {
@@ -98,14 +162,11 @@ const SKINS: Record<Exclude<BodyKind, "gas" | "star">, Skin> = {
   ice: { palette: [0x9db8c9, 0xe8f1f5, 0x3f6a8c], haze: 0xa8d8ff, air: 0.6 },
 };
 
-function skinOf(body: Body): Skin {
-  if (body.kind === "star") {
-    return flameOf(body);
+function skinOf(kind: Exclude<BodyKind, "star">, seed: number): Skin {
+  if (kind !== "gas") {
+    return SKINS[kind];
   }
-  if (body.kind !== "gas") {
-    return SKINS[body.kind];
-  }
-  const palette = body.seed % 2 === 0 ? WARM_GAS : COLD_GAS;
+  const palette = seed % 2 === 0 ? WARM_GAS : COLD_GAS;
   return { palette, haze: palette[2], air: 0.8 };
 }
 
@@ -144,20 +205,34 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
       face: { value: 0 },
     },
   });
+  const forge = new ShaderMaterial({
+    vertexShader: BAKE_VERTEX,
+    fragmentShader: STAR_BAKE_FRAGMENT,
+    depthTest: false,
+    depthWrite: false,
+    uniforms: {
+      seed: { value: 0 },
+      size: { value: 1 },
+      face: { value: 0 },
+    },
+  });
+  const plate = new Mesh(sheet, press);
   const bench = new Scene();
-  bench.add(new Mesh(sheet, press));
+  bench.add(plate);
   const lens = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
   const fill = (target: WebGLCubeRenderTarget, body: Body) => {
     const size = target.width;
-    press.uniforms.seed.value = body.seed;
+    const tool = body.kind === "star" ? forge : press;
+    tool.uniforms.seed.value = body.seed;
+    tool.uniforms.size.value = size;
     press.uniforms.shape.value.set(body.relief.frequency, body.relief.warp, body.relief.ridge);
     press.uniforms.sea.value = body.relief.sea ?? 0;
-    press.uniforms.size.value = size;
+    plate.material = tool;
     const before = renderer.getRenderTarget();
     for (let face = 0; face < 6; face++) {
-      press.uniforms.face.value = face;
-      press.uniformsNeedUpdate = true;
+      tool.uniforms.face.value = face;
+      tool.uniformsNeedUpdate = true;
       renderer.setRenderTarget(target, face);
       renderer.render(bench, lens);
     }
@@ -165,7 +240,7 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
   };
   const bake = (body: Body, size: number): WebGLCubeRenderTarget => {
     const target = new WebGLCubeRenderTarget(size, {
-      type: packed ? UnsignedByteType : HalfFloatType,
+      type: packed || body.kind === "star" ? UnsignedByteType : HalfFloatType,
       generateMipmaps: true,
       minFilter: LinearMipmapLinearFilter,
       magFilter: LinearFilter,
@@ -174,12 +249,142 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
     fill(target, body);
     return target;
   };
+  const baked = (body: Body, settle: (relief: CubeTexture, size: number) => void) => {
+    let size = detail;
+    let target = bake(body, size);
+    settle(target.texture, size);
+    return {
+      relief: () => target.texture,
+      refine(wanted: number) {
+        if (wanted === size) {
+          return;
+        }
+        const old = target;
+        size = wanted;
+        target = bake(body, size);
+        settle(target.texture, size);
+        old.dispose();
+      },
+      restore() {
+        fill(target, body);
+      },
+    };
+  };
 
   const star = bodies.find((body) => body.kind === "star");
-  const shine = new Color(star === undefined ? 0xffffff : flameOf(star).shine);
+  const shine =
+    star === undefined
+      ? new Color(0xffffff)
+      : new Color(flameOf(star).tint).lerp(new Color(0xffffff), SHINE_PALE);
+
+  const ignite = (body: Body): Look => {
+    const flame = flameOf(body);
+    const regions = regionsOf(body, flame);
+    const spots = Array.from({ length: SPOT_ROOM }, () => new Vector4(0, 0, 0, 0));
+    const boil = new Vector4(0, 1, 0, 0);
+    const flow = new Vector2();
+    const tint = new Color(flame.tint);
+    const steep = new Vector3(...WAVES.map((wave) => WIEN / (wave * flame.kelvin)));
+    const edge = (shade: number, power: number) =>
+      1 - Math.exp(-EXPOSURE * shade * LIMB_DEPTH ** (LIMB * power));
+    const rim = new Color(edge(tint.r, steep.x), edge(tint.g, steep.y), edge(tint.b, steep.z));
+    const uniforms = {
+      relief: { value: null as CubeTexture | null },
+      spots: { value: spots },
+      boil: { value: boil },
+      flow: { value: flow },
+      tint: { value: tint },
+      steep: { value: steep },
+      traits: { value: new Vector3(flame.grain, flame.chill, flame.poles) },
+    };
+    const surface = baked(body, (relief) => {
+      uniforms.relief.value = relief;
+    });
+
+    const frame = new Group();
+    const globe = new Mesh(
+      ball,
+      new ShaderMaterial({ vertexShader: BODY_VERTEX, fragmentShader: STAR_FRAGMENT, uniforms }),
+    );
+    globe.scale.setScalar(body.radius);
+    frame.add(globe);
+    const flare = new Mesh(
+      sheet,
+      new ShaderMaterial({
+        vertexShader: FLARE_VERTEX,
+        fragmentShader: FLARE_FRAGMENT,
+        blending: AdditiveBlending,
+        transparent: true,
+        depthWrite: false,
+        uniforms: {
+          spots: uniforms.spots,
+          rim: { value: rim },
+          reach: { value: body.radius * FLARE_REACH },
+          core: { value: 1 / FLARE_REACH },
+        },
+      }),
+    );
+    flare.frustumCulled = false;
+    frame.add(flare);
+
+    const place = (spot: Vector4, height: number, turn: number, girth: number) => {
+      const level = Math.cos(height);
+      spot.set(level * Math.cos(turn), Math.sin(height), level * Math.sin(turn), girth);
+    };
+    const beat = (age: number) => {
+      const cycle = Math.floor(age);
+      const share = age - cycle;
+      return {
+        angle: ((cycle * GOLDEN_TURN) % (2 * Math.PI)) + (share - 0.5) * GRANULE_CHURN,
+        weight: 1 - Math.abs(2 * share - 1),
+        share,
+      };
+    };
+
+    return {
+      body,
+      frame,
+      ...surface,
+      light(_toward, _chart, tick) {
+        const one = beat(tick / GRANULE_LIFE);
+        const two = beat(tick / GRANULE_LIFE + 0.5);
+        const whole = Math.hypot(one.weight, two.weight);
+        boil.set(one.angle, one.weight / whole, two.angle, two.weight / whole);
+        flow.set(one.share, two.share);
+        regions.forEach((region, index) => {
+          const age = (tick + region.shift) / region.span;
+          const cycle = Math.floor(age);
+          const share = age - cycle;
+          if (cycle !== region.cycle) {
+            const random = createRandom(body.seed + 7919 * (index + 1) + 104729 * cycle);
+            region.cycle = cycle;
+            region.height =
+              (random.next() < 0.5 ? -1 : 1) * flame.belt * (0.2 + 0.8 * random.next());
+            region.turn = 2 * Math.PI * random.next();
+            region.girth = flame.girth * (0.6 + 0.8 * random.next());
+          }
+          const lead =
+            MathUtils.smoothstep(share, 0, 0.12) * (1 - MathUtils.smoothstep(share, 0.5, 1));
+          const trail =
+            MathUtils.smoothstep(share, 0.04, 0.18) * (1 - MathUtils.smoothstep(share, 0.35, 0.8));
+          const gap = ((3 + 1.5 * share) * region.girth) / Math.cos(region.height);
+          place(spots[2 * index], region.height, region.turn, region.girth * Math.sqrt(lead));
+          place(
+            spots[2 * index + 1],
+            region.height + Math.sign(region.height) * 0.8 * region.girth,
+            region.turn + gap,
+            0.62 * region.girth * Math.sqrt(trail),
+          );
+        });
+      },
+    };
+  };
 
   return bodies.map((body): Look => {
-    const skin = skinOf(body);
+    if (body.kind === "star") {
+      return ignite(body);
+    }
+    const skin = skinOf(body.kind, body.seed);
     const palette = Array.from(
       { length: PALETTE_ROOM },
       (_, index) => new Color(skin.palette[index] ?? 0),
@@ -188,10 +393,8 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
     const sun = new Vector3(1, 0, 0);
     const storms = stormsOf(body);
     const spots = Array.from({ length: STORM_ROOM }, () => new Vector4());
-    let size = detail;
-    let target = bake(body, size);
     const uniforms = {
-      relief: { value: target.texture },
+      relief: { value: null as CubeTexture | null },
       palette: { value: palette },
       haze: { value: haze },
       sun: { value: sun },
@@ -200,16 +403,20 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
       air: { value: skin.air },
       shine: { value: shine },
       drift: { value: 0 },
-      grain: { value: Math.log2(size / COARSE_SIDE) },
+      grain: { value: 0 },
       storms: { value: spots },
     };
+    const surface = baked(body, (relief, size) => {
+      uniforms.relief.value = relief;
+      uniforms.grain.value = Math.log2(size / COARSE_SIDE);
+    });
 
     const frame = new Group();
     const globe = new Mesh(
       ball,
       new ShaderMaterial({
         vertexShader: BODY_VERTEX,
-        fragmentShader: body.kind === "star" ? STAR_FRAGMENT : bodyFragment(body.kind),
+        fragmentShader: bodyFragment(body.kind),
         defines,
         uniforms,
       }),
@@ -239,39 +446,15 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
       shell.scale.setScalar(body.radius * SHELL_SCALE);
       frame.add(shell);
     }
-    if (body.kind === "star") {
-      const flare = new Mesh(
-        sheet,
-        new ShaderMaterial({
-          vertexShader: FLARE_VERTEX,
-          fragmentShader: FLARE_FRAGMENT,
-          defines,
-          blending: AdditiveBlending,
-          transparent: true,
-          depthWrite: false,
-          uniforms: {
-            relief: uniforms.relief,
-            palette: uniforms.palette,
-            drift: uniforms.drift,
-            grain: uniforms.grain,
-            tint: uniforms.haze,
-            reach: { value: body.radius * FLARE_REACH },
-            core: { value: 1 / FLARE_REACH },
-          },
-        }),
-      );
-      flare.frustumCulled = false;
-      frame.add(flare);
-    }
 
     return {
       body,
       frame,
-      relief: () => target.texture,
+      ...surface,
       light(toward, chart, tick) {
         sun.copy(toward);
         uniforms.chart.value = chart;
-        const turn = body.kind === "gas" ? JET_TURN : body.kind === "star" ? STAR_TURN : CLOUD_TURN;
+        const turn = body.kind === "gas" ? JET_TURN : CLOUD_TURN;
         uniforms.drift.value = (2 * Math.PI * (tick % turn)) / turn;
         storms.forEach((storm, index) => {
           const angle = storm.turn + (2 * Math.PI * tick) / storm.year;
@@ -283,20 +466,6 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
             storm.size,
           );
         });
-      },
-      refine(wanted) {
-        if (wanted === size) {
-          return;
-        }
-        const old = target;
-        size = wanted;
-        target = bake(body, size);
-        uniforms.relief.value = target.texture;
-        uniforms.grain.value = Math.log2(size / COARSE_SIDE);
-        old.dispose();
-      },
-      restore() {
-        fill(target, body);
       },
     };
   });

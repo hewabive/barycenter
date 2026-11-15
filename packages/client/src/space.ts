@@ -164,6 +164,7 @@ export function createSpace(stage: HTMLElement, system: StarSystem): Space {
   const home = looks[system.home];
   home.refine(fine);
   const star = looks.find((look) => look.body.parent === null) ?? looks[0];
+  star.refine(fine);
   for (const look of looks) {
     world.add(look.frame);
   }
@@ -220,7 +221,7 @@ export function createSpace(stage: HTMLElement, system: StarSystem): Space {
   const attend = (id: number) => {
     if (id !== shift.to) {
       const left = looks[shift.to];
-      if (left !== home) {
+      if (left !== home && left !== star) {
         left.refine(rough);
       }
       shift.from = shift.to;

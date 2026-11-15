@@ -303,7 +303,7 @@ Stage 4 splits matter into kinds with prices and values. It is not designed in d
 - A power that has built every cell to its cap has nothing left to spend matter on. Its surplus then circulates and a tenth to a fifth of its output is lost on the way.
 - The client shows regions by number and lets values other than flows jump between ticks.
 - The star system is drawn ahead of its rules. A day of the home body is 1200 ticks and its year 9600, chosen for the look and not for play, and sizes and distances are not to scale. No rule reads an orbit yet.
-- The color of a star is drawn from its seed for the look alone. It should come to mean something once energy depends on the star.
+- The class of a star, which sets its color, its grain and its spots, is drawn from its seed for the look alone. It should come to mean something once energy depends on the star.
 - The relief is public, so the mountains and coasts of unexplored land are known. Whether exploration should reveal more than richness is undecided.
 - A cell reaches to the coast however far that is from its middle, so cells by the sea differ much in size on the map while the rules count them alike.
 - Kinds of matter: how many functions there are and which, and whether energy, force and knowledge are split in the same way. Kinds of force would be unit types and kinds of knowledge a technology tree, and both are absent so far.

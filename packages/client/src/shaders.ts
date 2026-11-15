@@ -95,11 +95,26 @@ const JET_REACH = 1.4;
 const EDDY_REACH = 0.07;
 const FLOW_BEATS = 6;
 const STORM_TWIST = 3.5;
-const SPOT_BEATS = 8;
-const SPOT_PULL = 0.02;
 const STORM_STRETCH = 1.5;
 
+const GRAIN_MEAN = 0.52;
+const GRAIN_SCALE = 36;
+const NET_SCALE = 9;
+const FILAMENT_SQUEEZE = 0.2;
+const FILAMENT_FLOW = 0.25;
+const PENUMBRA = 1.3;
+const PORE = 0.012;
+const PLAGE = 24;
+const RAGGED = 0.3;
+const FACULAE = 1.2;
+const ARCH_SPAN = 3;
+const ARCH_RISE = 1.8;
+
 export const STORM_ROOM = 4;
+export const SPOT_ROOM = 16;
+export const LIMB = 0.28;
+export const LIMB_DEPTH = 0.4;
+export const EXPOSURE = 1.97;
 const HEIGHT_RANGE = 2.5;
 
 export const BAKE_VERTEX = `
@@ -108,9 +123,7 @@ void main() {
 }
 `;
 
-export const BAKE_FRAGMENT = `
-${FIELD}
-uniform float sea;
+const HEADING = `
 uniform float size;
 uniform int face;
 
@@ -123,6 +136,12 @@ vec3 heading() {
   if (face == 4) return vec3(spot.x, -spot.y, 1.0);
   return vec3(-spot.x, -spot.y, -1.0);
 }
+`;
+
+export const BAKE_FRAGMENT = `
+${FIELD}
+${HEADING}
+uniform float sea;
 
 void main() {
   vec3 at = normalize(heading());
@@ -142,9 +161,66 @@ void main() {
 }
 `;
 
+export const STAR_BAKE_FRAGMENT = `
+${FIELD}
+${HEADING}
+
+vec3 nearest(vec3 at, uint salt) {
+  vec3 cell = floor(at);
+  vec3 inside = at - cell;
+  ivec3 base = ivec3(cell);
+  float first = 9.0;
+  float second = 9.0;
+  float mark = 0.0;
+  for (int x = -1; x <= 1; x++) {
+    for (int y = -1; y <= 1; y++) {
+      for (int z = -1; z <= 1; z++) {
+        ivec3 step = ivec3(x, y, z);
+        uint mixed = scramble(base + step, salt);
+        vec3 site = vec3(step) - inside
+          + vec3(mixed & 1023u, (mixed >> 10) & 1023u, (mixed >> 20) & 1023u) / 1023.0;
+        float away = dot(site, site);
+        if (away < first) {
+          second = first;
+          first = away;
+          mark = float((mixed * 0x9e3779b1u) >> 24) / 255.0;
+        } else if (away < second) {
+          second = away;
+        }
+      }
+    }
+  }
+  return vec3(sqrt(first), sqrt(second), mark);
+}
+
+float granules(vec3 at, uint salt) {
+  vec3 found = nearest(at, salt);
+  return (1.0 - exp(-7.0 * (found.y - found.x))) * (0.7 + 0.3 * found.z);
+}
+
+void main() {
+  vec3 at = normalize(heading());
+  vec3 net = nearest(at * ${real(NET_SCALE)}, seed + 31u);
+  gl_FragColor = vec4(
+    granules(at * ${real(GRAIN_SCALE)}, seed + 11u),
+    granules(at * ${real(GRAIN_SCALE)}, seed + 23u),
+    clamp(0.5 + 0.45 * layered(at * 3.0, seed + 5u, 4), 0.0, 1.0),
+    1.0 - smoothstep(0.0, 0.1, net.y - net.x)
+  );
+}
+`;
+
+const SPIN = `
+vec3 spun(vec3 at, float angle) {
+  float along = cos(angle);
+  float across = sin(angle);
+  return vec3(along * at.x + across * at.z, at.y, along * at.z - across * at.x);
+}
+`;
+
 const SURVEY = `
 uniform samplerCube relief;
-
+${SPIN}
 vec4 decoded(vec4 found) {
 #ifdef PACKED
   found = vec4((found.rgb - 0.5) * ${real(SLOPE_RANGE)}, (found.a - 0.5) * ${real(HEIGHT_RANGE)});
@@ -154,12 +230,6 @@ vec4 decoded(vec4 found) {
 
 vec4 survey(vec3 at) {
   return decoded(textureCube(relief, at));
-}
-
-vec3 spun(vec3 at, float angle) {
-  float along = cos(angle);
-  float across = sin(angle);
-  return vec3(along * at.x + across * at.z, at.y, along * at.z - across * at.x);
 }
 
 vec3 tilted(vec3 at, vec3 slope, float depth) {
@@ -335,54 +405,66 @@ void main() {
 `;
 }
 
-const ACTIVITY = `
-uniform float drift;
-uniform float grain;
-
-vec4 seatOf(vec3 at) {
-  return decoded(textureLod(relief, spun(at, -drift).zxy, grain - 1.0));
-}
-
-float stirOf(vec4 seat, vec3 at) {
-  float belt = smoothstep(0.06, 0.2, abs(at.y)) * (1.0 - smoothstep(0.45, 0.62, abs(at.y)));
-  vec3 carried = spun(at, -drift);
-  float turn = ${real(SPOT_BEATS)} * drift + 5.0 * seat.a + 3.0 * carried.x + 2.0 * carried.z;
-  return (seat.a + 0.25 * sin(turn)) * belt;
-}
-`;
-
 export const STAR_FRAGMENT = `
-${SURVEY}
-${ACTIVITY}
-uniform vec3 palette[8];
+${SPIN}
+uniform samplerCube relief;
+uniform vec4 spots[${SPOT_ROOM}];
+uniform vec4 boil;
+uniform vec2 flow;
+uniform vec3 tint;
+uniform vec3 steep;
+uniform vec3 traits;
 uniform mat4 modelMatrix;
 varying vec3 vAt;
 varying vec3 vPlace;
 
 void main() {
   vec3 at = normalize(vAt);
-  vec4 seat = seatOf(at);
-  float stir = stirOf(seat, at);
-  vec3 pull = spun(seat.rgb.yzx, drift);
-  vec3 bent = normalize(at + ${real(SPOT_PULL)} * smoothstep(0.05, 0.45, stir) * pull);
-  float first = survey(spun(bent, drift)).a;
-  float second = survey(spun(bent.zxy, -2.0 * drift).yzx).a;
-  float cells = smoothstep(0.0, 0.25, abs(first - second));
-  float heat = (0.5 + 0.3 * (first + second)) * (0.6 + 0.4 * cells);
+  vec4 wide = textureCube(relief, at);
 
-  float spot = stir + 0.15 * second;
-  float umbra = smoothstep(0.42, 0.55, spot);
-  float fringe = smoothstep(0.28, 0.42, spot) * (1.0 - umbra);
-  float plage = smoothstep(0.08, 0.28, spot) * (1.0 - smoothstep(0.28, 0.4, spot));
+  float least = 1e9;
+  vec4 core = vec4(0.0);
+  float stir = 0.0;
+  for (int index = 0; index < ${SPOT_ROOM}; index++) {
+    vec4 spot = spots[index];
+    vec3 from = at - spot.xyz;
+    float reach = dot(from, from) / (spot.w * spot.w + 1e-9);
+    stir += exp(-reach / ${real(PLAGE)});
+    if (reach < least) {
+      least = reach;
+      core = spot;
+    }
+  }
+  vec3 from = at - core.xyz;
+  float ragged = textureCube(relief, normalize(core.xyz + from * ${real(RAGGED)} / (core.w + 0.01))).b;
+  float rank = sqrt(least) / (0.6 + 0.8 * ragged);
+  float skirt = 1.0 + ${real(PENUMBRA)} * smoothstep(${real(PORE)}, ${real(2 * PORE)}, core.w);
+  float umbra = 1.0 - smoothstep(0.8, 1.0, rank);
+  float fringe = (1.0 - smoothstep(skirt - 0.12, skirt, rank)) * (1.0 - umbra);
+
+  float inside = max(skirt - rank, 0.0);
+  vec2 squeeze = mix(
+    vec2(1.0),
+    (skirt - inside * (${real(FILAMENT_SQUEEZE)} + ${real(FILAMENT_FLOW)} * (flow - 0.5))) / max(rank, 1e-3),
+    step(rank, skirt)
+  );
+  vec3 one = normalize(core.xyz + from * squeeze.x);
+  vec3 two = normalize(core.xyz + from * squeeze.y);
+  float grain = (textureCube(relief, spun(one, boil.x)).r - ${real(GRAIN_MEAN)}) * boil.y
+    + (textureCube(relief, spun(two.yzx, boil.z)).g - ${real(GRAIN_MEAN)}) * boil.w;
 
   vec3 round = normalize(mat3(modelMatrix) * at);
-  vec3 eye = normalize(cameraPosition - vPlace);
-  float edge = pow(max(dot(round, eye), 0.0), 0.45);
-  float warmth = clamp((heat + 0.3 * plage * cells) * 1.2 * (0.5 + 0.5 * edge), 0.0, 1.0);
-  vec3 glow = mix(palette[1], palette[0], warmth) * (0.7 + 0.65 * heat + 0.3 * plage);
-  glow = mix(glow, mix(palette[2], palette[1], 0.4 + 0.35 * cells), fringe * 0.85);
-  glow = mix(glow, palette[2] * (0.9 + 0.2 * heat), umbra * 0.92);
-  gl_FragColor = vec4(glow * mix(0.55, 1.15, edge), 1.0);
+  float facing = max(dot(round, normalize(cameraPosition - vPlace)), 0.0);
+  float bright = wide.a * (0.15 + min(stir, 1.0)) * (0.25 + 0.5 * (1.0 - smoothstep(0.25, 0.9, facing)));
+  float heat = 1.0 + traits.z * (at.y * at.y - 0.33)
+    + traits.x * (grain * (0.35 + 0.65 * facing) + 0.17 * (wide.b - 0.5) + ${real(FACULAE)} * bright);
+  float chill = traits.y;
+  heat = mix(heat, (0.75 + 0.25 * chill) * (1.0 + 1.6 * traits.x * grain), fringe);
+  heat = mix(heat, chill * (1.0 + 0.3 * traits.x * grain), umbra);
+  heat *= pow(mix(${real(LIMB_DEPTH)}, 1.0, facing), ${real(LIMB)});
+
+  vec3 glow = tint * pow(vec3(heat), steep);
+  gl_FragColor = vec4(1.0 - exp(-${real(EXPOSURE)} * glow), 1.0);
   #include <colorspace_fragment>
 }
 `;
@@ -424,38 +506,46 @@ export const FLARE_VERTEX = `
 uniform float reach;
 varying vec2 vSpot;
 varying vec3 vRay;
+varying vec3 vEye;
 
 void main() {
   vSpot = position.xy;
   vRay = vec3(position.xy, 0.0) * mat3(modelViewMatrix);
   vec4 center = modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+  vEye = normalize(-center.xyz) * mat3(modelViewMatrix);
   center.xy += position.xy * reach;
   gl_Position = projectionMatrix * center;
 }
 `;
 
 export const FLARE_FRAGMENT = `
-${SURVEY}
-${ACTIVITY}
-uniform vec3 palette[8];
-uniform vec3 tint;
+uniform vec4 spots[${SPOT_ROOM}];
+uniform vec3 rim;
 uniform float core;
 varying vec2 vSpot;
 varying vec3 vRay;
+varying vec3 vEye;
 
 void main() {
   float away = length(vSpot);
-  vec3 limb = normalize(vRay);
-  float beyond = clamp((away - core) / (1.0 - core), 0.0, 1.0);
-  vec4 seat = seatOf(limb);
-  float roused = smoothstep(0.05, 0.45, stirOf(seat, limb));
-  float wide = decoded(textureLod(relief, spun(limb, -drift).zxy, grain + 1.0)).a;
-  float streamer = smoothstep(-0.6, 0.6, wide);
-  float corona = pow(1.0 - beyond, mix(9.0, 5.0, streamer)) * (0.05 + 0.12 * streamer);
-  float halo = 0.25 * exp(-beyond * 26.0);
   float rise = max(away - core, 0.0) / core;
-  float flame = roused * exp(-rise / (0.02 + 0.09 * roused));
-  gl_FragColor = vec4(tint * (corona + halo) + palette[1] * flame * 0.9, 1.0);
+  float glare = 0.85 * exp(-rise / 0.04) + 0.15 / (1.0 + 12.0 * rise * rise);
+  vec3 limb = normalize(vRay);
+  vec3 eye = normalize(vEye);
+  float arch = 0.0;
+  for (int index = 0; index < ${SPOT_ROOM}; index++) {
+    vec4 spot = spots[index];
+    float depth = dot(spot.xyz, eye);
+    float lift = (1.0 + ${real(ARCH_RISE)} * spot.w) * sqrt(max(1.0 - depth * depth, 0.0)) - 1.0;
+    vec3 foot = spot.xyz - depth * eye;
+    vec3 from = limb - foot / max(length(foot), 1e-4);
+    float span = ${real(ARCH_SPAN)} * spot.w + 1e-5;
+    float ring = length(vec2(length(from) / span, rise / max(lift, 1e-5)));
+    float band = (ring - 1.0) / 0.2;
+    arch += step(1e-5, lift) * (exp(-band * band) + 0.25 * exp(-1.5 * ring * ring));
+  }
+  vec3 lit = rim * glare * (1.0 - smoothstep(0.6, 1.0, away)) + vec3(1.0, 0.25, 0.2) * min(arch, 1.0) * 0.45;
+  gl_FragColor = vec4(lit, 1.0);
   #include <colorspace_fragment>
 }
 `;
