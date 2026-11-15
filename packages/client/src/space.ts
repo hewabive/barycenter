@@ -1,4 +1,5 @@
 import {
+  courseOf,
   createRandom,
   positionOf,
   type Sketch,
@@ -255,10 +256,8 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
     }
     const loop: Vector3[] = [];
     for (let step = 0; step < ORBIT_STEPS; step++) {
-      const angle = (2 * Math.PI * step) / ORBIT_STEPS;
-      loop.push(
-        new Vector3(look.body.orbit * Math.cos(angle), 0, look.body.orbit * Math.sin(angle)),
-      );
+      const at = courseOf(look.body, (2 * Math.PI * step) / ORBIT_STEPS);
+      loop.push(new Vector3(at.x, at.y, at.z));
     }
     const line = new LineLoop(new BufferGeometry().setFromPoints(loop), trackMaterial);
     line.frustumCulled = false;
@@ -318,7 +317,8 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
   });
 
   const place = new Vector3();
-  const turn = new Euler(0, 0, 0, "XYZ");
+  const turn = new Euler(0, 0, 0, "YXZ");
+  const twirl = new Quaternion();
   const spot = new Vector3();
   const pose = new Quaternion();
   const still = new Quaternion();
@@ -339,8 +339,9 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
     for (const look of looks) {
       const at = positionOf(system, look.body.id, shown);
       look.frame.position.set(at.x, at.y, at.z);
-      turn.set(look.body.tilt, spinOf(look.body, shown), 0);
-      look.frame.quaternion.setFromEuler(turn);
+      turn.set(look.body.tilt, look.body.swing, 0);
+      twirl.setFromAxisAngle(upward, spinOf(look.body, shown));
+      look.frame.quaternion.setFromEuler(turn).multiply(twirl);
     }
     for (const track of tracks) {
       track.line.position.copy(track.around.frame.position);

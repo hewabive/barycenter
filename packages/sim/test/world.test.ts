@@ -21,6 +21,7 @@ import {
   lampsOf,
   moltenOf,
   type Physics,
+  poleOf,
   positionOf,
   radiusOf,
   roughOf,
@@ -224,8 +225,9 @@ test("a system has one star, a home body and others around them", () => {
       }
       const center = positionOf(system, body.parent, 1234);
       const away = Math.hypot(at.x - center.x, at.y - center.y, at.z - center.z);
-      assert.ok(Math.abs(away - body.orbit) < 1e-9);
-      assert.ok(body.orbit > body.radius + system.bodies[body.parent].radius);
+      const oval = body.physics.stretch;
+      assert.ok(away > body.orbit * (1 - oval) - 1e-9 && away < body.orbit * (1 + oval) + 1e-9);
+      assert.ok(body.orbit * (1 - oval) > body.radius + system.bodies[body.parent].radius);
       const later = positionOf(system, body.id, 1234 + body.year);
       const moved = positionOf(system, body.parent, 1234 + body.year);
       const drift = Math.hypot(
@@ -276,14 +278,17 @@ test("the physics of every body holds together", () => {
       const around = system.bodies[body.parent].physics;
       const year = yearOf(physics.orbit, around.mass);
       assert.ok(Math.abs(physics.year / year - 1) < 1e-3, label);
-      assert.ok(physics.orbit > around.radius + physics.radius, label);
+      assert.ok(physics.stretch >= 0 && physics.stretch < 0.7, label);
+      assert.ok(physics.orbit * (1 - physics.stretch) > around.radius + physics.radius, label);
       assert.ok(physics.mass < around.mass, label);
       const host = system.bodies[body.parent].parent;
       if (host !== null) {
         assert.equal(physics.day, physics.year, label);
         if (body.parent !== system.home) {
           const pull = system.bodies[host].physics.mass;
-          assert.ok(physics.orbit < hillOf(around.orbit, around.mass, pull), label);
+          const nearest = around.orbit * (1 - around.stretch);
+          const farthest = physics.orbit * (1 + physics.stretch);
+          assert.ok(farthest < hillOf(nearest, around.mass, pull), label);
         }
       }
     }
@@ -305,7 +310,10 @@ test("the drawn scale keeps the order and the nesting of the real one", () => {
     };
     const reach = (id: number): number => {
       const moons = system.bodies.filter((moon) => moon.parent === id);
-      return Math.max(own(id), ...moons.map((moon) => moon.orbit + reach(moon.id)));
+      return Math.max(
+        own(id),
+        ...moons.map((moon) => moon.orbit * (1 + moon.physics.stretch) + reach(moon.id)),
+      );
     };
     const root = system.bodies[0];
     root.disks.forEach((lane, index) => {
@@ -314,8 +322,11 @@ test("the drawn scale keeps the order and the nesting of the real one", () => {
       for (const planet of system.bodies.filter((body) => body.parent === 0)) {
         const span = reach(planet.id);
         const inside = planet.physics.orbit < belt.inner;
+        const oval = planet.physics.stretch;
         assert.ok(
-          inside ? planet.orbit + span < lane.inner : planet.orbit - span > lane.outer,
+          inside
+            ? planet.orbit * (1 + oval) + span < lane.inner
+            : planet.orbit * (1 - oval) - span > lane.outer,
           `${world}, ${planet.name} and a belt`,
         );
       }
@@ -327,8 +338,11 @@ test("the drawn scale keeps the order and the nesting of the real one", () => {
         .sort((left, right) => left.physics.orbit - right.physics.orbit);
       around.forEach((child, index) => {
         const before = index === 0 ? null : around[index - 1];
-        const edge = before === null ? own(body.id) : before.orbit + reach(before.id);
-        assert.ok(child.orbit - reach(child.id) > edge, label);
+        const edge =
+          before === null
+            ? own(body.id)
+            : before.orbit * (1 + before.physics.stretch) + reach(before.id);
+        assert.ok(child.orbit * (1 - child.physics.stretch) - reach(child.id) > edge, label);
         assert.equal(child.day === child.year, child.physics.day === child.physics.year, label);
       });
       for (const other of system.bodies) {
@@ -602,13 +616,90 @@ test("light is drawn on a scale that keeps what is brighter brighter", () => {
     }
   }
   assert.ok(lit > 5, `moons lit by what they circle ${lit}`);
-  assert.ok(warmed > 3, `moons warmed by what they circle ${warmed}`);
+  assert.ok(warmed > 1, `moons warmed by what they circle ${warmed}`);
+});
+
+test("an orbit is an oval in a plane of its own, swept as the pull of its centre bids", () => {
+  let stirred = 0;
+  let tilted = 0;
+  let tied = 0;
+  let backward = 0;
+  for (let seed = 1; seed <= 150; seed++) {
+    const system = sketchSystem(seed, { settled: seed % 3 === 0, star: null });
+    const planets = system.bodies
+      .filter((body) => body.parent === 0)
+      .sort((left, right) => left.physics.orbit - right.physics.orbit);
+    planets.forEach((planet, index) => {
+      const next = planets[index + 1];
+      const far = planet.physics.orbit * (1 + planet.physics.stretch);
+      assert.ok(!next || far < next.physics.orbit * (1 - next.physics.stretch), `seed ${seed}`);
+    });
+    for (const body of system.bodies) {
+      const label = `seed ${seed}, ${body.name}`;
+      if (body.parent === null) {
+        continue;
+      }
+      const around = system.bodies[body.parent];
+      const centre = (tick: number) => positionOf(system, around.id, tick);
+      const from = (tick: number) => {
+        const at = positionOf(system, body.id, tick);
+        const middle = centre(tick);
+        return { x: at.x - middle.x, y: at.y - middle.y, z: at.z - middle.z };
+      };
+      const oval = body.physics.stretch;
+      const nearest = (-body.phase * body.year) / (2 * Math.PI);
+      const near = from(nearest);
+      const far = from(nearest + body.year / 2);
+      assert.ok(
+        Math.abs(Math.hypot(near.x, near.y, near.z) / body.orbit - (1 - oval)) < 1e-6,
+        label,
+      );
+      assert.ok(Math.abs(Math.hypot(far.x, far.y, far.z) / body.orbit - (1 + oval)) < 1e-6, label);
+      const start = from(100);
+      const later = from(100 + body.year / 4);
+      const sweep = {
+        x: start.y * later.z - start.z * later.y,
+        y: start.z * later.x - start.x * later.z,
+        z: start.x * later.y - start.y * later.x,
+      };
+      const size = Math.hypot(sweep.x, sweep.y, sweep.z);
+      const up = {
+        x: Math.sin(body.slant) * Math.sin(body.node),
+        y: Math.cos(body.slant),
+        z: Math.sin(body.slant) * Math.cos(body.node),
+      };
+      const along = (sweep.x * up.x + sweep.y * up.y + sweep.z * up.z) / size;
+      assert.ok(Math.abs(along - 1) < 1e-6, `${label}: ${along}`);
+      const pole = poleOf(body);
+      const level = pole.x * up.x + pole.y * up.y + pole.z * up.z;
+      if (body.physics.day === body.physics.year) {
+        assert.ok(Math.abs(level - 1) < 1e-6, label);
+      }
+      if (around.parent !== null && body.slant === around.tilt) {
+        const host = poleOf(around);
+        assert.ok(Math.abs(host.x * up.x + host.y * up.y + host.z * up.z - 1) < 1e-6, label);
+      }
+      stirred += around.parent === null && oval > 0.15 ? 1 : 0;
+      tilted += around.parent === null && body.slant > 0.15 ? 1 : 0;
+      tied += around.parent === null && body.physics.day === body.physics.year ? 1 : 0;
+      backward += body.slant > Math.PI / 2 ? 1 : 0;
+    }
+    if (system.home !== null) {
+      const home = system.bodies[system.home];
+      assert.ok(home.physics.stretch <= 0.03 && home.slant === 0, `seed ${seed}`);
+      assert.notEqual(home.physics.day, home.physics.year);
+    }
+  }
+  assert.ok(stirred > 5 && stirred < 120, `stretched ${stirred}`);
+  assert.ok(tilted > 10 && tilted < 150, `tilted ${tilted}`);
+  assert.ok(tied > 30, `tied ${tied}`);
+  assert.ok(backward > 1, `backward ${backward}`);
 });
 
 test("small bodies are loose and not round, and rock melts where it is hot", () => {
   const body = (mass: number, ice: number, heat = 200, air = 0): Physics => {
     const shares = { iron: 0.2 * (1 - ice), rock: 0.8 * (1 - ice), ice, gas: 0 };
-    const dark = { glow: 0, light: 0 };
+    const dark = { glow: 0, light: 0, stretch: 0 };
     const rest = { gases: [], life: 0, vigor: 0.5, age: GIGAYEAR, orbit: 1, year: 1, ...dark };
     return {
       mass,

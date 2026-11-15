@@ -71,11 +71,14 @@ export { type ForceReport, forceReportFor } from "./report.ts";
 export { circumcenter, hullFaces } from "./sphere.ts";
 export { cloneState, issue, step } from "./step.ts";
 export {
+  anomalyOf,
+  courseOf,
   formed,
   kindled,
   type Lamp,
   lampsOf,
   type Plan,
+  poleOf,
   positionOf,
   reliefOf,
   type Site,

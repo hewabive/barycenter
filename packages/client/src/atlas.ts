@@ -62,7 +62,11 @@ const bodyOf = (physics: Physics, own: number): Body => ({
   orbit: 0,
   year: 0,
   phase: 0,
+  slant: 0,
+  node: 0,
+  apse: 0,
   tilt: 0,
+  swing: 0,
   day: 1200,
   disks: physics.disks.map((disk) => ({
     inner: disk.inner / physics.radius,
@@ -75,7 +79,7 @@ const bodyOf = (physics: Physics, own: number): Body => ({
 const rows: Body[][] = masses.map((mass) =>
   places.map((place) => {
     const orbit = place * lit;
-    const site = { star, distance: orbit, around: star, orbit, lent: 0 };
+    const site = { star, distance: orbit, around: star, orbit, lent: 0, stretch: 0, tied: false };
     return bodyOf(formed(mass * EARTH_MASS, site, random), draw());
   }),
 );

@@ -62,6 +62,7 @@ export interface Physics {
   vigor: number;
   age: number;
   orbit: number;
+  stretch: number;
   year: number;
   day: number;
   disks: Disk[];
@@ -77,7 +78,11 @@ export interface Body {
   orbit: number;
   year: number;
   phase: number;
+  slant: number;
+  node: number;
+  apse: number;
   tilt: number;
+  swing: number;
   day: number;
   disks: Lane[];
   relief: Relief;

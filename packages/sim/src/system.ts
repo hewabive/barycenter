@@ -59,6 +59,8 @@ export interface Site {
   around: Physics;
   orbit: number;
   lent: number;
+  stretch: number;
+  tied: boolean;
 }
 
 export interface Lamp {
@@ -74,10 +76,12 @@ export interface Plan {
 interface Draft {
   physics: Physics;
   parent: number | null;
-  tilt: number;
+  tilt: number | null;
+  slant: number | null;
 }
 
 interface Kin {
+  slant: number | null;
   physics: Physics;
   moons: Kin[];
 }
@@ -101,6 +105,24 @@ const WILD_STEPS = 12;
 const HOT_SHARE = 0.1;
 const SYSTEM_SALT = 0x5bd1e995;
 const MARK_SALT = 0x27d4eb2f;
+const TURN_SALT = 0x165667b1;
+const STIRRED_SHARE = 0.06;
+const STIRRED_STRETCH = [0.2, 0.6];
+const CALM_STRETCH = 0.15;
+const SCATTERED_SHARE = 0.08;
+const SCATTERED_KEPT = 0.4;
+const SCATTERED_STIRRED = 0.6;
+const HOME_STRETCH = 0.03;
+const ROOM_SHARE = 0.8;
+const TILTED_SHARE = 0.05;
+const TILTED_SLANT = [0.15, 0.8];
+const CALM_SLANT = 0.08;
+const MOON_STRETCH = 0.02;
+const CAUGHT_SHARE = 0.3;
+const CAUGHT_STRETCH = 0.2;
+const TIED_REACH = 0.5 * ASTRONOMICAL_UNIT;
+const TIED_HEAVY = [10 * EARTH_MASS, 0.3];
+const KEPLER_STEPS = 5;
 const SETTLED_STARS = [0.3, 1.6];
 const WILD_STARS = [0.08, 2.5];
 const BROWN_STARS = [0.013, 0.074];
@@ -172,7 +194,7 @@ function smooth(from: number, to: number, value: number): number {
 export function kindled(mass: number, age: number, random: Random): Physics {
   const vigor = random.next();
   const shares = { iron: 0, rock: 0, ice: 0, gas: 1 };
-  const rest = { life: 0, vigor, age, orbit: 0, year: 0, disks: [] };
+  const rest = { life: 0, vigor, age, orbit: 0, stretch: 0, year: 0, disks: [] };
   if (mass < STAR_LEAST) {
     const inner = innerHeat(mass, age, vigor);
     const radius = radiusOf(mass, shares, inner);
@@ -309,13 +331,14 @@ export function formed(mass: number, site: Site, random: Random, locked = false)
       });
   const year = yearOf(site.orbit, site.around.mass);
   const slow = random.next() < 0.12;
-  const day = locked
-    ? year
-    : fluid
+  const spun = () =>
+    fluid
       ? HOUR * (mass < BROWN_LEAST ? between(random, 8, 20) : between(random, 2, 10))
       : slow
         ? DAY * decades(random, 1.3, 2.4)
         : HOUR * decades(random, 0.9, 1.8);
+  const free = locked ? year : spun();
+  const day = site.tied ? year : free;
   return {
     mass,
     radius,
@@ -332,6 +355,7 @@ export function formed(mass: number, site: Site, random: Random, locked = false)
     vigor,
     age: site.star.age,
     orbit: site.orbit,
+    stretch: site.stretch,
     year,
     day,
     disks: ringOf(
@@ -339,13 +363,13 @@ export function formed(mass: number, site: Site, random: Random, locked = false)
       radius,
       fluid,
       bare,
-      SUBMOON_REST * hillOf(site.orbit, mass, site.around.mass),
+      SUBMOON_REST * hillOf(site.orbit * (1 - site.stretch), mass, site.around.mass),
       random,
     ),
   };
 }
 
-function settled(star: Physics, orbit: number, random: Random): Physics {
+function settled(star: Physics, orbit: number, stretch: number, random: Random): Physics {
   const mass = EARTH_MASS * between(random, 0.8, 1.25);
   const iron = between(random, 0.28, 0.36);
   const ice = between(random, 1.5e-5, 3e-5);
@@ -379,6 +403,7 @@ function settled(star: Physics, orbit: number, random: Random): Physics {
     vigor: between(random, 0.5, 0.9),
     age: star.age,
     orbit,
+    stretch,
     year: yearOf(orbit, star.mass),
     day: HOUR * between(random, 18, 30),
     disks: [],
@@ -421,15 +446,20 @@ function moonsOf(
   lent: number,
   depth: number,
   random: Random,
+  turns: Random,
 ): Kin[] {
   const fluid = wrapped(host);
   const earths = host.mass / EARTH_MASS;
   const settledHere = host.life > 0;
-  const kin = (mass: number, orbit: number): Kin => {
+  const kin = (mass: number, orbit: number, stray: boolean): Kin => {
     const warmed = lent + lightAt(glowOf(host.radius, host.heat), orbit);
-    const site = { star, distance, around: host, orbit, lent: warmed };
+    const caught = turns.next() < CAUGHT_SHARE && stray && !fluid;
+    const stretch = (caught ? CAUGHT_STRETCH : MOON_STRETCH) * turns.next();
+    const slant = caught ? Math.PI * turns.next() : null;
+    const site = { star, distance, around: host, orbit, lent: warmed, stretch, tied: false };
     const physics = formed(mass, site, random, true);
-    return { physics, moons: moonsOf(physics, host, star, distance, warmed, depth + 1, random) };
+    const moons = moonsOf(physics, host, star, distance, warmed, depth + 1, random, turns);
+    return { physics, slant, moons };
   };
   const low = Math.max(
     3 * host.radius,
@@ -437,7 +467,7 @@ function moonsOf(
     1.2 * rocheOf(host.radius, densityOf(host.mass, host.radius), MOON_GRAIN),
   );
   const rest = depth === 0 ? MOON_REST : SUBMOON_REST;
-  const high = rest * hillOf(host.orbit, host.mass, around.mass);
+  const high = rest * hillOf(host.orbit * (1 - host.stretch), host.mass, around.mass);
   if (depth >= MOON_DEPTH) {
     return [];
   }
@@ -459,7 +489,7 @@ function moonsOf(
     const share = (index + between(random, 0.2, 0.8)) / strays;
     const [least, most] = fluid ? STRAY_FLUID : STRAY_SOLID;
     const mass = Math.min(STRAY_MOST * host.mass, decades(random, least, most));
-    moons.push(kin(mass, nearest * (farthest / nearest) ** share));
+    moons.push(kin(mass, nearest * (farthest / nearest) ** share, true));
   }
   if (high <= low && !settledHere) {
     return moons;
@@ -494,7 +524,7 @@ function moonsOf(
           : fluid
             ? decades(random, -5, -3.7)
             : decades(random, -3.2, -1.8);
-    moons.push(kin(host.mass * share, orbit));
+    moons.push(kin(host.mass * share, orbit, false));
     orbit *= between(random, 1.5, 2.3);
   }
   return moons;
@@ -559,8 +589,9 @@ function arranged(bodies: Body[], anchor: Anchor): Body[] {
     for (const { child, belt } of around) {
       if (child !== null) {
         const span = reach(child.id);
-        orbit[child.id] = Math.max(drawn(child.physics.orbit), edge + span);
-        edge = orbit[child.id] + span + gap;
+        const oval = child.physics.stretch;
+        orbit[child.id] = Math.max(drawn(child.physics.orbit), (edge + span) / (1 - oval));
+        edge = orbit[child.id] * (1 + oval) + span + gap;
       } else if (belt !== null) {
         const inner = Math.max(drawn(belt.inner), edge);
         const outer = inner + drawn(belt.outer) - drawn(belt.inner);
@@ -610,6 +641,7 @@ function trimmed(physics: Physics): Physics {
     vigor: trim(physics.vigor),
     age: trim(physics.age),
     orbit: trim(physics.orbit),
+    stretch: trim(physics.stretch),
     year: trim(physics.year),
     day: trim(physics.day),
     disks: physics.disks.map((disk) => ({
@@ -634,6 +666,7 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
   const random = createRandom(world ^ SYSTEM_SALT);
   const taken = new Set<string>();
   const marks = createRandom(world ^ MARK_SALT);
+  const turns = createRandom(world ^ TURN_SALT);
   const pick = (list: string[]) => list[Math.floor(marks.next() * list.length)];
   const name = (): string => {
     const made = pick(OPENINGS) + pick(MIDDLES) + pick(ENDINGS);
@@ -655,8 +688,15 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
   const lit = Math.max(Math.sqrt(star.glow / SUN_GLOW), DIM_REACH);
   const nearest = Math.max(INNER_EDGE * lit, STAR_CLEARANCE * star.radius);
   const orbits: number[] = [];
+  const rungs: number[] = [];
   const belts: Disk[] = [];
+  const scattered = turns.next() < SCATTERED_SHARE && !plan.settled;
+  const kept = scattered ? SCATTERED_KEPT : PLANET_SHARE;
   const empty = (orbit: number) => {
+    if (scattered) {
+      return;
+    }
+    rungs.push(orbit);
     if (random.next() < BELT_SHARE) {
       belts.push(beltOf(orbit, star, random));
     }
@@ -672,7 +712,7 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
       if (inward < nearest) {
         break;
       }
-      if (random.next() < PLANET_SHARE) {
+      if (random.next() < kept) {
         orbits.unshift(inward);
       } else {
         empty(inward);
@@ -690,7 +730,7 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
     if (outward > OUTER_EDGE * lit) {
       break;
     }
-    if (random.next() < PLANET_SHARE) {
+    if (random.next() < kept) {
       orbits.push(outward);
     } else {
       empty(outward);
@@ -711,61 +751,99 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
     empty(outward * between(random, 1.4, 1.8));
   }
   belts.sort((left, right) => left.inner - right.inner);
+  rungs.push(...orbits);
+  rungs.sort((left, right) => left - right);
+  const tiedWithin =
+    TIED_REACH * Math.cbrt(star.mass / SUN_MASS) * (age / (10 * GIGAYEAR)) ** (1 / 6);
 
-  const drafts: Draft[] = [{ physics: { ...star, disks: belts }, parent: null, tilt: 0 }];
+  const drafts: Draft[] = [{ physics: { ...star, disks: belts }, parent: null, tilt: 0, slant: 0 }];
   let home: number | null = null;
   for (const orbit of orbits) {
     const settledHere = orbit === homeOrbit;
-    const site = { star, distance: orbit, around: star, orbit, lent: 0 };
-    const planet = settledHere
-      ? settled(star, orbit, random)
-      : formed(
-          orbit === companion?.orbit ? companion.mass : massAt(orbit, star, random),
-          site,
-          random,
-        );
+    const rung = rungs.indexOf(orbit);
+    const inside = rungs[rung - 1] ?? 0.7 * nearest;
+    const outside = rungs[rung + 1] ?? Number.POSITIVE_INFINITY;
+    const room =
+      ROOM_SHARE *
+      Math.min(
+        (orbit - inside) / (orbit + inside),
+        outside > 1e300 ? 1 : (outside - orbit) / (outside + orbit),
+      );
+    const stirred = turns.next() < (scattered ? SCATTERED_STIRRED : STIRRED_SHARE);
+    const oval = turns.next();
+    const tilted = turns.next() < TILTED_SHARE;
+    const leaning = turns.next();
+    const mass = settledHere
+      ? 0
+      : orbit === companion?.orbit
+        ? companion.mass
+        : massAt(orbit, star, random);
+    const tied = !settledHere && orbit < tiedWithin * (mass >= TIED_HEAVY[0] ? TIED_HEAVY[1] : 1);
+    const wide = stirred
+      ? STIRRED_STRETCH[0] + (STIRRED_STRETCH[1] - STIRRED_STRETCH[0]) * oval
+      : CALM_STRETCH * oval ** 2.5;
+    const stretch = settledHere ? HOME_STRETCH * oval : Math.min(room, wide) * (tied ? 0.1 : 1);
+    const slant = settledHere
+      ? 0
+      : tilted
+        ? TILTED_SLANT[0] + (TILTED_SLANT[1] - TILTED_SLANT[0]) * leaning
+        : CALM_SLANT * leaning ** 2;
+    const distance = orbit * (1 - stretch ** 2) ** 0.25;
+    const site = { star, distance, around: star, orbit, lent: 0, stretch, tied };
+    const planet = settledHere ? settled(star, orbit, stretch, random) : formed(mass, site, random);
     const id = drafts.length;
     const steep = !settledHere && random.next() < 0.1;
-    drafts.push({
-      physics: planet,
-      parent: 0,
-      tilt: steep ? between(random, 0.5, 1.75) : MAX_TILT * random.next(),
-    });
+    const tilt = steep ? between(random, 0.5, 1.75) : MAX_TILT * random.next();
+    drafts.push({ physics: planet, parent: 0, tilt: tied ? null : tilt, slant });
     if (settledHere) {
       home = id;
     }
     const adopt = (kin: Kin, parent: number) => {
       const own = drafts.length;
-      drafts.push({ physics: kin.physics, parent, tilt: 0 });
+      drafts.push({ physics: kin.physics, parent, tilt: null, slant: kin.slant });
       for (const moon of kin.moons) {
         adopt(moon, own);
       }
     };
-    for (const kin of moonsOf(planet, star, star, orbit, 0, 0, random)) {
+    for (const kin of moonsOf(planet, star, star, distance, 0, 0, random, turns)) {
       adopt(kin, id);
     }
   }
 
-  const bodies = drafts.map((draft, id): Body => {
+  const bodies: Body[] = [];
+  for (const [id, draft] of drafts.entries()) {
     const physics = trimmed(draft.physics);
     const drawn = Math.floor(marks.next() * 0x7fffffff);
     const own = id === home ? homeSeed : drawn;
-    return {
+    const named = name();
+    const phase = draft.parent === null ? 0 : trim(2 * Math.PI * marks.next());
+    const around = draft.parent === null ? null : bodies[draft.parent];
+    const node = 2 * Math.PI * turns.next();
+    const apse = 2 * Math.PI * turns.next();
+    const swing = 2 * Math.PI * turns.next();
+    const level = draft.slant === null && around !== null;
+    const slant = level ? around.tilt : (draft.slant ?? 0);
+    const turned = level ? around.swing : around === null || id === home ? 0 : node;
+    bodies.push({
       id,
-      name: name(),
+      name: named,
       seed: own,
       parent: draft.parent,
       physics,
       radius: 0,
       orbit: 0,
       year: 0,
-      phase: draft.parent === null ? 0 : trim(2 * Math.PI * marks.next()),
-      tilt: trim(draft.tilt),
+      phase,
+      slant: trim(slant),
+      node: trim(turned),
+      apse: around === null ? 0 : trim(apse),
+      tilt: trim(draft.tilt ?? slant),
+      swing: around === null ? 0 : trim(draft.tilt === null ? turned : swing),
       day: 0,
       disks: [],
       relief: id === home ? { ...HOME_SHAPE, sea: null, peak: 0.5 } : reliefOf(physics, own),
-    };
-  });
+    });
+  }
   const settledOn = home === null ? null : bodies[home].physics;
   const light = ASTRONOMICAL_UNIT * lit;
   const anchor: Anchor =
@@ -782,7 +860,8 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
 
 export function lampsOf(system: Sketch, id: number): Lamp[] {
   const lamps: Lamp[] = [];
-  let reach = system.bodies[id].physics.orbit;
+  const wide = (physics: Physics) => physics.orbit * (1 - physics.stretch ** 2) ** 0.25;
+  let reach = wide(system.bodies[id].physics);
   let above = system.bodies[id].parent;
   while (above !== null) {
     const { physics, parent } = system.bodies[above];
@@ -790,10 +869,34 @@ export function lampsOf(system: Sketch, id: number): Lamp[] {
     if (seen > 0) {
       lamps.push({ source: above, seen });
     }
-    reach = physics.orbit;
+    reach = wide(physics);
     above = parent;
   }
   return lamps.sort((left, right) => right.seen - left.seen);
+}
+
+export function courseOf(body: Body, anomaly: number): Vector {
+  const oval = body.physics.stretch;
+  const along = body.orbit * (Math.cos(anomaly) - oval);
+  const across = body.orbit * Math.sqrt(1 - oval ** 2) * Math.sin(anomaly);
+  const ahead = along * Math.cos(body.apse) - across * Math.sin(body.apse);
+  const aside = along * Math.sin(body.apse) + across * Math.cos(body.apse);
+  const flat = -aside * Math.cos(body.slant);
+  return {
+    x: ahead * Math.cos(body.node) + flat * Math.sin(body.node),
+    y: aside * Math.sin(body.slant),
+    z: flat * Math.cos(body.node) - ahead * Math.sin(body.node),
+  };
+}
+
+export function anomalyOf(body: Body, tick: number): number {
+  const oval = body.physics.stretch;
+  const mean = body.phase + (2 * Math.PI * tick) / body.year;
+  let anomaly = mean + oval * Math.sin(mean);
+  for (let step = 0; step < KEPLER_STEPS; step++) {
+    anomaly -= (anomaly - oval * Math.sin(anomaly) - mean) / (1 - oval * Math.cos(anomaly));
+  }
+  return anomaly;
 }
 
 export function positionOf(system: Sketch, id: number, tick: number): Vector {
@@ -801,12 +904,17 @@ export function positionOf(system: Sketch, id: number, tick: number): Vector {
   if (body.parent === null) {
     return { x: 0, y: 0, z: 0 };
   }
-  const center = positionOf(system, body.parent, tick);
-  const angle = body.phase + (2 * Math.PI * tick) / body.year;
+  const centre = positionOf(system, body.parent, tick);
+  const offset = courseOf(body, anomalyOf(body, tick));
+  return { x: centre.x + offset.x, y: centre.y + offset.y, z: centre.z + offset.z };
+}
+
+export function poleOf(body: Body): Vector {
+  const lean = Math.sin(body.tilt);
   return {
-    x: center.x + body.orbit * Math.cos(angle),
-    y: center.y,
-    z: center.z + body.orbit * Math.sin(angle),
+    x: lean * Math.sin(body.swing),
+    y: Math.cos(body.tilt),
+    z: lean * Math.cos(body.swing),
   };
 }
 

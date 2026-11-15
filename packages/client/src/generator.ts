@@ -95,6 +95,7 @@ const massOf = (mass: number) =>
     : mass >= 30 * EARTH_MASS
       ? `${figure(mass / EARTH_MASS)} earths · ${figure(mass / JUPITER_MASS)} jupiters`
       : `${figure(mass / EARTH_MASS)} earths`;
+const degrees = (angle: number) => `${figure((angle * 180) / Math.PI)}°`;
 const lengthOf = (meters: number) =>
   meters >= 0.01 * ASTRONOMICAL_UNIT
     ? `${figure(meters / ASTRONOMICAL_UNIT)} AU`
@@ -214,9 +215,24 @@ function factsOf(body: Body): Fact[] {
         "Distance",
         `${lengthOf(physics.orbit)} · ${figure(physics.orbit / parent.physics.radius)} radii of ${parent.name}`,
       ],
+      [
+        "Shape of the orbit",
+        physics.stretch < 0.0005
+          ? "a circle"
+          : `an oval, stretched ${figure(physics.stretch)} · from ${lengthOf(physics.orbit * (1 - physics.stretch))} to ${lengthOf(physics.orbit * (1 + physics.stretch))}`,
+      ],
+      [
+        "Plane of the orbit",
+        parent.parent !== null && body.slant === parent.tilt && body.node === parent.swing
+          ? `that of the equator of ${parent.name}`
+          : `${degrees(body.slant)} to the plane of the system${body.slant > Math.PI / 2 ? ", backward" : ""}`,
+      ],
       ["Year", span(physics.year)],
-      ["Day", physics.day === physics.year ? "locked to its year" : span(physics.day)],
-      ["Tilt", `${figure((body.tilt * 180) / Math.PI)}°`],
+      [
+        "Day",
+        physics.day === physics.year ? "locked to its year, one face inward" : span(physics.day),
+      ],
+      ["Tilt", `${degrees(body.tilt)} to the plane of the system`],
       ["Holds moons within", `${lengthOf(hill)} · ${figure(hill / physics.radius)} radii`],
     );
   } else {
