@@ -103,6 +103,7 @@ const SWIRL_TWIST = 1.6;
 const SWIRL_RATE = 4;
 const WAKE_REACH = 3;
 const WAKE_GAIN = 0.8;
+const RING_SHADE = 0.8;
 
 const GRAIN_MEAN = 0.52;
 const GRAIN_SCALE = 36;
@@ -390,6 +391,9 @@ uniform vec3 mood;
 uniform vec4 storms[${STORM_ROOM}];
 uniform vec4 whirls[${STORM_ROOM}];
 uniform vec4 stains[${STORM_ROOM}];
+uniform sampler2D grit;
+uniform vec2 hoop;
+uniform vec3 sunny;
 `;
 
 const GAS = `
@@ -454,6 +458,13 @@ const GAS = `
   float crest = exp(-pow((rank - 1.25) / 0.2, 2.0)) * smoothstep(0.1, 0.9, seat.y * sign(chief.y) / max(rank, 1e-3));
   cloud = mix(cloud, vec3(1.0), habit.w * crest * smoothstep(-0.1, 0.25, mixed.b + 0.5 * mixed.g));
   albedo = cloud * mix(0.72, 1.0, pow(max(dot(round, eye), 0.0), 0.6));
+  if (hoop.y > 0.0) {
+    vec3 stood = at * vec3(1.0, inversesqrt(squash), 1.0);
+    float drop = -stood.y / (abs(sunny.y) < 1e-4 ? 1e-4 : sunny.y);
+    float across = (length((stood + sunny * drop).xz) - hoop.x) / (hoop.y - hoop.x);
+    float veil = texture2D(grit, vec2(across, 0.5)).a * step(0.0, drop) * step(0.0, across) * step(across, 1.0);
+    albedo *= 1.0 - ${real(RING_SHADE)} * veil;
+  }
 `;
 
 export function bodyFragment(kind: Exclude<BodyKind, "star">): string {
@@ -602,6 +613,47 @@ void main() {
   vec3 outward = normalize(normal - eye * graze);
   float day = smoothstep(-0.3, 0.4, dot(outward, sun));
   gl_FragColor = vec4(haze * glow * air * mix(0.05 + 0.95 * day, 0.45, chart), 1.0);
+  #include <colorspace_fragment>
+}
+`;
+
+export const RING_VERTEX = `
+varying vec3 vSpot;
+varying vec3 vPlace;
+
+void main() {
+  vSpot = position;
+  vec4 placed = modelMatrix * vec4(position, 1.0);
+  vPlace = placed.xyz;
+  gl_Position = projectionMatrix * viewMatrix * placed;
+}
+`;
+
+export const RING_FRAGMENT = `
+uniform sampler2D grit;
+uniform vec2 hoop;
+uniform vec3 sunny;
+uniform vec3 shine;
+uniform float squash;
+uniform mat4 modelMatrix;
+varying vec3 vSpot;
+varying vec3 vPlace;
+
+void main() {
+  float across = (length(vSpot.xz) - hoop.x) / (hoop.y - hoop.x);
+  vec4 dust = texture2D(grit, vec2(across, 0.5));
+  float dense = dust.a * step(0.0, across) * step(across, 1.0);
+  vec3 stretch = vec3(1.0, sqrt(squash), 1.0);
+  vec3 from = vSpot * stretch;
+  vec3 ray = normalize(sunny * stretch);
+  float ahead = dot(from, ray);
+  float lit = max(step(0.0, ahead), smoothstep(0.97, 1.03, length(from - ray * ahead)));
+  vec3 eye = normalize((cameraPosition - vPlace) * mat3(modelMatrix));
+  float through = 1.0 - pow(1.0 - 0.97 * dense, 1.0 / max(abs(eye.y), 0.12));
+  float facing = step(0.0, eye.y * sunny.y);
+  float glow = mix(2.5 * dense * (1.0 - dense), 0.6 + 0.5 * dense, facing)
+    * (0.4 + 0.6 * smoothstep(0.0, 0.3, abs(sunny.y)));
+  gl_FragColor = vec4(dust.rgb * dust.rgb * shine * (0.02 + lit * glow), through);
   #include <colorspace_fragment>
 }
 `;

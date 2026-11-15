@@ -5,6 +5,7 @@ import {
   Color,
   type CubeTexture,
   DataTexture,
+  DoubleSide,
   Group,
   HalfFloatType,
   IcosahedronGeometry,
@@ -15,6 +16,8 @@ import {
   NearestFilter,
   OrthographicCamera,
   PlaneGeometry,
+  Quaternion,
+  RingGeometry,
   Scene,
   ShaderMaterial,
   UnsignedByteType,
@@ -37,6 +40,8 @@ import {
   GAS_STEPS,
   LIMB,
   LIMB_DEPTH,
+  RING_FRAGMENT,
+  RING_VERTEX,
   SHELL_FRAGMENT,
   SHELL_VERTEX,
   SPOT_ROOM,
@@ -48,6 +53,7 @@ import {
 export interface Look {
   body: Body;
   frame: Group;
+  girth: number;
   relief(): CubeTexture;
   light(sun: Vector3, chart: number, tick: number): void;
   refine(size: number): void;
@@ -93,6 +99,11 @@ interface Brew {
   crest: number;
 }
 
+interface Hoop {
+  tint: number;
+  parts: [from: number, to: number, density: number][];
+}
+
 interface Giant {
   zones: number[];
   belts: number[];
@@ -112,6 +123,7 @@ interface Giant {
   squash: number;
   haze: number;
   air: number;
+  hoop: Hoop | null;
   brews: Brew[];
 }
 
@@ -145,6 +157,9 @@ const FLOW_LIFE = 300;
 const BAND_STEPS = 1024;
 const BAND_LEAST = 0.05;
 const WAKE_SHIFT = 3;
+const RING_STEPS = 512;
+const RING_EDGE = 0.004;
+const RING_VIEW = 0.7;
 const STORM_YEAR = 5000;
 const GRANULE_LIFE = 24;
 const GRANULE_CHURN = 0.02;
@@ -178,6 +193,7 @@ const GIANTS: Giant[] = [
     squash: 0.065,
     haze: 0xbfae95,
     air: 0.07,
+    hoop: null,
     brews: [
       brew({ band: 2, seat: -0.75, size: 0.6, stretch: 1.6, tint: 0xb5694e, cover: 0.95, wake: 1 }),
       brew({ band: 4, count: 4, size: 0.3, stretch: 1.2, tint: 0xf3ead8 }),
@@ -213,6 +229,15 @@ const GIANTS: Giant[] = [
     squash: 0.098,
     haze: 0xd9c79a,
     air: 0.1,
+    hoop: {
+      tint: 0xe9e1d0,
+      parts: [
+        [1.22, 1.45, 0.14],
+        [1.45, 1.75, 0.9],
+        [1.8, 1.925, 0.6],
+        [1.94, 1.97, 0.5],
+      ],
+    },
     brews: [
       brew({ side: 1, band: 3, size: 0.3, stretch: 1.5, tint: 0xf4ecd6, cover: 0.7, wake: 0.6 }),
       brew({ band: 4, count: 2, size: 0.25, tint: 0xefe2bd, cover: 0.6 }),
@@ -237,6 +262,7 @@ const GIANTS: Giant[] = [
     squash: 0.02,
     haze: 0x5a8cf0,
     air: 0.25,
+    hoop: null,
     brews: [
       brew({ band: 1, seat: 0.2, size: 0.42, stretch: 1.8, tint: 0x1c3476, cover: 0.85, crest: 1 }),
       brew({ side: 1, band: 2, size: 0.16, stretch: 1.5, tint: 0x1f3a80, cover: 0.8, crest: 0.8 }),
@@ -262,6 +288,16 @@ const GIANTS: Giant[] = [
     squash: 0.023,
     haze: 0xb9ecec,
     air: 0.25,
+    hoop: {
+      tint: 0x8b9aa3,
+      parts: [
+        [1.6, 1.612, 0.5],
+        [1.68, 1.69, 0.45],
+        [1.75, 1.758, 0.4],
+        [1.83, 1.846, 0.55],
+        [1.95, 1.972, 0.7],
+      ],
+    },
     brews: [
       brew({ side: 1, band: 2, count: 2, size: 0.05, stretch: 4, tint: 0xf2ffff, cover: 0.6 }),
     ],
@@ -454,6 +490,41 @@ function chartOf(body: Body, giant: Giant, bands: Band[]): DataTexture {
   chart.magFilter = LinearFilter;
   chart.needsUpdate = true;
   return chart;
+}
+
+function gritOf(body: Body, hoop: Hoop): DataTexture {
+  const random = createRandom(body.seed + 59);
+  const coarse = ripple(random, 24);
+  const fine = ripple(random, 150);
+  const tint = new Color(hoop.tint);
+  const from = hoop.parts[0][0];
+  const to = hoop.parts[hoop.parts.length - 1][1];
+  const data = new Uint8Array(RING_STEPS * 4);
+  for (let step = 0; step < RING_STEPS; step++) {
+    const share = (step + 0.5) / RING_STEPS;
+    const radius = from + (to - from) * share;
+    const whole = hoop.parts.reduce(
+      (sum, [inner, outer, density]) =>
+        sum +
+        density *
+          MathUtils.smoothstep(radius, inner - RING_EDGE, inner + RING_EDGE) *
+          (1 - MathUtils.smoothstep(radius, outer - RING_EDGE, outer + RING_EDGE)),
+      0,
+    );
+    const dense = MathUtils.clamp(whole * (1 + 0.25 * coarse(share) + 0.2 * fine(share)), 0, 1);
+    const pale = (0.72 + 0.28 * dense) * (1 + 0.06 * fine(share));
+    const at = step * 4;
+    data[at] = 255 * Math.sqrt(MathUtils.clamp(tint.r * pale, 0, 1));
+    data[at + 1] = 255 * Math.sqrt(MathUtils.clamp(tint.g * pale, 0, 1));
+    data[at + 2] = 255 * Math.sqrt(MathUtils.clamp(tint.b * pale, 0, 1));
+    data[at + 3] = 255 * dense;
+  }
+  const grit = new DataTexture(data, RING_STEPS, 1);
+  grit.generateMipmaps = true;
+  grit.minFilter = LinearMipmapLinearFilter;
+  grit.magFilter = LinearFilter;
+  grit.needsUpdate = true;
+  return grit;
 }
 
 function stormsOf(body: Body, giant: Giant, bands: Band[]): Storm[] {
@@ -694,6 +765,7 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
     return {
       body,
       frame,
+      girth: body.radius,
       ...surface,
       light(_toward, _chart, tick) {
         const one = beat(tick / GRANULE_LIFE);
@@ -751,6 +823,14 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
     const stream = new Vector4(0, 1, 0, 0);
     const shift = new Vector2();
     const flat = 1 - (giant?.squash ?? 0);
+    const hoop = giant?.hoop ?? null;
+    const grit = hoop === null ? null : gritOf(body, hoop);
+    const reach =
+      hoop === null
+        ? new Vector2(0, 0)
+        : new Vector2(hoop.parts[0][0], hoop.parts[hoop.parts.length - 1][1]);
+    const sunny = new Vector3(1, 0, 0);
+    const upright = new Quaternion();
     const uniforms = {
       relief: { value: null as CubeTexture | null },
       palette: { value: palette },
@@ -786,6 +866,9 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
                   : new Vector4(storm.tint.r, storm.tint.g, storm.tint.b, storm.cover);
               }),
             },
+            grit: { value: grit },
+            hoop: { value: reach },
+            sunny: { value: sunny },
           }),
     };
     const surface = baked(body, (relief) => {
@@ -828,9 +911,33 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
       frame.add(shell);
     }
 
+    if (grit !== null) {
+      const ring = new Mesh(
+        new RingGeometry(reach.x * 0.98, reach.y * 1.02, 128, 1).rotateX(-Math.PI / 2),
+        new ShaderMaterial({
+          vertexShader: RING_VERTEX,
+          fragmentShader: RING_FRAGMENT,
+          side: DoubleSide,
+          transparent: true,
+          depthWrite: false,
+          uniforms: {
+            grit: { value: grit },
+            hoop: { value: reach },
+            sunny: { value: sunny },
+            shine: uniforms.shine,
+            squash: uniforms.squash,
+          },
+        }),
+      );
+      ring.scale.setScalar(body.radius);
+      ring.renderOrder = 1;
+      frame.add(ring);
+    }
+
     return {
       body,
       frame,
+      girth: body.radius * Math.max(1, RING_VIEW * reach.y),
       ...surface,
       light(toward, chart, tick) {
         sun.copy(toward);
@@ -839,6 +946,7 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
         if (giant === null) {
           return;
         }
+        sunny.copy(toward).applyQuaternion(frame.getWorldQuaternion(upright).invert());
         const beat = (age: number, offset: number) => {
           const cycle = Math.floor(age);
           const share = age - cycle;

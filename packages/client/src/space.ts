@@ -230,7 +230,7 @@ export function createSpace(stage: HTMLElement, system: StarSystem): Space {
       looks[id].refine(fine);
     }
     const body = looks[id].body;
-    const wanted = id === system.home ? HOME_VIEW : PORTRAIT * body.radius;
+    const wanted = id === system.home ? HOME_VIEW : PORTRAIT * looks[id].girth;
     glide = {
       from: camera.position.length(),
       to: wanted,
