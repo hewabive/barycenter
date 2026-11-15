@@ -87,7 +87,8 @@ export interface JointState {
 
 export interface HoldingOrders {
   dial: number;
-  garrison: number;
+  garrison: number | null;
+  reinforcement: number;
 }
 
 export interface PowerState {
@@ -95,6 +96,8 @@ export interface PowerState {
   capital: number;
   explored: boolean[];
   lean: number[];
+  army: number;
+  forward: number;
   holdings: HoldingOrders[];
   roads: boolean[];
 }
@@ -127,6 +130,7 @@ export interface Constants {
   quarterDecay: number;
   quartersBase: number;
   quartersPerLevel: number;
+  forwardSpan: number;
   levelCost: number;
   buildRate: number;
   shipyardRate: number;
@@ -157,6 +161,7 @@ export interface Constants {
   announceTicks: number;
   defaultDial: number;
   defaultLean: number;
+  defaultForward: number;
   leanSpan: number;
   extractionFloor: number;
   extractionGain: number;
@@ -188,7 +193,10 @@ export interface State {
 
 export type Command =
   | { kind: "dial"; power: number; region: number; value: number }
-  | { kind: "garrison"; power: number; region: number; value: number }
+  | { kind: "garrison"; power: number; region: number; value: number | null }
+  | { kind: "reinforce"; power: number; region: number; value: number }
+  | { kind: "army"; power: number; value: number }
+  | { kind: "forward"; power: number; value: number }
   | { kind: "lean"; power: number; branch: Branch; value: number }
   | { kind: "road"; power: number; edge: number; active: boolean }
   | { kind: "pressure"; power: number; region: number; target: number | null; active: boolean }

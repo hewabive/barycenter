@@ -32,6 +32,12 @@ function applyCommand(state: State, command: Command, events: GameEvent[]): stri
       return setDial(state, command.power, command.region, command.value);
     case "garrison":
       return setGarrison(state, command.power, command.region, command.value);
+    case "reinforce":
+      return setReinforcement(state, command.power, command.region, command.value);
+    case "army":
+      return setArmy(state, command.power, command.value);
+    case "forward":
+      return setForward(state, command.power, command.value);
     case "lean":
       return setLean(state, command.power, command.branch, command.value);
     case "road":
@@ -67,14 +73,51 @@ function setDial(state: State, power: number, region: number, value: number): st
   return null;
 }
 
-function setGarrison(state: State, power: number, region: number, value: number): string | null {
+function setGarrison(
+  state: State,
+  power: number,
+  region: number,
+  value: number | null,
+): string | null {
+  if (!isRegion(state, region) || !holds(state, power, region)) {
+    return "region is not held";
+  }
+  if (value !== null && !(value >= 0 && value <= GARRISON_LIMIT)) {
+    return "garrison is out of range";
+  }
+  state.powers[power].holdings[region].garrison = value;
+  return null;
+}
+
+function setReinforcement(
+  state: State,
+  power: number,
+  region: number,
+  value: number,
+): string | null {
   if (!isRegion(state, region) || !holds(state, power, region)) {
     return "region is not held";
   }
   if (!(value >= 0 && value <= GARRISON_LIMIT)) {
-    return "garrison is out of range";
+    return "reinforcement is out of range";
   }
-  state.powers[power].holdings[region].garrison = value;
+  state.powers[power].holdings[region].reinforcement = value;
+  return null;
+}
+
+function setArmy(state: State, power: number, value: number): string | null {
+  if (!(value >= 0 && value <= GARRISON_LIMIT)) {
+    return "army is out of range";
+  }
+  state.powers[power].army = value;
+  return null;
+}
+
+function setForward(state: State, power: number, value: number): string | null {
+  if (!(value >= 0 && value <= 1)) {
+    return "forward is out of range";
+  }
+  state.powers[power].forward = value;
   return null;
 }
 

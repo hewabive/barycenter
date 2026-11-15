@@ -82,17 +82,20 @@ Every order names a node or an edge between nodes, and the simulation decides wh
 | Target | Order                | Effect                                                                   |
 | ------ | -------------------- | ------------------------------------------------------------------------ |
 | Node   | development priority | one dial from "gives everything to the network" to "pulls toward itself" |
-| Node   | garrison             | room for force built in the holding, where force rests                   |
+| Node   | garrison             | fixes the room for force in one holding, which the army places otherwise |
+| Node   | reinforcement        | keeps force in the field in the holding beyond what its garrison houses  |
 | Node   | pressure             | directs force at one holder's cells in the node                          |
 | Node   | aim                  | gives a pressure one cell to break through to                            |
 | Edge   | road                 | lays a trunk road between the holdings on its two sides                  |
 | Edge   | border               | closed, or trade: exchange of surpluses and spread of knowledge          |
 | Edge   | gift                 | a flow into a foreign node, to aid an ally or to feed a rival's colony   |
+| Power  | army                 | how much force the power means to house in its garrisons                 |
+| Power  | forward              | one dial from "garrisons in the rear" to "garrisons at the frontier"     |
 | Power  | leaning              | one dial per branch: how far that branch is built ahead of need          |
 | Power  | fold                 | hands a body over to self-rule                                           |
 | Power  | release              | lets a node go peacefully                                                |
 
-Development priority and garrison apply to the player's own holding in the node. A garrison is built in the hub of the holding.
+Development priority, garrison and reinforcement apply to the player's own holding in the node. A garrison is built in the hub of the holding.
 
 Pressure names a node and whose cells in it to press: neutral ground or one power. It can be ordered wherever the player's cells touch such cells, from a neighboring node or from inside the same one, and it lapses when that holder has no cells left there.
 
@@ -134,9 +137,12 @@ Energy fades with distance, so far land is dearer to hold than near land, and a 
 
 Force is tied to the land through garrisons.
 
-- The garrison order names a node and a size. The simulation builds room for that much force in the hub of the player's holding there. Room costs matter, takes time to build and needs energy upkeep even when empty. A hub can house more as its level grows. Room that no order asks for is slowly run down.
+- The army order names a size for the whole power. The simulation places room for that much force in the hubs of the power's holdings. Room costs matter, takes time to build and needs energy upkeep even when empty. A hub can house more as its level grows. Room that is no longer wanted is slowly run down.
+- The forward dial says where the room goes. In the middle every hub gets the same share of what it can house. Toward one end a hub's share doubles with every cell it stands nearer to the frontier, and toward the other with every cell it stands farther from it. The frontier is where the power's land touches another power or, until it meets one, free land.
+- The garrison order names a node and a size and fixes the room in the player's holding there. The army then places only the rest, in the other holdings. A holding without that order follows the army.
 - The room in all garrisons of a power caps its force. Shipyards build up to the cap, and force above it melts away, so a lost garrison shrinks the army it housed.
 - Force that no front asks for rests in a garrison. A front draws force from the nearest garrisons that have it, for attack and for defense alike. Force stays at its front while the order stands and moves only to another front that is short. Once the order is gone it returns to a garrison with room.
+- The reinforcement order names a node and a size. That much force stands in the field in the player's holding there, on top of what attack and defense call for. It stands on the cells that face other powers, more of it where the contact is wider, and in the hub where no other power is near. It comes from the garrisons and adds no room, so its price is the upkeep of force in the field and the loss on the way. The same order masses force at a border ahead of an attack.
 - Force at rest needs a fraction of the energy of force in the field, and force on the move loses a share on every hop like everything else. A far front reached over poor ground is dear.
 - A cell cut off from its capital is stranded, and force there melts quickly. A strip one cell wide is a supply line that one captured cell cuts.
 - A captured cell loses part of its garrison room along with its level.
@@ -253,6 +259,11 @@ Play with these three found the economy still out of sight, and the report on it
 - Land yields nothing until a level stands on it. A capital starts more developed instead.
 - Flags, as described under Flags.
 
+Play then found the size of the army tiring to set holding by holding, and found no way to send a holding under threat more force than its garrison houses. Two changes answer this. Both are built, and their constants are set only coarsely.
+
+- One army order and one forward dial for the whole power, as described under Garrisons. The garrison order stays as the exception for one holding.
+- Reinforcement, as described under Garrisons.
+
 Stage 3 adds knowledge, cohesion, borders and trade, gifts, the moon and folding with governors. It tests whether the game stays manageable as it grows.
 
 Stage 4 splits matter into kinds with prices and values. It is not designed in detail. Until then matter has one kind.
@@ -261,18 +272,22 @@ Stage 4 splits matter into kinds with prices and values. It is not designed in d
 
 - No human has played with roads, garrisons and aims yet.
 - No human has played with flags yet.
+- No human has played with the army order, the forward dial and reinforcement yet.
+- The army is a number, so the player raises it as the power grows. A share of what the power has built may be the coarser tool.
+- A reinforcement is spread along the whole contact with other powers by its width. It does not gather where the rival's force stands.
 - A flag has one price everywhere, so it slows expansion and does not limit size: built land still pays for itself, and the larger power stays the stronger. The brake meant for size is cohesion.
 - Bot powers now reach about 23 cells by tick 1200 and 47 by tick 2500. Before flags it was 62 and 83.
 - Energy now sets the ceiling through the first half of a game. Flags are a quarter to a third of the need, and one percent of the energy made finds no use. Late in a game a tenth to a quarter is idle again.
 - Bare land cannot build itself, so matter has to travel to it, and the loss on the way takes 6 to 12 percent of what is produced.
 - Bots settle land only while none of their flags is about to fall and few of their cells lack a level. The rule is coarse, and so is the size of the army each doctrine keeps.
+- Bots set one army size and one forward dial by doctrine. They reinforce a holding under attack and the holding they stage an attack from, and never fix a garrison by hand.
 - Bots do not aim their attacks and cut a supply line only by chance.
 - Energy is not limited by capacity, so a strip one cell wide carries any amount of it.
 - The hub of a holding, where its garrison stands and its trunk roads meet, is chosen by the simulation. The player may need a say in it.
 - The leaning went untouched in play. Whether the player keeps it is undecided.
 - The constants are preliminary. They were adjusted only until bots played sensibly, and real tuning needs play with the constants panel.
-- In a series of 12 bot matches of 6000 ticks the builder ended with 43 percent of the held cells, the opportunist with 32 and the aggressor with 25. Eight powers were eliminated, two matches were left with a single power, and three regions on average were shared at the end. About 37 cells a match changed hands between powers, and two were lost to fallen flags.
-- In 3 of the 10 matches that lasted no cell changed hands in the last third.
+- In a series of 12 bot matches of 6000 ticks the builder ended with 42 percent of the held cells, the opportunist with 32 and the aggressor with 25. Seven powers were eliminated, no match was left with a single power, and three regions on average were shared at the end. About 44 cells a match changed hands between powers, and one or two were lost to fallen flags.
+- In 4 of the 12 matches no cell changed hands in the last third.
 - A power that has built every cell to its cap has nothing left to spend matter on. Its surplus then circulates and a tenth to a fifth of its output is lost on the way.
 - The client shows regions by number and lets values other than flows jump between ticks.
 - Kinds of matter: how many functions there are and which, and whether energy, force and knowledge are split in the same way. Kinds of force would be unit types and kinds of knowledge a technology tree, and both are absent so far.

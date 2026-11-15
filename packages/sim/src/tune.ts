@@ -22,6 +22,8 @@ const LIMITS: Partial<Record<keyof Constants, Limit>> = {
   captureLevelLoss: SHARE,
   defaultDial: SHARE,
   defaultLean: SHARE,
+  defaultForward: SHARE,
+  forwardSpan: [0, 8],
   convertRate: SHARE,
   attrition: SHARE,
   leanSpan: [1, 1000],

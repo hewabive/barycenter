@@ -55,11 +55,7 @@ interface Guard {
 const LEAN_STEP = 0.02;
 const DIAL_STEP = 0.05;
 const GARRISON_STEP = 1;
-const BASE_REAR = 0.5;
-const BASE_BORDER = 1.5;
-const BASE_THREAT = 2;
-const BASE_FRONT = 2;
-const BASE_PASSES = 3;
+const GUARD_SHARE = 0.5;
 const FORCE_FLOOR = 10;
 const FORCE_SHRINK = 0.95;
 const FULL_SHARE = 0.8;
@@ -94,7 +90,7 @@ export function decide(
   return [
     ...setLean(survey, doctrine),
     ...setDials(survey, doctrine),
-    ...setGarrisons(survey, doctrine, guard, plan),
+    ...setArmy(survey, doctrine, guard, plan),
     ...plan.commands,
     ...layRoads(survey, plan),
   ];
@@ -140,10 +136,7 @@ function look(outline: Outline, constants: Constants, view: View): Survey {
 }
 
 function armyOf(survey: Survey, doctrine: Doctrine): number {
-  const ordered = survey.own.reduce(
-    (sum, holding) => sum + Math.min(holding.estate.garrison, holding.estate.quartersLimit),
-    0,
-  );
+  const ordered = Math.min(survey.view.army, survey.view.housing);
   const ceiling = Math.max(FORCE_FLOOR, survey.levels * (0.2 + 0.4 * doctrine.aggression));
   let wanted = ordered;
   if (survey.supply < SUPPLY_SHORT) {
@@ -393,40 +386,22 @@ function setDials(survey: Survey, doctrine: Doctrine): Command[] {
   return commands;
 }
 
-function setGarrisons(survey: Survey, doctrine: Doctrine, guard: Guard, plan: Plan): Command[] {
-  let left = armyOf(survey, doctrine);
-  const weights = new Map<number, number>();
-  for (const holding of survey.own) {
-    const border = holding.estate.exposure > 0 ? BASE_BORDER : 0;
-    const threat = guard.urgent.has(holding.id) ? BASE_THREAT : 0;
-    const front = plan.staging.has(holding.id) || plan.fronts.has(holding.id) ? BASE_FRONT : 0;
-    weights.set(holding.id, BASE_REAR + border + threat + front);
-  }
-  const rooms = new Map<number, number>();
-  let open = survey.own;
-  for (let pass = 0; pass < BASE_PASSES && open.length > 0 && left > 0; pass++) {
-    const sum = open.reduce((total, holding) => total + (weights.get(holding.id) ?? 0), 0);
-    const pool = left;
-    const unfilled: Own[] = [];
-    for (const holding of open) {
-      const held = rooms.get(holding.id) ?? 0;
-      const share = (pool * (weights.get(holding.id) ?? 0)) / sum;
-      const given = Math.min(share, holding.estate.quartersLimit - held);
-      rooms.set(holding.id, held + given);
-      left -= given;
-      if (given < share) {
-        continue;
-      }
-      unfilled.push(holding);
-    }
-    open = unfilled;
-  }
-
+function setArmy(survey: Survey, doctrine: Doctrine, guard: Guard, plan: Plan): Command[] {
+  const { me, view } = survey;
   const commands: Command[] = [];
+  const army = Math.round(armyOf(survey, doctrine) / GARRISON_STEP) * GARRISON_STEP;
+  if (Math.abs(army - view.army) >= GARRISON_STEP) {
+    commands.push({ kind: "army", power: me, value: army });
+  }
+  if (Math.abs(doctrine.forward - view.forward) > DIAL_STEP) {
+    commands.push({ kind: "forward", power: me, value: doctrine.forward });
+  }
+  const spare = survey.totalForce * GUARD_SHARE;
   for (const holding of survey.own) {
-    const value = Math.round((rooms.get(holding.id) ?? 0) / GARRISON_STEP) * GARRISON_STEP;
-    if (Math.abs(value - holding.estate.garrison) >= GARRISON_STEP) {
-      commands.push({ kind: "garrison", power: survey.me, region: holding.id, value });
+    const called = guard.urgent.get(holding.id) ?? plan.staging.get(holding.id) ?? 0;
+    const value = Math.round(Math.min(called, spare) / GARRISON_STEP) * GARRISON_STEP;
+    if (Math.abs(value - holding.estate.reinforcement) >= GARRISON_STEP) {
+      commands.push({ kind: "reinforce", power: me, region: holding.id, value });
     }
   }
   return commands;

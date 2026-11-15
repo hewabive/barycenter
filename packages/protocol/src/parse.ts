@@ -41,8 +41,14 @@ function parseOrder(value: unknown): Order | null {
   if (kind === "dial" && isNumber(region) && isNumber(amount)) {
     return { kind, region, value: amount };
   }
-  if (kind === "garrison" && isNumber(region) && isNumber(amount)) {
+  if (kind === "garrison" && isNumber(region) && (amount === null || isNumber(amount))) {
     return { kind, region, value: amount };
+  }
+  if (kind === "reinforce" && isNumber(region) && isNumber(amount)) {
+    return { kind, region, value: amount };
+  }
+  if ((kind === "army" || kind === "forward") && isNumber(amount)) {
+    return { kind, value: amount };
   }
   if (kind === "lean" && isBranch(branch) && isNumber(amount)) {
     return { kind, branch, value: amount };

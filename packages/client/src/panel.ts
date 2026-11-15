@@ -17,8 +17,15 @@ export interface Panel {
 type Refresh = (game: Game) => void;
 
 const LEANING_HINT = "50% builds a branch as the need appears, more builds it ahead of need";
+const ARMY_HINT =
+  "How much force your power means to house. The room is built in the garrisons of your regions, and their sum caps your force";
+const FORWARD_HINT =
+  "Where the room is built: 0% deep in the rear, 100% in the hubs nearest to other powers";
 const GARRISON_HINT =
-  "Room for force to build in this region. Force rests in its garrisons, and their sum caps your force";
+  "Room for force in this region. Leave it empty and your power places the room, or type a number to fix it here";
+const REINFORCEMENT_HINT =
+  "Force kept in the field here beyond the garrison, on your cells that face other powers. " +
+  "It comes from your garrisons elsewhere and takes the full upkeep of force in the field";
 const FLAG_HINT =
   "A cell without a level makes nothing. Its flag needs energy and falls when none reaches it: " +
   "the cell fades on the globe and turns neutral";
@@ -146,9 +153,66 @@ export function createPanel(root: HTMLElement, actions: PanelActions): Panel {
       "What is built follows the land, what is short nearby and this leaning. Built levels change slowly.",
     ),
   );
-  leaning.classList.add("leaning");
+  const army = el("section", {}, el("h3", {}, "Army of your power"));
+  const size = el("input", { type: "number", min: "0", step: "1", inputmode: "decimal" });
+  size.addEventListener("change", () => {
+    actions.order({ kind: "army", value: Math.max(0, Number(size.value)) });
+  });
+  const forward = el("input", { type: "range", min: "0", max: "1", step: "0.05" });
+  const forwardValue = el("span", { class: "value" });
+  forward.addEventListener("input", () => {
+    forwardValue.textContent = percent(Number(forward.value));
+  });
+  forward.addEventListener("change", () => {
+    actions.order({ kind: "forward", value: Number(forward.value) });
+  });
+  steady.push((game) => {
+    if (document.activeElement !== size) {
+      size.value = String(game.view.army);
+    }
+    if (document.activeElement !== forward) {
+      forward.value = String(game.view.forward);
+      forwardValue.textContent = percent(game.view.forward);
+    }
+  });
+  army.append(
+    el(
+      "label",
+      { class: "control", title: ARMY_HINT },
+      el("span", { class: "name" }, "Army"),
+      size,
+    ),
+    el("div", { class: "hint touch" }, ARMY_HINT),
+    el(
+      "label",
+      { class: "control", title: FORWARD_HINT },
+      el("span", { class: "name" }, "Garrisons at the frontier"),
+      forward,
+      forwardValue,
+    ),
+    el("div", { class: "hint" }, FORWARD_HINT),
+    row(
+      "Room built",
+      live((game) => {
+        let wanted = 0;
+        for (const region of game.view.regions) {
+          wanted += region.estate?.quartersWanted ?? 0;
+        }
+        return `${amount(game.view.forceCap)} of ${amount(wanted)}`;
+      }, steady),
+    ),
+    el(
+      "div",
+      { class: "hint" },
+      live(
+        (game) => `Your hubs can house ${amount(game.view.housing)}, more as their levels grow`,
+        steady,
+      ),
+    ),
+  );
+  const power = el("div", { class: "power" }, army, leaning);
   const details = el("div", { class: "details" });
-  const body = el("div", { class: "body" }, leaning, details);
+  const body = el("div", { class: "body" }, power, details);
   const heading = el("span", {});
   const handle = el("button", { type: "button", class: "handle" }, heading);
   handle.addEventListener("click", () => root.classList.toggle("folded"));
@@ -192,13 +256,30 @@ export function createPanel(root: HTMLElement, actions: PanelActions): Panel {
       min: "0",
       step: "0.5",
       inputmode: "decimal",
+      placeholder: "auto",
     });
     garrison.addEventListener("change", () => {
-      actions.order({ kind: "garrison", region: id, value: Math.max(0, Number(garrison.value)) });
+      const fixed = garrison.value.trim() === "" ? null : Math.max(0, Number(garrison.value));
+      actions.order({ kind: "garrison", region: id, value: fixed });
+    });
+    const reinforcement = el("input", {
+      type: "number",
+      min: "0",
+      step: "1",
+      inputmode: "decimal",
+    });
+    reinforcement.addEventListener("change", () => {
+      const value = Math.max(0, Number(reinforcement.value));
+      actions.order({ kind: "reinforce", region: id, value });
     });
     refreshers.push((current) => {
+      const estate = current.view.regions[id].estate;
       if (document.activeElement !== garrison) {
-        garrison.value = String(current.view.regions[id].estate?.garrison ?? 0);
+        const fixed = estate?.garrison ?? null;
+        garrison.value = fixed === null ? "" : String(fixed);
+      }
+      if (document.activeElement !== reinforcement) {
+        reinforcement.value = String(estate?.reinforcement ?? 0);
       }
     });
     section.append(
@@ -216,8 +297,8 @@ export function createPanel(root: HTMLElement, actions: PanelActions): Panel {
           if (estate === null) {
             return "";
           }
-          const ordered = Math.min(estate.garrison, estate.quartersLimit);
-          return `${amount(estate.quarters)} of ${amount(ordered)}`;
+          const source = estate.garrison === null ? "placed by your power" : "fixed here";
+          return `${amount(estate.quarters)} of ${amount(estate.quartersWanted)} · ${source}`;
         }),
       ),
       el(
@@ -228,6 +309,13 @@ export function createPanel(root: HTMLElement, actions: PanelActions): Panel {
           return `The hub of your land here can house ${amount(limit)}, more as its level grows`;
         }),
       ),
+      el(
+        "label",
+        { class: "control", title: REINFORCEMENT_HINT },
+        el("span", { class: "name" }, "Reinforcement"),
+        reinforcement,
+      ),
+      el("div", { class: "hint" }, REINFORCEMENT_HINT),
       row(
         "Matter held",
         live((current) => amount(current.view.regions[id].estate?.matter ?? 0)),

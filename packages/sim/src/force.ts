@@ -6,6 +6,7 @@ import {
   defenseOf,
   EPSILON,
   FULL_SIEGE,
+  hubOf,
   passOf,
   signedFlow,
   spread,
@@ -65,9 +66,50 @@ export function armingOf(state: State): boolean[] {
   return forceRoomOf(state).map((room) => room > EPSILON);
 }
 
+export function reinforcementsOf(state: State): number[] {
+  const { cells, map } = state;
+  const ordered = new Array<number>(cells.length).fill(0);
+  state.powers.forEach((power, id) => {
+    if (!power.alive) {
+      return;
+    }
+    power.holdings.forEach((orders, region) => {
+      if (orders.reinforcement <= 0) {
+        return;
+      }
+      const widths = new Map<number, number>();
+      let whole = 0;
+      for (const cell of map.regions[region].cells) {
+        if (cells[cell].owner !== id) {
+          continue;
+        }
+        let width = 0;
+        for (const link of map.links[cell]) {
+          const other = cells[link.cell].owner;
+          if (other !== null && other !== id) {
+            width += capacityOf(state, link.joint);
+          }
+        }
+        if (width > 0) {
+          widths.set(cell, width);
+          whole += width;
+        }
+      }
+      for (const [cell, width] of widths) {
+        ordered[cell] = (orders.reinforcement * width) / whole;
+      }
+      const hub = whole > 0 ? null : hubOf(state, id, region);
+      if (hub !== null) {
+        ordered[hub] = orders.reinforcement;
+      }
+    });
+  });
+  return ordered;
+}
+
 export function forceFieldOf(state: State, lanes: Lane[]): ForceField {
   const { cells } = state;
-  const need = new Array<number>(cells.length).fill(0);
+  const need = reinforcementsOf(state);
   for (const lane of lanes) {
     need[lane.from] += attackNeedOf(state, lane);
     if (cells[lane.to].owner !== null) {

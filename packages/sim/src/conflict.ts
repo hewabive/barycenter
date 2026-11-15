@@ -1,7 +1,7 @@
 import { widthOf } from "./force.ts";
 import type { Lane } from "./front.ts";
 import type { Ledger } from "./ledger.ts";
-import { cellsOf, defenseOf, EPSILON, FULL_SIEGE, holds } from "./rules.ts";
+import { blankOrders, cellsOf, defenseOf, EPSILON, FULL_SIEGE, holds } from "./rules.ts";
 import type { Constants, GameEvent, State } from "./types.ts";
 
 export interface Commitment {
@@ -151,7 +151,7 @@ export function vacate(state: State, power: number, region: number): boolean {
   if (holds(state, power, region)) {
     return false;
   }
-  state.powers[power].holdings[region] = { dial: state.constants.defaultDial, garrison: 0 };
+  state.powers[power].holdings[region] = blankOrders(state.constants);
   return true;
 }
 

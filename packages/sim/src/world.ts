@@ -1,6 +1,7 @@
 import { defaultConstants } from "./constants.ts";
 import { explore } from "./explore.ts";
 import { createRandom, type Random } from "./random.ts";
+import { blankOrders } from "./rules.ts";
 import { neighborPairs, scatter } from "./sphere.ts";
 import {
   BRANCHES,
@@ -160,7 +161,9 @@ export function createWorld(options: WorldOptions): State {
       capital,
       explored: new Array<boolean>(regions.length).fill(false),
       lean: BRANCHES.map(() => constants.defaultLean),
-      holdings: regions.map(() => ({ dial: constants.defaultDial, garrison: 0 })),
+      army: constants.startQuarters,
+      forward: constants.defaultForward,
+      holdings: regions.map(() => blankOrders(constants)),
       roads: edges.map(() => false),
     })),
     pressures: [],
@@ -175,7 +178,6 @@ export function createWorld(options: WorldOptions): State {
     seat.stock[0] = constants.startMatter;
     seat.force = constants.startForce;
     seat.quarters = constants.startQuarters;
-    state.powers[power].holdings[cells[capital].region].garrison = constants.startQuarters;
   });
   explore(state, []);
   return state;

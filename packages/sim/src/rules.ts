@@ -1,10 +1,14 @@
-import type { Constants, Link, State } from "./types.ts";
+import type { Constants, HoldingOrders, Link, State } from "./types.ts";
 
 export const EPSILON = 1e-9;
 export const EXTRACTION = 0;
 export const POWER = 1;
 export const SHIPYARD = 2;
 export const FULL_SIEGE = 2;
+
+export function blankOrders(constants: Constants): HoldingOrders {
+  return { dial: constants.defaultDial, garrison: null, reinforcement: 0 };
+}
 
 export function capacityOf(state: State, joint: number): number {
   const { constants } = state;

@@ -29,7 +29,8 @@ const BATTLE_COLUMNS = [
 ];
 const STAND_LEGEND =
   "Garrison shows the force resting in the garrison of the region and the room it has. " +
-  "Front shows the force standing at a front and the force wanted there. " +
+  "Front shows the force standing at a front and the force wanted there by attacks, defense " +
+  "and reinforcement orders. " +
   "Moving is force on its way: to a front that is short, or back to a garrison with room.";
 
 function share(standing: number, wanted: number): string {
@@ -52,13 +53,16 @@ function reasonsOf(game: Game, region: number, estate: Estate, muster: Muster): 
     const start = wait > 0 ? `, starts in ${wait} ticks` : "";
     reasons.push(`${subject} needs ${amount(duty.need)}${start}`);
   }
-  const ordered = Math.min(estate.garrison, estate.quartersLimit);
+  if (estate.reinforcement >= SHOWN) {
+    reasons.push(`Reinforcement of ${amount(estate.reinforcement)} is ordered here`);
+  }
+  const ordered = estate.quartersWanted;
   if (estate.quarters < ordered - SHOWN) {
     reasons.push(
       `Garrison is being built: room for ${amount(estate.quarters)} of ${amount(ordered)}`,
     );
   }
-  if (estate.garrison > estate.quartersLimit + SHOWN) {
+  if (estate.garrison !== null && estate.garrison > estate.quartersLimit + SHOWN) {
     reasons.push(`The hub here can house only ${amount(estate.quartersLimit)}`);
   }
   let routed = 0;
@@ -215,12 +219,13 @@ export function createForces(root: HTMLDialogElement, actions: ForcesActions): F
       if (region.estate === null || mine === undefined || !muster) {
         continue;
       }
-      const { garrison, quarters } = region.estate;
+      const { quarters, quartersWanted, reinforcement } = region.estate;
+      const unused = quarters < SHOWN && quartersWanted < SHOWN && reinforcement < SHOWN;
       sum.force += mine.force;
       sum.garrison += muster.garrison;
       sum.front += muster.front;
       sum.reserve += muster.reserve;
-      if (mine.force < SHOWN && garrison <= 0 && muster.duties.length === 0) {
+      if (mine.force < SHOWN && unused && muster.duties.length === 0) {
         continue;
       }
       const key = String(region.id);
@@ -237,7 +242,8 @@ export function createForces(root: HTMLDialogElement, actions: ForcesActions): F
     const cap = game.view.forceCap;
     write(
       totals,
-      `Total ${amount(sum.force)} of ${amount(cap)} · in garrisons ${amount(sum.garrison)} · ` +
+      `Total ${amount(sum.force)} of ${amount(cap)} · army ordered ${amount(game.view.army)} · ` +
+        `in garrisons ${amount(sum.garrison)} · ` +
         `front ${amount(sum.front)} · moving ${amount(sum.reserve)}`,
     );
     const { upkeepPerForce, restUpkeep, upkeepPerQuarter } = game.constants;

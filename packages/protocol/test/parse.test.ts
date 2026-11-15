@@ -38,6 +38,10 @@ test("orders keep only the fields the core knows", () => {
       { kind: "dial", region: 2, value: 0.5, power: 9, extra: true },
       { kind: "lean", branch: "power", value: 0.8 },
       { kind: "garrison", region: 2, value: 4 },
+      { kind: "garrison", region: 2, value: null },
+      { kind: "reinforce", region: 2, value: 6, power: 1 },
+      { kind: "army", value: 40, region: 2 },
+      { kind: "forward", value: 0.8 },
       { kind: "road", edge: 3, active: true },
       { kind: "pressure", region: 5, target: null, active: false },
       { kind: "pressure", region: 5, target: 1, active: true },
@@ -51,6 +55,10 @@ test("orders keep only the fields the core knows", () => {
       { kind: "dial", region: 2, value: 0.5 },
       { kind: "lean", branch: "power", value: 0.8 },
       { kind: "garrison", region: 2, value: 4 },
+      { kind: "garrison", region: 2, value: null },
+      { kind: "reinforce", region: 2, value: 6 },
+      { kind: "army", value: 40 },
+      { kind: "forward", value: 0.8 },
       { kind: "road", edge: 3, active: true },
       { kind: "pressure", region: 5, target: null, active: false },
       { kind: "pressure", region: 5, target: 1, active: true },
@@ -76,6 +84,12 @@ test("malformed orders are refused as a whole", () => {
   );
   assert.equal(parse({ type: "orders", orders: [{ kind: "aim", region: 2, target: 1 }] }), null);
   assert.equal(parse({ type: "orders", orders: [{ kind: "teleport", region: 2 }] }), null);
+  assert.equal(parse({ type: "orders", orders: [{ kind: "garrison", region: 2 }] }), null);
+  assert.equal(parse({ type: "orders", orders: [{ kind: "army", value: null }] }), null);
+  assert.equal(
+    parse({ type: "orders", orders: [{ kind: "reinforce", region: 2, value: null }] }),
+    null,
+  );
   assert.equal(parse({ type: "orders", orders: "all" }), null);
   assert.equal(parse({ type: "orders", orders: new Array(257).fill(good) }), null);
 });

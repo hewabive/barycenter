@@ -18,6 +18,8 @@ test("orders for regions the power does not hold are rejected", () => {
   const foreign = state.map.cells[state.powers[1].capital].region;
   assert.ok(rejected(state, { kind: "dial", power: 0, region: foreign, value: 1 }));
   assert.ok(rejected(state, { kind: "garrison", power: 0, region: foreign, value: 5 }));
+  assert.ok(rejected(state, { kind: "garrison", power: 0, region: foreign, value: null }));
+  assert.ok(rejected(state, { kind: "reinforce", power: 0, region: foreign, value: 5 }));
   assert.ok(
     rejected(state, { kind: "pressure", power: 0, region: foreign, target: 1, active: true }),
   );
@@ -29,6 +31,10 @@ test("malformed values are rejected", () => {
   assert.ok(rejected(state, { kind: "dial", power: 0, region: home, value: Number.NaN }));
   assert.ok(rejected(state, { kind: "dial", power: 0, region: 9999, value: 1 }));
   assert.ok(rejected(state, { kind: "garrison", power: 0, region: home, value: -1 }));
+  assert.ok(rejected(state, { kind: "reinforce", power: 0, region: home, value: -1 }));
+  assert.ok(rejected(state, { kind: "army", power: 0, value: -1 }));
+  assert.ok(rejected(state, { kind: "army", power: 0, value: Number.NaN }));
+  assert.ok(rejected(state, { kind: "forward", power: 0, value: 1.5 }));
   assert.ok(rejected(state, { kind: "dial", power: 9, region: home, value: 1 }));
   assert.ok(rejected(state, { kind: "road", power: 0, edge: 9999, active: true }));
   assert.ok(rejected(state, { kind: "lean", power: 0, branch: "power", value: 2 }));
@@ -136,7 +142,7 @@ test("a captured cell changes owner and loses part of its level", () => {
   if (state.map.cells[to].region !== state.map.cells[state.powers[1].capital].region) {
     const expelled = current.events.find((event) => event.kind === "expelled");
     assert.deepEqual(expelled, { kind: "expelled", power: 1, region, by: 0 });
-    assert.equal(current.state.powers[1].holdings[region].garrison, 0);
+    assert.equal(current.state.powers[1].holdings[region].garrison, null);
   }
   assert.equal(current.state.pressures.length, 0);
 });

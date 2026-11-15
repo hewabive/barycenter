@@ -1,4 +1,4 @@
-import { quartersLimitOf } from "./bases.ts";
+import { housingOf, quartersLimitOf, wantedQuartersOf } from "./bases.ts";
 import { commitmentOf } from "./conflict.ts";
 import { visibleRegions } from "./explore.ts";
 import { ticksToFallOf } from "./flags.ts";
@@ -56,8 +56,10 @@ export interface HoldingView {
 export interface Estate {
   matter: number;
   dial: number;
-  garrison: number;
+  garrison: number | null;
+  reinforcement: number;
   quarters: number;
+  quartersWanted: number;
   quartersLimit: number;
   supply: number;
   levelCap: number;
@@ -121,7 +123,10 @@ export interface View {
   power: number;
   alive: boolean[];
   lean: number[];
+  army: number;
+  forward: number;
   forceCap: number;
+  housing: number;
   regions: RegionView[];
   edges: EdgeView[];
   pressures: PressureView[];
@@ -213,7 +218,12 @@ function holdingsOf(state: State, region: MapRegion, viewer: number): HoldingVie
     .sort((left, right) => (left.owner ?? NEUTRAL) - (right.owner ?? NEUTRAL));
 }
 
-function estateOf(state: State, region: MapRegion, viewer: number): Estate | null {
+function estateOf(
+  state: State,
+  region: MapRegion,
+  viewer: number,
+  wanted: number[],
+): Estate | null {
   const { cells, map } = state;
   const own = region.cells.filter((cell) => cells[cell].owner === viewer);
   if (own.length === 0) {
@@ -239,7 +249,9 @@ function estateOf(state: State, region: MapRegion, viewer: number): Estate | nul
     matter: own.reduce((sum, cell) => sum + heldOf(cells[cell].stock), 0),
     dial: orders.dial,
     garrison: orders.garrison,
+    reinforcement: orders.reinforcement,
     quarters: own.reduce((sum, cell) => sum + cells[cell].quarters, 0),
+    quartersWanted: hub === null ? 0 : wanted[hub],
     quartersLimit: hub === null ? 0 : quartersLimitOf(state, hub),
     supply: own.reduce((sum, cell) => sum + cells[cell].supply, 0) / own.length,
     levelCap: own.reduce((sum, cell) => sum + map.cells[cell].levelCap, 0),
@@ -331,12 +343,13 @@ export function viewFor(state: State, power: number): View {
     layer.flag.push(seen ? Math.round(cell.flag * 100) / 100 : 1);
   });
 
+  const wanted = wantedQuartersOf(state);
   const regions = map.regions.map(
     (region): RegionView => ({
       id: region.id,
       nature: explored[region.id] ? natureOf(state, region) : null,
       holdings: visible.has(region.id) ? holdingsOf(state, region, power) : null,
-      estate: estateOf(state, region, power),
+      estate: estateOf(state, region, power, wanted),
     }),
   );
 
@@ -383,7 +396,10 @@ export function viewFor(state: State, power: number): View {
     power,
     alive: state.powers.map((holder) => holder.alive),
     lean: state.powers[power].lean.slice(),
+    army: state.powers[power].army,
+    forward: state.powers[power].forward,
     forceCap: forceCapsOf(state)[power],
+    housing: housingOf(state, power),
     regions,
     edges,
     pressures: pressuresOf(state, power, visible),

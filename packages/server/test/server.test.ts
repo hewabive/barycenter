@@ -138,6 +138,21 @@ test("orders sent over the socket reach the game", async () => {
     const updated = await client.next("view");
     assert.equal(updated.view.regions[home].estate?.garrison, 3.5);
 
+    client.send({
+      type: "orders",
+      orders: [
+        { kind: "garrison", region: home, value: null },
+        { kind: "army", value: 30 },
+        { kind: "forward", value: 0.8 },
+        { kind: "reinforce", region: home, value: 2 },
+      ],
+    });
+    const placed = await client.next("view");
+    assert.equal(placed.view.army, 30);
+    assert.equal(placed.view.forward, 0.8);
+    assert.equal(placed.view.regions[home].estate?.garrison, null);
+    assert.equal(placed.view.regions[home].estate?.reinforcement, 2);
+
     const foreign = welcome.view.regions.findIndex((region) => region.estate === null);
     client.send({ type: "orders", orders: [{ kind: "garrison", region: foreign, value: 1 }] });
     assert.equal((await client.next("rejected")).rejections.length, 1);
@@ -263,7 +278,7 @@ test("a save from another format is set aside and a fresh game starts", async ()
     const kept = JSON.parse(await readFile(join(folder, "eta.unsupported.json"), "utf8"));
     assert.equal(kept.state.tick, 9);
     const saved = JSON.parse(await readFile(join(folder, "eta.json"), "utf8"));
-    assert.equal(saved.version, 6);
+    assert.equal(saved.version, 7);
   } finally {
     await rm(folder, { recursive: true, force: true });
   }
