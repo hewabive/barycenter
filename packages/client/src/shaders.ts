@@ -95,6 +95,8 @@ const JET_REACH = 1.4;
 const EDDY_REACH = 0.07;
 const FLOW_BEATS = 6;
 const STORM_TWIST = 3.5;
+const SPOT_BEATS = 8;
+const SPOT_PULL = 0.02;
 const STORM_STRETCH = 1.5;
 
 export const STORM_ROOM = 4;
@@ -333,29 +335,25 @@ void main() {
 `;
 }
 
-const PLASMA = `
+const ACTIVITY = `
 uniform float drift;
 uniform float grain;
 
-vec2 plasma(vec3 at) {
-  float first = survey(spun(at, drift)).a;
-  float second = survey(spun(at.zxy, -2.0 * drift).yzx).a;
-  float cells = smoothstep(0.0, 0.25, abs(first - second));
-  return vec2((0.5 + 0.3 * (first + second)) * (0.6 + 0.4 * cells), cells);
+vec4 seatOf(vec3 at) {
+  return decoded(textureLod(relief, spun(at, -drift).zxy, grain - 1.0));
 }
 
-float patches(vec3 at) {
-  return survey(spun(at, -drift).zxy).a;
-}
-
-float calm(vec3 at) {
-  return decoded(textureLod(relief, spun(at, -drift).zxy, grain + 1.0)).a;
+float stirOf(vec4 seat, vec3 at) {
+  float belt = smoothstep(0.06, 0.2, abs(at.y)) * (1.0 - smoothstep(0.45, 0.62, abs(at.y)));
+  vec3 carried = spun(at, -drift);
+  float turn = ${real(SPOT_BEATS)} * drift + 5.0 * seat.a + 3.0 * carried.x + 2.0 * carried.z;
+  return (seat.a + 0.25 * sin(turn)) * belt;
 }
 `;
 
 export const STAR_FRAGMENT = `
 ${SURVEY}
-${PLASMA}
+${ACTIVITY}
 uniform vec3 palette[8];
 uniform mat4 modelMatrix;
 varying vec3 vAt;
@@ -363,19 +361,27 @@ varying vec3 vPlace;
 
 void main() {
   vec3 at = normalize(vAt);
-  vec2 state = plasma(at);
-  float belt = smoothstep(0.06, 0.2, abs(at.y)) * (1.0 - smoothstep(0.45, 0.62, abs(at.y)));
-  float spot = patches(at) * belt;
-  float umbra = smoothstep(0.42, 0.56, spot);
-  float fringe = smoothstep(0.3, 0.42, spot) * (1.0 - umbra);
+  vec4 seat = seatOf(at);
+  float stir = stirOf(seat, at);
+  vec3 pull = spun(seat.rgb.yzx, drift);
+  vec3 bent = normalize(at + ${real(SPOT_PULL)} * smoothstep(0.05, 0.45, stir) * pull);
+  float first = survey(spun(bent, drift)).a;
+  float second = survey(spun(bent.zxy, -2.0 * drift).yzx).a;
+  float cells = smoothstep(0.0, 0.25, abs(first - second));
+  float heat = (0.5 + 0.3 * (first + second)) * (0.6 + 0.4 * cells);
+
+  float spot = stir + 0.15 * second;
+  float umbra = smoothstep(0.42, 0.55, spot);
+  float fringe = smoothstep(0.28, 0.42, spot) * (1.0 - umbra);
+  float plage = smoothstep(0.08, 0.28, spot) * (1.0 - smoothstep(0.28, 0.4, spot));
 
   vec3 round = normalize(mat3(modelMatrix) * at);
   vec3 eye = normalize(cameraPosition - vPlace);
   float edge = pow(max(dot(round, eye), 0.0), 0.45);
-  float heat = clamp(state.x * 1.2 * (0.5 + 0.5 * edge), 0.0, 1.0);
-  vec3 glow = mix(palette[1], palette[0], heat) * (0.7 + 0.65 * state.x);
-  glow = mix(glow, palette[1] * 0.7, fringe * 0.6);
-  glow = mix(glow, palette[2], umbra * 0.9);
+  float warmth = clamp((heat + 0.3 * plage * cells) * 1.2 * (0.5 + 0.5 * edge), 0.0, 1.0);
+  vec3 glow = mix(palette[1], palette[0], warmth) * (0.7 + 0.65 * heat + 0.3 * plage);
+  glow = mix(glow, mix(palette[2], palette[1], 0.4 + 0.35 * cells), fringe * 0.85);
+  glow = mix(glow, palette[2] * (0.9 + 0.2 * heat), umbra * 0.92);
   gl_FragColor = vec4(glow * mix(0.55, 1.15, edge), 1.0);
   #include <colorspace_fragment>
 }
@@ -430,7 +436,7 @@ void main() {
 
 export const FLARE_FRAGMENT = `
 ${SURVEY}
-${PLASMA}
+${ACTIVITY}
 uniform vec3 palette[8];
 uniform vec3 tint;
 uniform float core;
@@ -441,14 +447,15 @@ void main() {
   float away = length(vSpot);
   vec3 limb = normalize(vRay);
   float beyond = clamp((away - core) / (1.0 - core), 0.0, 1.0);
-  float streamer = smoothstep(-0.6, 0.6, calm(limb));
-  float corona = pow(1.0 - beyond, mix(6.0, 3.0, streamer)) * (0.22 + 0.4 * streamer);
-  float halo = 0.45 * exp(-beyond * 18.0);
-  vec2 state = plasma(limb);
-  float tongue = smoothstep(0.3, 0.6, state.x);
+  vec4 seat = seatOf(limb);
+  float roused = smoothstep(0.05, 0.45, stirOf(seat, limb));
+  float wide = decoded(textureLod(relief, spun(limb, -drift).zxy, grain + 1.0)).a;
+  float streamer = smoothstep(-0.6, 0.6, wide);
+  float corona = pow(1.0 - beyond, mix(9.0, 5.0, streamer)) * (0.05 + 0.12 * streamer);
+  float halo = 0.25 * exp(-beyond * 26.0);
   float rise = max(away - core, 0.0) / core;
-  float flame = tongue * exp(-rise / (0.02 + 0.1 * tongue)) * (0.5 + 0.5 * state.y);
-  gl_FragColor = vec4(tint * (corona + halo) + palette[1] * flame * 1.6, 1.0);
+  float flame = roused * exp(-rise / (0.02 + 0.09 * roused));
+  gl_FragColor = vec4(tint * (corona + halo) + palette[1] * flame * 0.9, 1.0);
   #include <colorspace_fragment>
 }
 `;

@@ -60,7 +60,7 @@ interface Storm {
 }
 
 const SHELL_SCALE = 1.04;
-const FLARE_REACH = 4.5;
+const FLARE_REACH = 3;
 const PALETTE_ROOM = 8;
 const CLOUD_TURN = 2400;
 const JET_TURN = 1800;
