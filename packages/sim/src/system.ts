@@ -58,6 +58,7 @@ export interface Site {
   distance: number;
   around: Physics;
   orbit: number;
+  lent: number;
 }
 
 export interface Lamp {
@@ -247,7 +248,8 @@ function beltOf(orbit: number, star: Physics, random: Random): Disk {
 }
 
 export function formed(mass: number, site: Site, random: Random, locked = false): Physics {
-  const glow = site.star.glow;
+  const light = lightAt(site.star.glow, site.distance) + site.lent;
+  const glow = 4 * Math.PI * site.distance ** 2 * light;
   const bare = balanceHeat(glow, site.distance, 0);
   const earths = mass / EARTH_MASS;
   const vigor = random.next();
@@ -303,7 +305,7 @@ export function formed(mass: number, site: Site, random: Random, locked = false)
         weathered,
         pool: column * DAMP_LEAST,
         frozen,
-        ceiling: site.star.heat,
+        ceiling: Math.max(site.star.heat, site.around.heat),
       });
   const year = yearOf(site.orbit, site.around.mass);
   const slow = random.next() < 0.12;
@@ -323,7 +325,7 @@ export function formed(mass: number, site: Site, random: Random, locked = false)
     gas,
     heat: climate.heat,
     glow: fluid ? glowOf(radius, inner) : 0,
-    light: lightAt(glow, site.distance),
+    light,
     air: climate.air,
     gases: climate.gases,
     life: 0,
@@ -416,6 +418,7 @@ function moonsOf(
   around: Physics,
   star: Physics,
   distance: number,
+  lent: number,
   depth: number,
   random: Random,
 ): Kin[] {
@@ -423,8 +426,10 @@ function moonsOf(
   const earths = host.mass / EARTH_MASS;
   const settledHere = host.life > 0;
   const kin = (mass: number, orbit: number): Kin => {
-    const physics = formed(mass, { star, distance, around: host, orbit }, random, true);
-    return { physics, moons: moonsOf(physics, host, star, distance, depth + 1, random) };
+    const warmed = lent + lightAt(glowOf(host.radius, host.heat), orbit);
+    const site = { star, distance, around: host, orbit, lent: warmed };
+    const physics = formed(mass, site, random, true);
+    return { physics, moons: moonsOf(physics, host, star, distance, warmed, depth + 1, random) };
   };
   const low = Math.max(
     3 * host.radius,
@@ -711,7 +716,7 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
   let home: number | null = null;
   for (const orbit of orbits) {
     const settledHere = orbit === homeOrbit;
-    const site = { star, distance: orbit, around: star, orbit };
+    const site = { star, distance: orbit, around: star, orbit, lent: 0 };
     const planet = settledHere
       ? settled(star, orbit, random)
       : formed(
@@ -736,7 +741,7 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
         adopt(moon, own);
       }
     };
-    for (const kin of moonsOf(planet, star, star, orbit, 0, random)) {
+    for (const kin of moonsOf(planet, star, star, orbit, 0, 0, random)) {
       adopt(kin, id);
     }
   }

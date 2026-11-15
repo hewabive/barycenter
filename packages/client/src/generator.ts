@@ -24,6 +24,7 @@ import {
   JUPITER_MASS,
   LUMENS,
   lampsOf,
+  lightAt,
   moltenOf,
   rocheOf,
   roughOf,
@@ -116,6 +117,7 @@ function factsOf(body: Body): Fact[] {
   const rough = roughOf(physics);
   const molten = moltenOf(physics);
   const glow = (LUMENS * seenGlow(physics.heat)) / Math.PI;
+  const warmer = physics.light > 0 ? 1 - lightAt(lit.glow, distanceOf(body)) / physics.light : 0;
   const lamps = lampsOf(system, body.id).slice(0, 2);
   const shown = shownOf(
     physics,
@@ -162,7 +164,7 @@ function factsOf(body: Body): Fact[] {
         "As a black body",
         parent === null
           ? "none, nothing lights it"
-          : `${figure(balanceHeat(lit.glow, distanceOf(body), 0))} K`,
+          : `${figure(balanceHeat(4 * Math.PI * physics.light, 1, 0))} K`,
       ],
       [
         "Heat of its own",
@@ -171,10 +173,12 @@ function factsOf(body: Body): Fact[] {
           : "none to speak of",
       ],
       [
-        "Light of the star",
+        "Light and heat reaching it",
         parent === null
           ? "none"
-          : `${figure(physics.light)} W/m² · ${figure(physics.light / EARTH_LIGHT)} of the Earth's`,
+          : `${figure(physics.light)} W/m² · ${figure(physics.light / EARTH_LIGHT)} of the Earth's${
+              warmer > 0.01 ? ` · ${share(warmer)} of it from what it circles` : ""
+            }`,
       ],
       ["Glow an eye sees", glow >= 1e-6 ? `${figure(glow)} candela on a square meter` : "none"],
       ["Molten rock", molten > 0 ? `${share(molten)} of the surface` : "none"],

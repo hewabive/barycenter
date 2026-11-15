@@ -75,7 +75,7 @@ const bodyOf = (physics: Physics, own: number): Body => ({
 const rows: Body[][] = masses.map((mass) =>
   places.map((place) => {
     const orbit = place * lit;
-    const site = { star, distance: orbit, around: star, orbit };
+    const site = { star, distance: orbit, around: star, orbit, lent: 0 };
     return bodyOf(formed(mass * EARTH_MASS, site, random), draw());
   }),
 );
