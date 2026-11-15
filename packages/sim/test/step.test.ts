@@ -93,7 +93,7 @@ test("a cell short of energy is undersupplied and grows only its power branch", 
 });
 
 test("power built nearby supplies a cell with energy", () => {
-  const { state, capital } = fresh();
+  const { state, capital } = fresh(4);
   fill(state, capital, EXTRACTION);
   for (let cell = 0; cell < state.cells.length; cell++) {
     if (state.cells[cell].owner === 0 && cell !== capital) {

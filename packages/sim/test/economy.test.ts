@@ -5,8 +5,8 @@ import { fresh, neutralNeighbor, run } from "./support.ts";
 
 const CLOSE = 1e-9;
 
-function grown(ticks: number): { state: State; home: number } {
-  const { state, home } = fresh();
+function grown(ticks: number, seed = 1): { state: State; home: number } {
+  const { state, home } = fresh(seed);
   const orders: Command[] = state.map.regions.map((region) => ({
     kind: "pressure",
     power: 0,
@@ -155,7 +155,7 @@ test("regions add up to the power and cells to their region", () => {
 });
 
 test("what one region sends another receives less the loss on the way", () => {
-  let { state } = grown(20);
+  let { state } = grown(20, 5);
   let crossings = 0;
   for (let tick = 0; tick < 120; tick++) {
     const report = economyReportFor(state, 0, null);

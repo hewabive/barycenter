@@ -12,11 +12,16 @@ export {
   type Shipment,
 } from "./economy.ts";
 export type { Duty, Muster, Route } from "./muster.ts";
+export { createRandom, type Random } from "./random.ts";
+export { elevationAt, RELIEF_SHAPE } from "./relief.ts";
 export { type ForceReport, forceReportFor } from "./report.ts";
-export { hullFaces } from "./sphere.ts";
+export { circumcenter, hullFaces } from "./sphere.ts";
 export { cloneState, issue, step } from "./step.ts";
+export { positionOf, spinOf } from "./system.ts";
 export { retune } from "./tune.ts";
 export {
+  type Body,
+  type BodyKind,
   BRANCHES,
   type Branch,
   type CellState,
@@ -36,13 +41,15 @@ export {
   type PowerState,
   type Pressure,
   type Rejection,
+  type Relief,
+  type StarSystem,
   type State,
   type StepResult,
   type Terrain,
   type Vector,
   type WorldMap,
 } from "./types.ts";
-export { angleBetween, cross, dot, normalize, subtract } from "./vector.ts";
+export { angleBetween, cross, dot, normalize, slerp, subtract } from "./vector.ts";
 export {
   type Breach,
   type CellLayer,
@@ -62,4 +69,4 @@ export {
   type View,
   viewFor,
 } from "./view.ts";
-export { createWorld, type WorldOptions } from "./world.ts";
+export { createWorld, SHORE_STEP, type WorldOptions } from "./world.ts";

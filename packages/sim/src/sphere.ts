@@ -12,6 +12,14 @@ interface Face {
   corners: Triple;
   normal: Vector;
 }
+
+export interface Side {
+  a: number;
+  b: number;
+  from: Vector;
+  to: Vector;
+}
+
 const JITTER_SHARE = 0.25;
 
 export function scatter(count: number, random: Random): Vector[] {
@@ -95,23 +103,30 @@ export function hullFaces(points: Vector[]): [number, number, number][] {
     .sort((left, right) => left[0] - right[0] || left[1] - right[1] || left[2] - right[2]);
 }
 
-export function neighborPairs(points: Vector[]): [number, number][] {
+export function circumcenter(first: Vector, second: Vector, third: Vector): Vector {
+  const normal = normalize(cross(subtract(second, first), subtract(third, first)));
+  return dot(normal, first) < 0 ? { x: -normal.x, y: -normal.y, z: -normal.z } : normal;
+}
+
+export function sidesOf(points: Vector[]): Side[] {
   const count = points.length;
-  const seen = new Set<number>();
-  const pairs: [number, number][] = [];
-  const add = (low: number, high: number) => {
-    const key = low * count + high;
-    if (!seen.has(key)) {
-      seen.add(key);
-      pairs.push([low, high]);
-    }
-  };
+  const sides = new Map<number, Side>();
   for (const [first, second, third] of hullFaces(points)) {
-    add(first, second);
-    add(second, third);
-    add(first, third);
+    const corner = circumcenter(points[first], points[second], points[third]);
+    for (const [a, b] of [
+      [first, second],
+      [second, third],
+      [first, third],
+    ]) {
+      const side = sides.get(a * count + b);
+      if (side === undefined) {
+        sides.set(a * count + b, { a, b, from: corner, to: corner });
+      } else {
+        side.to = corner;
+      }
+    }
   }
-  return pairs;
+  return [...sides.values()];
 }
 
 function faceOf(points: Vector[], first: number, second: number, third: number): Face {

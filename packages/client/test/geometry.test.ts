@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { angleBetween, createWorld, dot, outlineOf, subtract, type Vector } from "@barycenter/sim";
+import {
+  angleBetween,
+  createWorld,
+  dot,
+  elevationAt,
+  type Outline,
+  outlineOf,
+  SHORE_STEP,
+  subtract,
+  type Vector,
+} from "@barycenter/sim";
 import {
   arc,
   areaOf,
@@ -10,20 +20,28 @@ import {
   landfall,
   nearest,
   neighborsAcross,
-  outlineOfCell,
+  patch,
   rimmed,
-  rimShares,
+  rimOf,
+  shoreline,
   teethAlong,
-  triangulate,
 } from "../src/geometry.ts";
 
-function pointsOf(seed: number): { points: Vector[]; land: number; pairs: Set<string> } {
+interface Ground {
+  outline: Outline;
+  points: Vector[];
+  dry: (at: Vector) => boolean;
+}
+
+function groundOf(seed: number): Ground {
   const outline = outlineOf(createWorld({ seed }).map);
-  const points = [...outline.cells.map((cell) => cell.position), ...outline.oceans];
-  const pairs = new Set(
-    outline.joints.map((joint) => `${Math.min(joint.a, joint.b)}-${Math.max(joint.a, joint.b)}`),
-  );
-  return { points, land: outline.cells.length, pairs };
+  const home = outline.system.bodies[outline.system.home];
+  const sea = home.relief.sea ?? 0;
+  return {
+    outline,
+    points: outline.cells.map((cell) => cell.position),
+    dry: (at) => elevationAt(home.seed, home.relief, at) > sea,
+  };
 }
 
 function lengthOf(vector: Vector): number {
@@ -32,7 +50,7 @@ function lengthOf(vector: Vector): number {
 
 test("the cells of a world tile the whole sphere", () => {
   for (const seed of [1, 2, 3, 4, 5]) {
-    const { points } = pointsOf(seed);
+    const { points } = groundOf(seed);
     const cells = buildCells(points);
     assert.equal(cells.length, points.length);
     const total = cells.reduce((area, cell) => area + areaOf(cell), 0);
@@ -47,10 +65,10 @@ test("the cells of a world tile the whole sphere", () => {
 });
 
 test("every point of a cell is closest to that cell's center", () => {
-  const { points } = pointsOf(2);
+  const { points } = groundOf(2);
   const cells = buildCells(points);
   cells.forEach((cell, index) => {
-    for (const corner of triangulate(cell, 1)) {
+    for (const corner of cell.corners) {
       const inward = {
         x: corner.x * 0.95 + cell.center.x * 0.05,
         y: corner.y * 0.95 + cell.center.y * 0.05,
@@ -61,33 +79,75 @@ test("every point of a cell is closest to that cell's center", () => {
   });
 });
 
-test("every side of a cell has one neighbor, and land neighbors are joined", () => {
-  const { points, land, pairs } = pointsOf(3);
-  const cells = buildCells(points);
-  const across = neighborsAcross(cells);
-  let shared = 0;
-  across.forEach((row, cell) => {
-    assert.equal(row.length, cells[cell].corners.length);
-    for (const other of row) {
-      assert.ok(other >= 0 && other !== cell);
-      assert.ok(across[other].includes(cell));
-      if (cell < other && other < land) {
-        shared += 1;
-        assert.ok(pairs.has(`${cell}-${other}`), `${cell}-${other}`);
-      }
+test("cells meet on dry ground exactly where the map joins them by land", () => {
+  for (const seed of [1, 3]) {
+    const { outline, points, dry } = groundOf(seed);
+    const cells = buildCells(points);
+    const across = neighborsAcross(cells);
+    const joined = new Map(
+      outline.joints.map((joint) => [`${joint.a}-${joint.b}`, joint.strait] as const),
+    );
+    let shared = 0;
+    across.forEach((row, cell) => {
+      assert.equal(row.length, cells[cell].corners.length);
+      row.forEach((other, side) => {
+        assert.ok(other >= 0 && other !== cell);
+        assert.ok(across[other].includes(cell));
+        if (other < cell) {
+          return;
+        }
+        const corners = cells[cell].corners;
+        const runs = shoreline(
+          corners[side],
+          corners[(side + 1) % corners.length],
+          SHORE_STEP,
+          (at) => angleBetween(at, points[cell]) <= outline.reach && dry(at),
+        );
+        assert.equal(runs.length > 0, joined.get(`${cell}-${other}`) === false, `${cell}-${other}`);
+        for (const run of runs) {
+          assert.ok(run.length >= 2);
+          assert.ok(run.every(dry));
+        }
+        shared += runs.length > 0 ? 1 : 0;
+      });
+    });
+    assert.ok(shared > 100);
+    for (const joint of outline.joints) {
+      assert.ok(across[joint.a].includes(joint.b));
     }
-  });
-  assert.ok(shared > 100);
+  }
 });
 
-test("triangles subdivide a cell without leaving the sphere", () => {
-  const cell = buildCells(pointsOf(1).points)[0];
-  const coarse = triangulate(cell, 0);
-  const fine = triangulate(cell, 2);
-  assert.equal(coarse.length, cell.corners.length * 3);
-  assert.equal(fine.length, coarse.length * 16);
-  for (const vertex of fine) {
-    assert.ok(Math.abs(lengthOf(vertex) - 1) < 1e-9);
+test("a patch covers its cell up to the reach without leaving the sphere", () => {
+  const { outline, points } = groundOf(1);
+  for (const cell of buildCells(points).slice(0, 40)) {
+    const rim = rimOf(cell, outline.reach, 0.05);
+    const { vertices, shares } = patch(cell.center, rim, 0.085);
+    assert.equal(vertices.length % 3, 0);
+    assert.equal(shares.length, vertices.length);
+    assert.ok(shares.includes(0) && shares.includes(1));
+    vertices.forEach((vertex, index) => {
+      assert.ok(Math.abs(lengthOf(vertex) - 1) < 1e-9);
+      assert.ok(angleBetween(cell.center, vertex) <= outline.reach + 1e-9);
+      assert.ok(shares[index] >= 0 && shares[index] <= 1);
+      if (shares[index] === 0) {
+        assert.ok(angleBetween(cell.center, vertex) < 1e-6);
+      }
+    });
+    for (let first = 0; first < vertices.length; first += 3) {
+      for (const [from, to] of [
+        [0, 1],
+        [1, 2],
+        [2, 0],
+      ]) {
+        const edge = angleBetween(vertices[first + from], vertices[first + to]);
+        assert.ok(edge < 0.12, `edge ${edge}`);
+      }
+    }
+    const near = cell.corners.filter((corner) => angleBetween(cell.center, corner) < outline.reach);
+    for (const corner of near) {
+      assert.ok(rim.some((point) => angleBetween(point, corner) < 1e-6));
+    }
   }
 });
 
@@ -101,22 +161,11 @@ test("an arc runs between its ends and rises in the middle", () => {
   assert.ok(Math.abs(points[8].y - 1) < 1e-9);
 });
 
-test("a cell outline is a closed loop on the given radius", () => {
-  const cell = buildCells(pointsOf(1).points)[0];
-  const loop = outlineOfCell(cell, 4, 1.01);
-  assert.equal(loop.length, cell.corners.length * 4);
-  for (const point of loop) {
-    assert.ok(Math.abs(lengthOf(point) - 1.01) < 1e-9);
-  }
-});
-
 test("the heart of a holding is one of its cells, in its largest group", () => {
-  const outline = outlineOf(createWorld({ seed: 4 }).map);
-  const points = [...outline.cells.map((cell) => cell.position), ...outline.oceans];
+  const { outline, points } = groundOf(4);
   const across = neighborsAcross(buildCells(points));
-  const land = outline.cells.length;
   const within = (region: number, cell: number) =>
-    across[cell].filter((other) => other < land && outline.cells[other].region === region);
+    across[cell].filter((other) => outline.cells[other].region === region);
   for (const region of outline.regions) {
     assert.equal(heartOf(region.cells, points, across), region.center);
     for (const cell of region.cells) {
@@ -138,13 +187,13 @@ test("the heart of a holding is one of its cells, in its largest group", () => {
 });
 
 test("teeth stand on a side and point into the cell beyond it", () => {
-  const { points, land } = pointsOf(1);
+  const { points } = groundOf(1);
   const cells = buildCells(points);
   const across = neighborsAcross(cells);
   const pitch = 0.03;
   const depth = 0.02;
   let seen = 0;
-  for (let cell = 0; cell < land; cell++) {
+  for (let cell = 0; cell < points.length; cell++) {
     across[cell].forEach((other, side) => {
       const corners = cells[cell].corners;
       const from = corners[side];
@@ -174,7 +223,7 @@ test("teeth stand on a side and point into the cell beyond it", () => {
       }
     });
   }
-  assert.ok(seen > land);
+  assert.ok(seen > points.length);
 });
 
 test("a rim keeps the same distance from every side of a tooth", () => {
@@ -192,14 +241,12 @@ test("a rim keeps the same distance from every side of a tooth", () => {
   assert.ok(Math.abs(beyond(rim.tip) - 0.25) < 1e-12);
 });
 
-test("a crossing makes landfall on the near edge of the far cell", () => {
+test("a crossing makes landfall where the far cell first rises from the water", () => {
   let crossings = 0;
   for (const seed of [1, 2, 3]) {
-    const outline = outlineOf(createWorld({ seed }).map);
-    const points = [...outline.cells.map((cell) => cell.position), ...outline.oceans];
-    const across = neighborsAcross(buildCells(points));
-    for (const { a, b } of outline.joints) {
-      if (across[a].includes(b)) {
+    const { outline, points, dry } = groundOf(seed);
+    for (const { a, b, strait } of outline.joints) {
+      if (!strait) {
         continue;
       }
       crossings += 1;
@@ -207,13 +254,13 @@ test("a crossing makes landfall on the near edge of the far cell", () => {
         [a, b],
         [b, a],
       ]) {
-        const shore = landfall(points, from, to, 24);
-        assert.equal(nearest(points, shore), to);
+        const ashore = (at: Vector) => nearest(points, at) === to && dry(at);
+        const shore = landfall(points, from, to, 24, dry);
+        assert.ok(ashore(shore));
         const sailed = angleBetween(points[from], shore);
         const left = angleBetween(shore, points[to]);
         assert.ok(Math.abs(sailed + left - angleBetween(points[from], points[to])) < 1e-9);
-        const back = arc(shore, points[from], 100, 1, 0)[1];
-        assert.notEqual(nearest(points, back), to);
+        assert.ok(!ashore(arc(shore, points[from], 100, 1, 0)[1]));
       }
     }
   }
@@ -227,26 +274,4 @@ test("a bar lies across a heading with its middle on the given point", () => {
   assert.ok(Math.abs(left.x) < 1e-12 && Math.abs(right.x) < 1e-12);
   assert.ok(Math.abs(left.y + right.y) < 1e-12);
   assert.ok(Math.abs(left.z - 1) < 1e-12 && Math.abs(right.z - 1) < 1e-12);
-});
-
-test("rim shares follow the vertices of a cell from its middle to its edge", () => {
-  const { points } = pointsOf(1);
-  const cell = buildCells(points)[0];
-  for (const depth of [0, 1, 2]) {
-    const vertices = triangulate(cell, depth);
-    const shares = rimShares(cell, depth);
-    assert.equal(shares.length, vertices.length);
-    const reach = Math.max(...cell.corners.map((corner) => angleBetween(cell.center, corner)));
-    vertices.forEach((vertex, index) => {
-      assert.ok(shares[index] >= 0 && shares[index] <= 1);
-      const away = angleBetween(cell.center, vertex);
-      if (shares[index] === 0) {
-        assert.ok(away < 1e-6);
-      }
-      if (away > reach * 0.999) {
-        assert.equal(shares[index], 1);
-      }
-    });
-    assert.ok(shares.includes(0) && shares.includes(1));
-  }
 });

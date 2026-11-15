@@ -424,6 +424,21 @@ button.stat .value {
   border-radius: 50%;
 }
 
+.label.body {
+  min-height: 0;
+  padding: 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgb(5 7 12 / 72%);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  pointer-events: auto;
+}
+
+.label.body.focus {
+  border-color: var(--accent);
+}
+
 dialog {
   width: min(820px, calc(100vw - 16px));
   max-height: calc(100dvh - 24px);

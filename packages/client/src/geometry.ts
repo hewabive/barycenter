@@ -1,4 +1,14 @@
-import { cross, dot, hullFaces, normalize, subtract, type Vector } from "@barycenter/sim";
+import {
+  angleBetween,
+  circumcenter,
+  cross,
+  dot,
+  hullFaces,
+  normalize,
+  slerp,
+  subtract,
+  type Vector,
+} from "@barycenter/sim";
 
 export interface Cell {
   center: Vector;
@@ -19,22 +29,6 @@ function sum(left: Vector, right: Vector): Vector {
   return { x: left.x + right.x, y: left.y + right.y, z: left.z + right.z };
 }
 
-function midpoint(left: Vector, right: Vector): Vector {
-  return normalize(sum(left, right));
-}
-
-export function slerp(from: Vector, to: Vector, share: number): Vector {
-  const angle = Math.acos(Math.max(-1, Math.min(1, dot(from, to))));
-  const sine = Math.sin(angle);
-  if (sine < 1e-6) {
-    return from;
-  }
-  return sum(
-    scaled(from, Math.sin((1 - share) * angle) / sine),
-    scaled(to, Math.sin(share * angle) / sine),
-  );
-}
-
 export function arc(from: Vector, to: Vector, steps: number, base: number, lift: number): Vector[] {
   const points: Vector[] = [];
   for (let step = 0; step <= steps; step++) {
@@ -43,11 +37,6 @@ export function arc(from: Vector, to: Vector, steps: number, base: number, lift:
     points.push(scaled(slerp(from, to, share), radius));
   }
   return points;
-}
-
-function circumcenter(first: Vector, second: Vector, third: Vector): Vector {
-  const normal = normalize(cross(subtract(second, first), subtract(third, first)));
-  return dot(normal, first) < 0 ? scaled(normal, -1) : normal;
 }
 
 function sortAround(center: Vector, corners: Vector[]): Vector[] {
@@ -94,70 +83,90 @@ export function neighborsAcross(cells: Cell[]): number[][] {
   );
 }
 
-function subdivide(
-  first: Vector,
-  second: Vector,
-  third: Vector,
-  depth: number,
-  output: Vector[],
-): void {
-  if (depth === 0) {
-    output.push(first, second, third);
-    return;
-  }
-  const a = midpoint(first, second);
-  const b = midpoint(second, third);
-  const c = midpoint(third, first);
-  subdivide(first, a, c, depth - 1, output);
-  subdivide(a, second, b, depth - 1, output);
-  subdivide(c, b, third, depth - 1, output);
-  subdivide(a, b, c, depth - 1, output);
+function capped(center: Vector, point: Vector, reach: number): Vector {
+  const away = angleBetween(center, point);
+  return away > reach ? slerp(center, point, reach / away) : point;
 }
 
-export function triangulate(cell: Cell, depth: number): Vector[] {
-  const triangles: Vector[] = [];
+export function rimOf(cell: Cell, reach: number, step: number): Vector[] {
+  const rim: Vector[] = [];
   cell.corners.forEach((corner, index) => {
     const next = cell.corners[(index + 1) % cell.corners.length];
-    subdivide(cell.center, corner, next, depth, triangles);
+    const pieces = Math.max(1, Math.ceil(angleBetween(corner, next) / step));
+    for (let piece = 0; piece < pieces; piece++) {
+      rim.push(capped(cell.center, slerp(corner, next, piece / pieces), reach));
+    }
   });
-  return triangles;
+  return rim;
 }
 
-function subdivideShares(
-  first: number,
-  second: number,
-  third: number,
-  depth: number,
-  output: number[],
-): void {
-  if (depth === 0) {
-    output.push(first, second, third);
-    return;
-  }
-  const a = (first + second) / 2;
-  const b = (second + third) / 2;
-  const c = (third + first) / 2;
-  subdivideShares(first, a, c, depth - 1, output);
-  subdivideShares(a, second, b, depth - 1, output);
-  subdivideShares(c, b, third, depth - 1, output);
-  subdivideShares(a, b, c, depth - 1, output);
-}
-
-export function rimShares(cell: Cell, depth: number): number[] {
+export function patch(
+  center: Vector,
+  rim: Vector[],
+  ring: number,
+): { vertices: Vector[]; shares: number[] } {
+  const widest = rim.reduce((most, point) => Math.max(most, angleBetween(center, point)), 0);
+  const rings = Math.max(1, Math.ceil(widest / ring));
+  const vertices: Vector[] = [];
   const shares: number[] = [];
-  for (let side = 0; side < cell.corners.length; side++) {
-    subdivideShares(0, 1, 1, depth, shares);
-  }
-  return shares;
+  const add = (point: Vector, level: number) => {
+    vertices.push(level === 0 ? center : slerp(center, point, level / rings));
+    shares.push(level / rings);
+  };
+  rim.forEach((point, index) => {
+    const next = rim[(index + 1) % rim.length];
+    for (let level = 0; level < rings; level++) {
+      add(point, level);
+      add(point, level + 1);
+      add(next, level + 1);
+      if (level > 0) {
+        add(point, level);
+        add(next, level + 1);
+        add(next, level);
+      }
+    }
+  });
+  return { vertices, shares };
 }
 
-export function outlineOfCell(cell: Cell, stepsPerSide: number, radius: number): Vector[] {
-  const loop: Vector[] = [];
-  cell.corners.forEach((corner, index) => {
-    const next = cell.corners[(index + 1) % cell.corners.length];
-    loop.push(...arc(corner, next, stepsPerSide, radius, 0).slice(0, -1));
-  });
-  return loop;
+export function shoreline(
+  from: Vector,
+  to: Vector,
+  step: number,
+  dry: (at: Vector) => boolean,
+): Vector[][] {
+  const steps = Math.max(2, Math.ceil(angleBetween(from, to) / step));
+  const at = (share: number) => slerp(from, to, share);
+  const edge = (wet: number, ashore: number): Vector => {
+    let low = wet;
+    let high = ashore;
+    for (let round = 0; round < 5; round++) {
+      const middle = (low + high) / 2;
+      if (dry(at(middle))) {
+        high = middle;
+      } else {
+        low = middle;
+      }
+    }
+    return at(high);
+  };
+  const runs: Vector[][] = [];
+  let run: Vector[] | null = null;
+  for (let index = 0; index <= steps; index++) {
+    const share = index / steps;
+    const point = at(share);
+    if (dry(point)) {
+      if (run === null) {
+        run = index === 0 ? [] : [edge((index - 1) / steps, share)];
+        runs.push(run);
+      }
+      run.push(point);
+    } else if (run !== null) {
+      run.push(edge(share, (index - 1) / steps));
+      run = null;
+    }
+  }
+  return runs;
 }
 
 export function teethAlong(
@@ -212,8 +221,17 @@ export function rimmed(tooth: Tooth, margin: number): Tooth {
   return { left: grown(left), right: grown(right), tip: grown(tip) };
 }
 
-export function landfall(points: Vector[], from: number, to: number, steps: number): Vector {
-  const reached = (share: number) => nearest(points, slerp(points[from], points[to], share)) === to;
+export function landfall(
+  points: Vector[],
+  from: number,
+  to: number,
+  steps: number,
+  dry: (at: Vector) => boolean,
+): Vector {
+  const reached = (share: number) => {
+    const at = slerp(points[from], points[to], share);
+    return nearest(points, at) === to && dry(at);
+  };
   for (let step = 1; step <= steps; step++) {
     if (!reached(step / steps)) {
       continue;

@@ -47,6 +47,8 @@ While developing, run the server and the client with live reload and open `http:
 
 Click a region to select it, then settle its neutral land or press a rival from the panel. The same panel sets the garrison of the region, lays roads to its neighbors and aims an attack at one cell. The sliders in the panel set the leaning of the whole power. Space pauses and resumes, and the keys 1 to 4 set the speed. The address accepts `?room=name` to keep several games apart, and `?seed=` and `?rivals=` to set up a new one.
 
+Zoom out to leave the chart of the home planet and see it from orbit, then its star system. Click a body or its name to fly to it, and the home planet to return.
+
 The same page works on a phone or tablet: drag to turn the globe, pinch to zoom and tap a region to open its sheet. To reach the game from another device on the local network, open port 5183 of the development machine, or start the server with `--host 0.0.0.0`.
 
 ## License

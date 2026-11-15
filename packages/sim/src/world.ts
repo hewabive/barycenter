@@ -1,8 +1,10 @@
 import { defaultConstants } from "./constants.ts";
 import { explore } from "./explore.ts";
 import { createRandom, type Random } from "./random.ts";
+import { elevationAt } from "./relief.ts";
 import { blankOrders } from "./rules.ts";
-import { neighborPairs, scatter } from "./sphere.ts";
+import { type Side, scatter, sidesOf } from "./sphere.ts";
+import { createSystem } from "./system.ts";
 import {
   BRANCHES,
   type CellState,
@@ -14,10 +16,11 @@ import {
   type MapJoint,
   type MapRegion,
   type Neighbor,
+  type Relief,
   type State,
   type Vector,
 } from "./types.ts";
-import { angleBetween, dot, normalize } from "./vector.ts";
+import { angleBetween, dot, normalize, slerp } from "./vector.ts";
 
 export interface WorldOptions {
   seed: number;
@@ -43,9 +46,8 @@ interface Crossing {
 const MOUNTAIN_SHARE = 0.18;
 const MOUNTAIN_STEP = 2.5;
 const EXTRA_STRAITS = 2;
-const WAVES = 6;
-const RIPPLE = 0.7;
-const GRAIN = 0.5;
+const REACH_SHARE = 1.9;
+export const SHORE_STEP = 0.01;
 const CAPITAL_LEVEL_CAP = 6;
 const START_MIX = [0.3, 0.45, 0.25];
 
@@ -57,41 +59,50 @@ export function createWorld(options: WorldOptions): State {
   const landShare = options.landShare ?? 0.62;
   const random = createRandom(options.seed);
 
+  const drawn = createSystem(random);
   const points = scatter(pointCount, random);
-  const pairs = neighborPairs(points);
-  const elevationRank = rank(elevationField(points, random));
+  const shape = drawn.bodies[drawn.home];
+  const heights = points.map((point) => elevationAt(shape.seed, shape.relief, point));
+  const ascending = heights.slice().sort((left, right) => left - right);
   const oceanCount = Math.round(pointCount * (1 - landShare));
   const landCount = pointCount - oceanCount;
+  const firstPeak = pointCount - Math.round(landCount * MOUNTAIN_SHARE);
+  const relief: Relief = {
+    ...shape.relief,
+    sea: (ascending[oceanCount - 1] + ascending[oceanCount]) / 2,
+    peak: (ascending[firstPeak - 1] + ascending[firstPeak]) / 2,
+  };
+  const system = {
+    ...drawn,
+    bodies: drawn.bodies.map((body) => (body.id === drawn.home ? { ...body, relief } : body)),
+  };
+  const reach = REACH_SHARE * Math.sqrt((4 * Math.PI) / pointCount);
+  const dry = (at: Vector) => elevationAt(shape.seed, relief, at) > (relief.sea ?? 0);
 
-  const cellOfPoint = new Array<number>(pointCount).fill(-1);
   const cells: MapCell[] = [];
-  const oceans: Vector[] = [];
+  const elevationRank = rank(heights);
   for (let point = 0; point < pointCount; point++) {
     if (elevationRank[point] < oceanCount) {
-      oceans.push(points[point]);
       continue;
     }
     const height = (elevationRank[point] - oceanCount) / Math.max(1, landCount - 1);
-    cellOfPoint[point] = cells.length;
-    cells.push(describeCell(cells.length, points[point], height, random));
+    const mountain = heights[point] > relief.peak;
+    cells.push(describeCell(cells.length, points[point], height, mountain, random));
   }
 
   const land: Draft[] = [];
-  const shores: number[][] = cellOfPoint.map(() => []);
-  for (const [first, second] of pairs) {
-    const a = cellOfPoint[first];
-    const b = cellOfPoint[second];
-    if (a >= 0 && b >= 0) {
-      land.push({ a, b, strait: false });
-    } else if (a >= 0) {
-      shores[second].push(a);
-    } else if (b >= 0) {
-      shores[first].push(b);
+  const crossings: Crossing[] = [];
+  for (const side of sidesOf(cells.map((cell) => cell.position))) {
+    if (touches(side, cells[side.a].position, reach, dry)) {
+      land.push({ a: side.a, b: side.b, strait: false });
+    } else {
+      const distance = angleBetween(cells[side.a].position, cells[side.b].position);
+      crossings.push({ a: side.a, b: side.b, distance });
     }
   }
 
   const regions = partition(cells, land, regionCount, random);
-  const drafts = [...land, ...straits(cells, land, shores)];
+  const drafts = [...land, ...straits(cells, land, crossings)];
 
   const edges: MapEdge[] = [];
   const edgeOf = new Map<number, number>();
@@ -146,7 +157,7 @@ export function createWorld(options: WorldOptions): State {
   const state: State = {
     tick: 0,
     constants,
-    map: { seed: options.seed, cells, regions, joints, edges, links, neighbors, oceans },
+    map: { seed: options.seed, cells, regions, joints, edges, links, neighbors, system, reach },
     cells: cells.map(() => emptyCell(powerCount)),
     joints: joints.map(() => ({
       matterFlow: 0,
@@ -198,26 +209,15 @@ function emptyCell(powerCount: number): CellState {
   };
 }
 
-function elevationField(points: Vector[], random: Random): number[] {
-  const waves = Array.from({ length: WAVES }, (_, index) => ({
-    direction: normalize({
-      x: random.next() - 0.5,
-      y: random.next() - 0.5,
-      z: random.next() - 0.5,
-    }),
-    frequency: (1.5 + 2 * random.next()) * (1 + RIPPLE * index),
-    phase: 2 * Math.PI * random.next(),
-    amplitude: 1 / (index + 1),
-  }));
-  return points.map(
-    (point) =>
-      waves.reduce(
-        (sum, wave) =>
-          sum + wave.amplitude * Math.sin(wave.frequency * dot(point, wave.direction) + wave.phase),
-        0,
-      ) +
-      GRAIN * (random.next() - 0.5),
-  );
+function touches(side: Side, site: Vector, reach: number, dry: (at: Vector) => boolean): boolean {
+  const steps = Math.max(2, Math.ceil(angleBetween(side.from, side.to) / SHORE_STEP));
+  for (let step = 0; step <= steps; step++) {
+    const at = slerp(side.from, side.to, step / steps);
+    if (angleBetween(at, site) <= reach && dry(at)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function rank(values: number[]): number[] {
@@ -229,8 +229,13 @@ function rank(values: number[]): number[] {
   return ranks;
 }
 
-function describeCell(id: number, position: Vector, height: number, random: Random): MapCell {
-  const mountain = height > 1 - MOUNTAIN_SHARE;
+function describeCell(
+  id: number,
+  position: Vector,
+  height: number,
+  mountain: boolean,
+  random: Random,
+): MapCell {
   const sunlight = 1 - Math.abs(position.y);
   return {
     id,
@@ -362,63 +367,20 @@ function partition(cells: MapCell[], land: Draft[], wanted: number, random: Rand
   });
 }
 
-function straits(cells: MapCell[], land: Draft[], shores: number[][]): Draft[] {
+function straits(cells: MapCell[], land: Draft[], crossings: Crossing[]): Draft[] {
   const keyOf = (a: number, b: number) => Math.min(a, b) * cells.length + Math.max(a, b);
-  const joined = new Set<number>();
   const groups = createGroups(cells.length);
   for (const draft of land) {
-    joined.add(keyOf(draft.a, draft.b));
     groups.join(draft.a, draft.b);
   }
 
-  const crossings: Crossing[] = [];
-  const offered = new Set<number>();
-  for (const shore of shores) {
-    for (let first = 0; first < shore.length; first++) {
-      for (let second = first + 1; second < shore.length; second++) {
-        const a = shore[first];
-        const b = shore[second];
-        const key = keyOf(a, b);
-        if (a === b || joined.has(key) || offered.has(key)) {
-          continue;
-        }
-        offered.add(key);
-        crossings.push({
-          a: Math.min(a, b),
-          b: Math.max(a, b),
-          distance: angleBetween(cells[a].position, cells[b].position),
-        });
-      }
-    }
-  }
-  crossings.sort(byDistance);
-
   const drafts: Draft[] = [];
   const spare: Crossing[] = [];
-  for (const crossing of crossings) {
+  for (const crossing of crossings.slice().sort(byDistance)) {
     if (groups.join(crossing.a, crossing.b)) {
       drafts.push({ a: crossing.a, b: crossing.b, strait: true });
-      joined.add(keyOf(crossing.a, crossing.b));
     } else {
       spare.push(crossing);
-    }
-  }
-
-  if (groups.count() > 1) {
-    const remote: Crossing[] = [];
-    for (let a = 0; a < cells.length; a++) {
-      for (let b = a + 1; b < cells.length; b++) {
-        if (!groups.same(a, b)) {
-          remote.push({ a, b, distance: angleBetween(cells[a].position, cells[b].position) });
-        }
-      }
-    }
-    remote.sort(byDistance);
-    for (const crossing of remote) {
-      if (groups.join(crossing.a, crossing.b)) {
-        drafts.push({ a: crossing.a, b: crossing.b, strait: true });
-        joined.add(keyOf(crossing.a, crossing.b));
-      }
     }
   }
 
@@ -449,7 +411,6 @@ function byDistance(left: Crossing, right: Crossing): number {
 
 function createGroups(size: number) {
   const parent = Array.from({ length: size }, (_, index) => index);
-  let groups = size;
   const find = (item: number): number => {
     let root = item;
     while (parent[root] !== root) {
@@ -466,11 +427,8 @@ function createGroups(size: number) {
         return false;
       }
       parent[left] = right;
-      groups -= 1;
       return true;
     },
-    same: (first: number, second: number) => find(first) === find(second),
-    count: () => groups,
   };
 }
 

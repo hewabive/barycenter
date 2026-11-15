@@ -13,6 +13,7 @@ import {
   type MapEdge,
   type MapRegion,
   type Neighbor,
+  type StarSystem,
   type State,
   type Vector,
   type WorldMap,
@@ -28,10 +29,11 @@ const PUSH_FLOOR = 0.05;
 export interface Outline {
   cells: { position: Vector; region: number }[];
   regions: MapRegion[];
-  joints: { a: number; b: number; edge: number | null }[];
+  joints: { a: number; b: number; edge: number | null; strait: boolean }[];
   edges: MapEdge[];
   neighbors: Neighbor[][];
-  oceans: Vector[];
+  system: StarSystem;
+  reach: number;
 }
 
 export interface Nature {
@@ -139,10 +141,16 @@ export function outlineOf(map: WorldMap): Outline {
   return {
     cells: map.cells.map((cell) => ({ position: cell.position, region: cell.region })),
     regions: map.regions,
-    joints: map.joints.map((joint) => ({ a: joint.a, b: joint.b, edge: joint.edge })),
+    joints: map.joints.map((joint) => ({
+      a: joint.a,
+      b: joint.b,
+      edge: joint.edge,
+      strait: joint.kind === "strait",
+    })),
     edges: map.edges,
     neighbors: map.neighbors,
-    oceans: map.oceans,
+    system: map.system,
+    reach: map.reach,
   };
 }
 

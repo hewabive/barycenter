@@ -27,3 +27,18 @@ export function normalize(vector: Vector): Vector {
 export function angleBetween(left: Vector, right: Vector): number {
   return Math.acos(Math.max(-1, Math.min(1, dot(left, right))));
 }
+
+export function slerp(from: Vector, to: Vector, share: number): Vector {
+  const angle = angleBetween(from, to);
+  const sine = Math.sin(angle);
+  if (sine < 1e-6) {
+    return from;
+  }
+  const near = Math.sin((1 - share) * angle) / sine;
+  const far = Math.sin(share * angle) / sine;
+  return {
+    x: from.x * near + to.x * far,
+    y: from.y * near + to.y * far,
+    z: from.z * near + to.z * far,
+  };
+}

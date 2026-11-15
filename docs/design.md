@@ -31,6 +31,16 @@ In the rest of this document a node is a unit the player commands and a cell is 
 
 Nodes of the next scale are on the map from the start. A sufficiently developed node gains an edge to them, so resources can go to the moon while the planet is still contested.
 
+## Nature
+
+A body has a nature of its own, apart from how the game divides it.
+
+- The relief of a body is one continuous field over its whole surface, fixed by the body itself. It does not depend on cells or regions, so the map can be cut anew without moving a coast.
+- A cell takes its nature from the relief at its place. Land is where the relief rises above the sea, and the highest land is mountain.
+- Two cells are joined by land where they meet on dry ground. Where only water lies between them, a strait may join them.
+- The relief is no secret. Every power sees the coasts and mountains of a whole body from the start.
+- A star system holds a star and bodies of several kinds on orbits around it, and the place of each follows from the tick.
+
 ## Time
 
 - The game advances in ticks, and all orders resolve simultaneously.
@@ -162,7 +172,7 @@ Force is tied to the land through garrisons.
 
 ## Fog
 
-The natural data of a node is revealed next to the player's territory and stays known afterwards. Owners, levels and force are visible only next to that territory. Farther away only outlines are known.
+What lies in the ground of a node, its richness and how far it can be built up, is revealed next to the player's territory and stays known afterwards. Owners, levels and force are visible only next to that territory. Farther away only the relief is known.
 
 ## Rivals
 
@@ -264,6 +274,8 @@ Play then found the size of the army tiring to set holding by holding, and found
 - One army order and one forward dial for the whole power, as described under Garrisons. The garrison order stays as the exception for one holding.
 - Reinforcement, as described under Garrisons.
 
+The look of the game was then rebuilt apart from its rules, as described under Nature. The home body is drawn from its relief with the state of its cells laid over it, and the star system is on screen: a star and eight bodies that can be visited. No rule runs beyond the home body yet.
+
 Stage 3 adds knowledge, cohesion, borders and trade, gifts, the moon and folding with governors. It tests whether the game stays manageable as it grows.
 
 Stage 4 splits matter into kinds with prices and values. It is not designed in detail. Until then matter has one kind.
@@ -286,10 +298,13 @@ Stage 4 splits matter into kinds with prices and values. It is not designed in d
 - The hub of a holding, where its garrison stands and its trunk roads meet, is chosen by the simulation. The player may need a say in it.
 - The leaning went untouched in play. Whether the player keeps it is undecided.
 - The constants are preliminary. They were adjusted only until bots played sensibly, and real tuning needs play with the constants panel.
-- In a series of 12 bot matches of 6000 ticks the builder ended with 42 percent of the held cells, the opportunist with 32 and the aggressor with 25. Seven powers were eliminated, no match was left with a single power, and three regions on average were shared at the end. About 44 cells a match changed hands between powers, and one or two were lost to fallen flags.
-- In 4 of the 12 matches no cell changed hands in the last third.
+- In a series of 12 bot matches of 6000 ticks on maps made from the relief, the builder ended with 45 percent of the held cells, the opportunist with 31 and the aggressor with 24. Three powers were eliminated, one match was left with a single power, and five regions on average were shared at the end. About 42 cells a match changed hands between powers, and one or two were lost to fallen flags.
+- In 2 of the 11 matches that lasted no cell changed hands in the last third.
 - A power that has built every cell to its cap has nothing left to spend matter on. Its surplus then circulates and a tenth to a fifth of its output is lost on the way.
 - The client shows regions by number and lets values other than flows jump between ticks.
+- The star system is drawn ahead of its rules. A day of the home body is 1200 ticks and its year 9600, chosen for the look and not for play, and sizes and distances are not to scale. No rule reads an orbit yet.
+- The relief is public, so the mountains and coasts of unexplored land are known. Whether exploration should reveal more than richness is undecided.
+- A cell reaches to the coast however far that is from its middle, so cells by the sea differ much in size on the map while the rules count them alike.
 - Kinds of matter: how many functions there are and which, and whether energy, force and knowledge are split in the same way. Kinds of force would be unit types and kinds of knowledge a technology tree, and both are absent so far.
 - The governor is not designed, and its logic may be simple. It is also undecided how a body is simulated when only some of the powers on it have folded.
 - Cohesion, knowledge, border and gift are stated for whole nodes and must be restated for holdings and for borders that run inside a node.

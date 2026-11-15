@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createWorld } from "../src/index.ts";
+import {
+  angleBetween,
+  createWorld,
+  elevationAt,
+  positionOf,
+  slerp,
+  type Vector,
+} from "../src/index.ts";
+import { sidesOf } from "../src/sphere.ts";
 
 const SEEDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
@@ -101,4 +109,82 @@ test("each power starts with the same few cells around its capital and sees its 
       }
     });
   }
+});
+
+test("land is where the relief of the home body rises above its sea", () => {
+  for (const seed of SEEDS) {
+    const { map } = createWorld({ seed });
+    const home = map.system.bodies[map.system.home];
+    assert.equal(home.kind, "terran");
+    const sea = home.relief.sea;
+    assert.ok(sea !== null);
+    for (const cell of map.cells) {
+      const height = elevationAt(home.seed, home.relief, cell.position);
+      assert.ok(height > sea, `seed ${seed}, cell ${cell.id}`);
+      assert.equal(cell.terrain === "mountain", height > home.relief.peak);
+    }
+    const land = map.cells.length / 400;
+    assert.ok(Math.abs(land - 0.62) < 0.01, `seed ${seed}`);
+  }
+});
+
+test("cells joined by land meet on dry ground and a strait crosses water", () => {
+  for (const seed of SEEDS) {
+    const { map } = createWorld({ seed });
+    const home = map.system.bodies[map.system.home];
+    const dry = (at: Vector) => elevationAt(home.seed, home.relief, at) > (home.relief.sea ?? 0);
+    const sides = new Map(
+      sidesOf(map.cells.map((cell) => cell.position)).map((side) => [`${side.a}:${side.b}`, side]),
+    );
+    assert.ok(sides.size >= map.joints.length);
+    for (const joint of map.joints) {
+      const side = sides.get(`${Math.min(joint.a, joint.b)}:${Math.max(joint.a, joint.b)}`);
+      assert.ok(side, `seed ${seed}, joint ${joint.id}`);
+      const shore = Array.from({ length: 201 }, (_, step) => slerp(side.from, side.to, step / 200));
+      const near = shore.filter((at) => angleBetween(at, map.cells[joint.a].position) <= map.reach);
+      assert.equal(near.some(dry), joint.kind !== "strait", `seed ${seed}, joint ${joint.id}`);
+    }
+  }
+});
+
+test("a system has one star, a home body and others around them", () => {
+  for (const seed of SEEDS) {
+    const { system } = createWorld({ seed }).map;
+    assert.deepEqual(
+      system.bodies.map((body) => body.id),
+      system.bodies.map((_, index) => index),
+    );
+    assert.equal(system.bodies.filter((body) => body.kind === "star").length, 1);
+    assert.equal(new Set(system.bodies.map((body) => body.name)).size, system.bodies.length);
+    assert.ok(system.bodies.length >= 6);
+    for (const body of system.bodies) {
+      const at = positionOf(system, body.id, 1234);
+      if (body.parent === null) {
+        assert.deepEqual(at, { x: 0, y: 0, z: 0 });
+        continue;
+      }
+      const center = positionOf(system, body.parent, 1234);
+      const away = Math.hypot(at.x - center.x, at.y - center.y, at.z - center.z);
+      assert.ok(Math.abs(away - body.orbit) < 1e-9);
+      assert.ok(body.orbit > body.radius + system.bodies[body.parent].radius);
+      const later = positionOf(system, body.id, 1234 + body.year);
+      const moved = positionOf(system, body.parent, 1234 + body.year);
+      const drift = Math.hypot(
+        later.x - moved.x - at.x + center.x,
+        later.z - moved.z - at.z + center.z,
+      );
+      assert.ok(drift < 1e-6 * body.orbit);
+    }
+  }
+});
+
+test("relief is the same at the same place and smooth between places", () => {
+  const { system } = createWorld({ seed: 3 }).map;
+  const home = system.bodies[system.home];
+  const at = { x: 0.36, y: 0.48, z: 0.8 };
+  const height = elevationAt(home.seed, home.relief, at);
+  assert.equal(elevationAt(home.seed, home.relief, { ...at }), height);
+  assert.notEqual(elevationAt(home.seed + 1, home.relief, at), height);
+  const beside = elevationAt(home.seed, home.relief, { x: 0.36, y: 0.4801, z: 0.8 });
+  assert.ok(Math.abs(beside - height) < 0.01);
 });

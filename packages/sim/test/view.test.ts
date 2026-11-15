@@ -150,9 +150,14 @@ test("a front seen from afar hides the breaches that start out of sight", () => 
   assert.deepEqual(watcher.breaches, []);
 });
 
-test("the outline carries geometry and topology but no natural data", () => {
-  const outline = outlineOf(createWorld({ seed: 1 }).map);
+test("the outline carries geometry, topology and the bodies, but nothing found on the ground", () => {
+  const { map } = createWorld({ seed: 1 });
+  const outline = outlineOf(map);
   assert.deepEqual(Object.keys(outline.cells[0]).sort(), ["position", "region"]);
-  assert.deepEqual(Object.keys(outline.joints[0]).sort(), ["a", "b", "edge"]);
+  assert.deepEqual(Object.keys(outline.joints[0]).sort(), ["a", "b", "edge", "strait"]);
   assert.deepEqual(Object.keys(outline.edges[0]).sort(), ["a", "b", "id", "joints"]);
+  assert.deepEqual(outline.system, map.system);
+  outline.joints.forEach((joint, id) => {
+    assert.equal(joint.strait, map.joints[id].kind === "strait");
+  });
 });

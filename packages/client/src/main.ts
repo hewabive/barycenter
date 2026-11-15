@@ -49,6 +49,7 @@ const refresh = () => {
     seat: game.seat,
     running: !game.time.paused,
     speed: game.time.speed,
+    rate: game.tickRate,
     selected,
   });
   panel.show(game, selected, aiming);

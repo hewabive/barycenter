@@ -1,9 +1,9 @@
 export const POWER_COLORS = [0x3fa7ff, 0xff5a4d, 0xffc23f, 0xb07cff, 0x4dd6a0, 0xff8ad1];
 
-export const OCEAN = 0x0f2740;
-export const UNEXPLORED = 0x262a33;
-export const PLAIN = 0x566b4a;
-export const MOUNTAIN = 0x7b6c5c;
+export const SKY = 0x05070c;
+export const ORBIT = 0x5a6f96;
+export const UNEXPLORED = 0x1b1f27;
+export const UNSEEN = 0x05070c;
 export const BORDER = 0x0a0d13;
 export const SELECTION = 0xffffff;
 

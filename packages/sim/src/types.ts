@@ -11,6 +11,36 @@ export interface Vector {
   z: number;
 }
 
+export type BodyKind = "star" | "terran" | "desert" | "barren" | "ice" | "gas";
+
+export interface Relief {
+  frequency: number;
+  warp: number;
+  ridge: number;
+  sea: number | null;
+  peak: number;
+}
+
+export interface Body {
+  id: number;
+  name: string;
+  kind: BodyKind;
+  seed: number;
+  radius: number;
+  parent: number | null;
+  orbit: number;
+  year: number;
+  phase: number;
+  tilt: number;
+  day: number;
+  relief: Relief;
+}
+
+export interface StarSystem {
+  home: number;
+  bodies: Body[];
+}
+
 export interface MapCell {
   id: number;
   position: Vector;
@@ -60,7 +90,8 @@ export interface WorldMap {
   edges: MapEdge[];
   links: Link[][];
   neighbors: Neighbor[][];
-  oceans: Vector[];
+  system: StarSystem;
+  reach: number;
 }
 
 export interface CellState {
