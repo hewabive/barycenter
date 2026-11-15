@@ -231,7 +231,9 @@ test("the physics of every body holds together", () => {
         assert.ok(disk.inner > physics.radius && disk.outer > disk.inner, label);
         assert.ok(disk.mass > 0 && disk.depth > 0 && disk.depth < 1, label);
         if (body.parent !== null) {
+          const pull = system.bodies[body.parent].physics.mass;
           assert.ok(disk.outer < rocheOf(physics.radius, density, 900), label);
+          assert.ok(disk.outer < 0.34 * hillOf(physics.orbit, physics.mass, pull), label);
           assert.ok(disk.depth > 0.1, label);
         } else {
           assert.ok(disk.depth < 1e-3, label);

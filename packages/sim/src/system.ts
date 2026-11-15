@@ -81,6 +81,7 @@ const INNER_STEPS = 2;
 const OUTER_STEPS = 5;
 const WILD_STEPS = 10;
 const SYSTEM_SALT = 0x5bd1e995;
+const MARK_SALT = 0x27d4eb2f;
 const SETTLED_STARS = [0.3, 1.6];
 const WILD_STARS = [0.1, 2.5];
 const PLANET_SHARE = 0.85;
@@ -169,6 +170,7 @@ function ringOf(
   radius: number,
   fluid: boolean,
   bare: number,
+  hold: number,
   random: Random,
 ): Disk[] {
   if (random.next() >= (fluid ? RING_SHARE_FLUID : RING_SHARE_SOLID)) {
@@ -176,7 +178,7 @@ function ringOf(
   }
   const ice = bare < ICE_HEAT ? between(random, 0.6, 1) : between(random, 0, 0.1);
   const grain = ROCK_GRAIN - (ROCK_GRAIN - ICE_GRAIN) * ice;
-  const limit = 0.95 * rocheOf(radius, densityOf(mass, radius), grain);
+  const limit = Math.min(0.95 * rocheOf(radius, densityOf(mass, radius), grain), hold);
   const dense = fluid && random.next() < 0.4;
   const inner = radius * between(random, 1.15, 1.5);
   const outer = Math.min(limit, radius * between(random, 1.8, 2.4));
@@ -275,7 +277,14 @@ export function formed(mass: number, site: Site, random: Random, locked = false)
     orbit: site.orbit,
     year,
     day,
-    disks: ringOf(mass, radius, fluid, bare, random),
+    disks: ringOf(
+      mass,
+      radius,
+      fluid,
+      bare,
+      SUBMOON_REST * hillOf(site.orbit, mass, site.around.mass),
+      random,
+    ),
   };
 }
 
@@ -538,7 +547,8 @@ export function createSystem(seed: number): StarSystem {
 export function sketchSystem(world: number, plan: Plan): Sketch {
   const random = createRandom(world ^ SYSTEM_SALT);
   const taken = new Set<string>();
-  const pick = (list: string[]) => list[Math.floor(random.next() * list.length)];
+  const marks = createRandom(world ^ MARK_SALT);
+  const pick = (list: string[]) => list[Math.floor(marks.next() * list.length)];
   const name = (): string => {
     const made = pick(OPENINGS) + pick(MIDDLES) + pick(ENDINGS);
     if (taken.has(made)) {
@@ -547,8 +557,7 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
     taken.add(made);
     return made;
   };
-  const seed = () => Math.floor(random.next() * 0x7fffffff);
-  const homeSeed = seed();
+  const homeSeed = Math.floor(random.next() * 0x7fffffff);
 
   const [least, most] = plan.settled ? SETTLED_STARS : WILD_STARS;
   const drawn = SUN_MASS * decades(random, Math.log10(least), Math.log10(most));
@@ -629,7 +638,8 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
 
   const bodies = drafts.map((draft, id): Body => {
     const physics = trimmed(draft.physics);
-    const own = id === home ? homeSeed : seed();
+    const drawn = Math.floor(marks.next() * 0x7fffffff);
+    const own = id === home ? homeSeed : drawn;
     return {
       id,
       name: name(),
@@ -639,7 +649,7 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
       radius: 0,
       orbit: 0,
       year: 0,
-      phase: draft.parent === null ? 0 : trim(2 * Math.PI * random.next()),
+      phase: draft.parent === null ? 0 : trim(2 * Math.PI * marks.next()),
       tilt: trim(draft.tilt),
       day: 0,
       disks: [],
