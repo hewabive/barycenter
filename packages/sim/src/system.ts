@@ -3,6 +3,7 @@ import {
   balanceHeat,
   type Climate,
   climateOf,
+  columnOf,
   DAMP_LEAST,
   DAY,
   densityOf,
@@ -13,7 +14,6 @@ import {
   FLUID_SHARE,
   frostOf,
   gasShare,
-  gravityOf,
   gripOf,
   HOUR,
   hillOf,
@@ -26,6 +26,7 @@ import {
   starHeat,
   starRadius,
   stocked,
+  strippedShare,
   yearOf,
 } from "./physics.ts";
 import { createRandom, type Random } from "./random.ts";
@@ -77,8 +78,6 @@ const SYSTEM_SALT = 0x5bd1e995;
 const SETTLED_STARS = [0.3, 1.6];
 const WILD_STARS = [0.1, 2.5];
 const PLANET_SHARE = 0.85;
-const STRIP_MASS = 10;
-const STRIP_HEAT = 600;
 const PARCH_HEAT = 400;
 const ICE_HEAT = 160;
 const ICY_SHARE = 0.1;
@@ -175,18 +174,22 @@ export function formed(mass: number, site: Site, random: Random, locked = false)
   const glow = site.star.glow;
   const bare = balanceHeat(glow, site.distance, 0);
   const earths = mass / EARTH_MASS;
-  const stripped = earths < STRIP_MASS && bare > STRIP_HEAT;
   const typical = gasShare(mass);
   const odds = (typical / (1 - typical)) * decades(random, -0.3, 0.3);
-  const gas = stripped ? 0 : odds / (1 + odds);
+  const gathered = odds / (1 + odds);
   const beyond = site.distance > frostOf(glow);
   const damp = beyond
     ? between(random, 0.3, 0.65)
     : decades(random, -5.5, -3.2) * (bare > PARCH_HEAT ? 0.01 : 1);
   const metal = random.next() < 0.06 ? between(random, 0.45, 0.7) : between(random, 0.15, 0.38);
-  const ice = (1 - gas) * damp;
-  const iron = (1 - gas) * (1 - damp) * metal;
-  const rock = 1 - gas - ice - iron;
+  const made = (gas: number) => {
+    const ice = (1 - gas) * damp;
+    const iron = (1 - gas) * (1 - damp) * metal;
+    return { iron, rock: 1 - gas - ice - iron, ice, gas };
+  };
+  const puffed = radiusOf(mass, made(gathered));
+  const gas = Math.max(0, gathered - strippedShare(mass, puffed, site.star, site.distance));
+  const { iron, rock, ice } = made(gas);
   const radius = radiusOf(mass, { iron, rock, ice, gas });
   const fluid = gas >= FLUID_SHARE;
   const grip = (kind: Gas) => gripOf(mass, radius, bare, kind);
@@ -201,7 +204,7 @@ export function formed(mass: number, site: Site, random: Random, locked = false)
       }
     : { "carbon dioxide": 1, nitrogen: decades(random, -1.7, -1) };
   const parts = Object.values(blend).reduce((sum, part) => sum + part, 0);
-  const column = (gravityOf(mass, radius) * mass) / (4 * Math.PI * radius ** 2);
+  const column = columnOf(mass, radius);
   const stock = stocked({
     ...Object.fromEntries(
       Object.entries(blend).map(([kind, part]) => [kind, (outgassed * part) / parts]),
@@ -219,7 +222,7 @@ export function formed(mass: number, site: Site, random: Random, locked = false)
         distance: site.distance,
         stock: kept ? stock : stock.map(() => 0),
         weathered,
-        damp: ice >= DAMP_LEAST,
+        pool: column * DAMP_LEAST,
         frozen,
       });
   const year = yearOf(site.orbit, site.around.mass);
@@ -258,7 +261,7 @@ function settled(star: Physics, orbit: number, random: Random): Physics {
   const shares = { iron, rock: 1 - iron - ice, ice, gas: 0 };
   const radius = radiusOf(mass, shares);
   const nitrogen = EARTH_AIR * between(random, 0.6, 1);
-  const column = (gravityOf(mass, radius) * mass) / (4 * Math.PI * radius ** 2);
+  const column = columnOf(mass, radius);
   const climate = climateOf({
     glow: star.glow,
     distance: orbit,
@@ -269,7 +272,7 @@ function settled(star: Physics, orbit: number, random: Random): Physics {
       water: column * ice,
     }),
     weathered: EARTH_AIR * decades(random, -3.7, -3.2),
-    damp: true,
+    pool: column * DAMP_LEAST,
     frozen: false,
   });
   return {

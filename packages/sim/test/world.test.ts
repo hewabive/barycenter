@@ -4,19 +4,24 @@ import {
   ASTRONOMICAL_UNIT,
   angleBetween,
   climateOf,
+  columnOf,
   createWorld,
   EARTH_AIR,
+  EARTH_MASS,
+  EARTH_RADIUS,
   elevationAt,
   FLUID_SHARE,
   positionOf,
   type Sketch,
   STAR_LEAST,
   SUN_GLOW,
+  SUN_MASS,
   seaCover,
   shareOf,
   sketchSystem,
   slerp,
   stocked,
+  strippedShare,
   type Vector,
 } from "../src/index.ts";
 import { densityOf, hillOf, rocheOf, yearOf } from "../src/physics.ts";
@@ -291,7 +296,7 @@ test("the drawn scale keeps the order and the nesting of the real one", () => {
 
 test("the air of a body follows from what it keeps and how warm it is", () => {
   const bar = EARTH_AIR;
-  const sun = { glow: SUN_GLOW, weathered: 4e-4 * bar, damp: true, frozen: false };
+  const sun = { glow: SUN_GLOW, weathered: 4e-4 * bar, pool: bar, frozen: false };
   const share = (found: { gases: number[] }, gas: Parameters<typeof shareOf>[1]) =>
     shareOf({ gases: found.gases } as Parameters<typeof shareOf>[0], gas);
 
@@ -311,7 +316,6 @@ test("the air of a body follows from what it keeps and how warm it is", () => {
 
   const venus = climateOf({
     ...sun,
-    damp: false,
     distance: 0.723 * ASTRONOMICAL_UNIT,
     stock: stocked({ nitrogen: 3.2 * bar, "carbon dioxide": 92 * bar }),
   });
@@ -321,7 +325,7 @@ test("the air of a body follows from what it keeps and how warm it is", () => {
   const mars = climateOf({
     ...sun,
     distance: 1.524 * ASTRONOMICAL_UNIT,
-    stock: stocked({ nitrogen: 2e-4 * bar, "carbon dioxide": 0.006 * bar, water: bar }),
+    stock: stocked({ nitrogen: 2e-4 * bar, "carbon dioxide": 0.006 * bar, water: 2 * bar }),
   });
   assert.ok(mars.heat > 205 && mars.heat < 240, `mars ${mars.heat}`);
 
@@ -348,6 +352,18 @@ test("the air of a body follows from what it keeps and how warm it is", () => {
   assert.ok(cold.heat >= 277 && cold.heat < 285, `thermostat ${cold.heat}`);
   assert.ok(share(cold, "carbon dioxide") > share(earth, "carbon dioxide"));
 
+  const wrapped = (distance: number, hydrogen: number) =>
+    climateOf({
+      ...sun,
+      distance: distance * ASTRONOMICAL_UNIT,
+      stock: stocked({ hydrogen: hydrogen * bar, water: 260 * bar }),
+    });
+  const outer = wrapped(10, 40);
+  assert.ok(outer.heat > 262 && outer.heat < 300, `hydrogen at 10 AU ${outer.heat}`);
+  const inner = wrapped(1.4, 300);
+  assert.ok(inner.heat > 1000, `hydrogen at 1.4 AU ${inner.heat}`);
+  assert.ok(share(inner, "water") > 0.1);
+
   const far = climateOf({
     ...sun,
     frozen: true,
@@ -356,6 +372,25 @@ test("the air of a body follows from what it keeps and how warm it is", () => {
   });
   assert.equal(far.air, 0);
   assert.deepEqual(far.gases, []);
+});
+
+test("the light of the star takes a thin wrap of gas from a body near it", () => {
+  const sun = { mass: SUN_MASS, glow: SUN_GLOW };
+  const mass = 3 * EARTH_MASS;
+  const radius = 1.35 * EARTH_RADIUS;
+  const wrap = (40 * EARTH_AIR) / columnOf(mass, radius);
+  const lost = (distance: number) => strippedShare(mass, radius, sun, distance * ASTRONOMICAL_UNIT);
+  assert.ok(lost(1) > wrap);
+  assert.ok(lost(4) < wrap);
+  assert.ok(lost(2) / wrap > 0.5 && lost(2) / wrap < 2);
+  const dwarf = { mass: 0.3 * SUN_MASS, glow: 0.01 * SUN_GLOW };
+  assert.ok(strippedShare(mass, radius, dwarf, 0.1 * ASTRONOMICAL_UNIT) > lost(1));
+  for (let seed = 1; seed <= 40; seed++) {
+    for (const body of sketchSystem(seed, { settled: false, star: null }).bodies) {
+      const hot = seaCover(body.physics) > 0 && body.physics.heat > 647;
+      assert.equal(hot, false, `seed ${seed}, ${body.name}`);
+    }
+  }
 });
 
 test("a system sketched without a home has no life and can be given its star", () => {
