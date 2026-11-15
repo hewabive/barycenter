@@ -51,9 +51,19 @@ const COOLING_LIGHT = 0.25;
 const COOLING_HEAVY = 0.6;
 const BURNING_POWER = 8;
 const DUST_HEAT = [1300, 2200];
-const VISIBLE_WAVE = 0.7e-6;
-const VISIBLE_SHARE = 0.45;
+const SEEN_WAVES = [0.38e-6, 0.78e-6];
+const SEEN_STEPS = 80;
+const SEEN_PEAK = [1.019, 0.559e-6, 285.4e12];
+const FIRST_RADIATION = 3.7418e-16;
+export const LUMENS = 683;
+const SEEN_ALBEDO = 0.3;
 const SECOND_RADIATION = 0.014388;
+const LIGHT_POWER = 0.1;
+const GLARE_POWER = 0.3;
+const LIGHT_MOST = 1.35;
+const FILL_LIGHT = 0.025;
+const GLOW_FROM = [650, 900];
+export const SKY_LIGHT = 3e-7;
 const STUFFY_HEAT = [600, 2000];
 const STUFFY_MOST = 0.8;
 const ESCAPE_MARGIN = 6;
@@ -127,6 +137,12 @@ export interface Climate {
   heat: number;
 }
 
+export interface Shown {
+  lamps: number[];
+  sky: number;
+  glow: number;
+}
+
 export interface Volatiles {
   glow: number;
   distance: number;
@@ -172,19 +188,38 @@ export function lightAt(glow: number, distance: number): number {
 }
 
 export function seenGlow(heat: number): number {
-  const depth = SECOND_RADIATION / (VISIBLE_WAVE * heat);
-  if (depth > 500) {
+  if (heat <= 0) {
     return 0;
   }
-  const share =
-    (15 / Math.PI ** 4) * Math.exp(-depth) * (depth ** 3 + 3 * depth ** 2 + 6 * depth + 6);
-  return RADIATION * heat ** 4 * Math.min(1, share);
+  const [from, to] = SEEN_WAVES;
+  const step = (to - from) / SEEN_STEPS;
+  let sum = 0;
+  for (let index = 0; index < SEEN_STEPS; index++) {
+    const wave = from + (index + 0.5) * step;
+    const depth = SECOND_RADIATION / (wave * heat);
+    const eye = SEEN_PEAK[0] * Math.exp(-SEEN_PEAK[2] * (wave - SEEN_PEAK[1]) ** 2);
+    sum += depth > 500 ? 0 : (eye * step) / (wave ** 5 * (Math.exp(depth) - 1));
+  }
+  return FIRST_RADIATION * sum;
 }
 
-export function lentShare(physics: Pick<Physics, "heat" | "light">): number {
-  const lent = BRIGHT_GAS * VISIBLE_SHARE * physics.light;
-  const own = seenGlow(physics.heat);
-  return own <= 0 ? 1 : lent / (lent + own);
+export function seenShare(heat: number): number {
+  return heat <= 0 ? 0 : seenGlow(heat) / (RADIATION * heat ** 4);
+}
+
+export function shownLight(lamps: number[], heat: number): Shown {
+  const own = seenGlow(heat);
+  const lent = lamps.map((seen) => SEEN_ALBEDO * seen);
+  const sky = SEEN_ALBEDO * SKY_LIGHT;
+  const most = Math.max(own, sky, ...lent);
+  const whole = (most / (SEEN_ALBEDO * EARTH_SEEN)) ** LIGHT_POWER;
+  const part = (given: number) => Math.min(LIGHT_MOST, whole) * (given / most) ** GLARE_POWER;
+  const shown = lent.map(part);
+  return {
+    lamps: shown,
+    sky: Math.max(part(sky), FILL_LIGHT * Math.max(0, ...shown)),
+    glow: part(own) * smooth(GLOW_FROM[0], GLOW_FROM[1], heat),
+  };
 }
 
 export function innerHeat(mass: number, age: number, vigor: number): number {
@@ -467,6 +502,9 @@ export function seaCover(physics: Physics): number {
   }
   return Math.max(0.1, Math.min(0.97, 0.3 + 0.3 * Math.log10(liquid / DAMP_LEAST)));
 }
+
+export const EARTH_LIGHT = 1361;
+export const EARTH_SEEN = EARTH_LIGHT * seenShare(SUN_HEAT);
 
 export function classOf(physics: Physics): string {
   const earths = physics.mass / EARTH_MASS;

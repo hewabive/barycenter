@@ -27,6 +27,7 @@ import {
   SUN_GLOW,
   SUN_MASS,
   seaCover,
+  seenGlow,
   starGlow,
   starHeat,
   starRadius,
@@ -57,6 +58,11 @@ export interface Site {
   distance: number;
   around: Physics;
   orbit: number;
+}
+
+export interface Lamp {
+  source: number;
+  seen: number;
 }
 
 export interface Plan {
@@ -767,6 +773,22 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
           day: settledOn.day,
         };
   return { home, bodies: arranged(bodies, anchor) };
+}
+
+export function lampsOf(system: Sketch, id: number): Lamp[] {
+  const lamps: Lamp[] = [];
+  let reach = system.bodies[id].physics.orbit;
+  let above = system.bodies[id].parent;
+  while (above !== null) {
+    const { physics, parent } = system.bodies[above];
+    const seen = seenGlow(physics.heat) * (physics.radius / reach) ** 2;
+    if (seen > 0) {
+      lamps.push({ source: above, seen });
+    }
+    reach = physics.orbit;
+    above = parent;
+  }
+  return lamps.sort((left, right) => right.seen - left.seen);
 }
 
 export function positionOf(system: Sketch, id: number, tick: number): Vector {

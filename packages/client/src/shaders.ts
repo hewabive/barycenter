@@ -126,6 +126,7 @@ const ARCH_RISE = 1.8;
 const ARCH_CAP = 0.04;
 
 export const STORM_ROOM = 8;
+export const LAMP_ROOM = 2;
 export const PALETTE_ROOM = 9;
 export const SPOT_ROOM = 16;
 export const LIMB = 0.28;
@@ -505,17 +506,17 @@ ${SURVEY}
 uniform vec3 palette[${PALETTE_ROOM}];
 uniform vec3 haze;
 uniform vec3 fog;
-uniform vec3 sun;
+uniform vec3 suns[${LAMP_ROOM}];
+uniform vec3 shines[${LAMP_ROOM}];
+uniform float dusk;
 uniform float chart;
 uniform float air;
 uniform float drift;
 uniform float squash;
-uniform vec3 shine;
 uniform sampler2D grit;
 uniform vec2 hoop;
 uniform vec3 sunny;
 uniform vec4 ember;
-uniform float lent;
 ${fluid ? GAS_UNIFORMS : SOLID_UNIFORMS}
 uniform mat4 modelMatrix;
 varying vec3 vAt;
@@ -529,6 +530,7 @@ void main() {
   vec3 bulge = vec3(1.0, squash, 1.0);
   vec3 round = normalize(pose * (lean * bulge));
   vec3 eye = normalize(cameraPosition - vPlace);
+  vec3 sun = suns[0];
   vec3 emit = vec3(0.0);
   vec3 albedo;
   vec3 slope = vec3(0.0);
@@ -549,19 +551,27 @@ void main() {
   vec3 charted = albedo * hillshade(at, slope, depth);
 
   vec3 normal = normalize(pose * ((lean + tilted(at, slope, depth) - at) * bulge));
-  float day = lent * smoothstep(-0.15, 0.25, dot(round, sun)) * step(0.5, dot(sun, sun));
-  float direct = clamp(dot(normal, sun), 0.0, 1.0);
-  vec3 orbited = albedo * (0.025 + 1.1 * direct * day * (1.0 - shaded) * shine);
-  orbited += shine * wet * day * 0.3 * pow(max(dot(reflect(-sun, round), eye), 0.0), 40.0);
+  vec3 shone = vec3(0.0);
+  vec3 veiled = vec3(0.0);
+  float rim = 0.0;
+  float midday = 0.0;
+  for (int lamp = 0; lamp < ${LAMP_ROOM}; lamp++) {
+    float there = step(0.5, dot(suns[lamp], suns[lamp]));
+    float high = dot(round, suns[lamp]);
+    float day = smoothstep(-0.15, 0.25, high) * there;
+    float open = lamp == 0 ? 1.0 - shaded : 1.0;
+    shone += shines[lamp] * (1.1 * clamp(dot(normal, suns[lamp]), 0.0, 1.0) * day * open);
+    veiled += shines[lamp] * (0.95 * day * open * clamp(high + 0.25, 0.0, 1.0));
+    rim += max(shines[lamp].r, max(shines[lamp].g, shines[lamp].b)) * (0.1 + 0.9 * day) * there;
+    midday = lamp == 0 ? day : midday;
+  }
+  vec3 orbited = albedo * (dusk + shone);
+  orbited += shines[0] * wet * midday * 0.3 * pow(max(dot(reflect(-sun, round), eye), 0.0), 40.0);
   orbited += 1.0 - exp(-emit);
-  orbited = mix(
-    orbited,
-    fog * (1.0 - murk) * (0.03 + 0.95 * shine * day * (1.0 - shaded) * clamp(dot(round, sun) + 0.25, 0.0, 1.0)),
-    cover
-  );
+  orbited = mix(orbited, fog * (1.0 - murk) * (1.2 * dusk + veiled), cover);
 
   float limb = pow(1.0 - max(dot(round, eye), 0.0), 3.0);
-  orbited += haze * limb * air * (0.1 + 0.9 * day) * step(0.5, dot(sun, sun));
+  orbited += haze * limb * air * rim;
   charted += haze * limb * air * 0.4;
 
   gl_FragColor = vec4(mix(orbited, charted, chart), 1.0);
@@ -652,6 +662,7 @@ uniform vec3 sun;
 uniform float chart;
 uniform float air;
 uniform float rim;
+uniform float might;
 varying vec3 vNormal;
 varying vec3 vPlace;
 
@@ -662,7 +673,7 @@ void main() {
   float glow = pow(smoothstep(0.0, rim, -graze), 2.0);
   vec3 outward = normalize(normal - eye * graze);
   float day = smoothstep(-0.3, 0.4, dot(outward, sun));
-  gl_FragColor = vec4(haze * glow * air * mix(0.05 + 0.95 * day, 0.45, chart), 1.0);
+  gl_FragColor = vec4(haze * glow * air * mix(might * (0.05 + 0.95 * day), 0.45, chart), 1.0);
   #include <colorspace_fragment>
 }
 `;
@@ -684,6 +695,7 @@ uniform sampler2D grit;
 uniform vec2 hoop;
 uniform vec3 sunny;
 uniform vec3 shine;
+uniform vec3 inner;
 uniform float squash;
 uniform mat4 modelMatrix;
 varying vec3 vSpot;
@@ -703,7 +715,10 @@ void main() {
   float facing = step(0.0, eye.y * sunny.y);
   float glow = mix(2.5 * dense * (1.0 - dense), 0.6 + 0.5 * dense, facing)
     * (0.4 + 0.6 * smoothstep(0.0, 0.3, abs(sunny.y)));
-  gl_FragColor = vec4(dust.rgb * dust.rgb * shine * (0.02 + lit * glow), through);
+  float near = length(vSpot.xz);
+  float middle = 0.5 * (hoop.x + hoop.y);
+  vec3 lamp = shine * (0.02 + lit * glow) + inner * pow(middle / near, 3.0) * (0.35 + 0.65 * dense);
+  gl_FragColor = vec4(dust.rgb * dust.rgb * lamp, through);
   #include <colorspace_fragment>
 }
 `;
@@ -767,19 +782,23 @@ void main() {
 export const SPECK_VERTEX = `
 attribute vec3 tone;
 attribute vec3 ember;
+attribute vec3 lamp;
+attribute vec4 shine;
 attribute float girth;
 uniform float scale;
 uniform float least;
 varying vec3 vTone;
 varying vec3 vEmber;
+varying vec4 vShine;
 varying vec3 vSun;
 varying float vAid;
 
 void main() {
   vec4 placed = modelViewMatrix * vec4(position, 1.0);
-  vSun = normalize(mat3(modelViewMatrix) * -position + vec3(0.0, 0.0, 1e-6));
+  vSun = normalize(mat3(modelViewMatrix) * (lamp - position) + vec3(0.0, 0.0, 1e-6));
   vTone = tone;
   vEmber = ember;
+  vShine = shine;
   float wide = 2.0 * girth * scale / max(-placed.z, 1e-3);
   vAid = 1.0 - smoothstep(least, 2.0 * least, wide);
   gl_PointSize = max(wide, least);
@@ -788,9 +807,9 @@ void main() {
 `;
 
 export const SPECK_FRAGMENT = `
-uniform vec3 shine;
 varying vec3 vTone;
 varying vec3 vEmber;
+varying vec4 vShine;
 varying vec3 vSun;
 varying float vAid;
 
@@ -801,8 +820,8 @@ void main() {
   vec3 normal = vec3(spot, sqrt(1.0 - reach));
   float facing = dot(normal, vSun);
   float lit = smoothstep(-0.15, 0.25, facing) * clamp(facing, 0.0, 1.0);
-  vec3 shaded = vTone * (0.025 + 1.1 * lit * shine);
-  gl_FragColor = vec4(mix(shaded, 0.7 * vTone * shine, vAid) + 1.0 - exp(-vEmber), 1.0);
+  vec3 shaded = vTone * (vShine.a + 1.1 * lit * vShine.rgb);
+  gl_FragColor = vec4(mix(shaded, 0.7 * vTone * vShine.rgb, vAid) + 1.0 - exp(-vEmber), 1.0);
   #include <colorspace_fragment>
 }
 `;

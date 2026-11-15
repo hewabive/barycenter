@@ -5,14 +5,15 @@ import {
   flatOf,
   type Gas,
   HOUR,
-  lentShare,
   moltenOf,
   type Physics,
   ROCK_MELT,
   roughOf,
+  type Shown,
   STAR_LEAST,
   seaCover,
   shareOf,
+  shownLight,
   wrapped,
 } from "@barycenter/sim";
 import { Color } from "three";
@@ -52,7 +53,7 @@ export type Ember = [red: number, green: number, blue: number, bright: number];
 
 export interface Giant {
   ember: Ember;
-  lent: number;
+  shown: Shown;
   vents: number;
   zones: number[];
   belts: number[];
@@ -92,6 +93,7 @@ export interface Skin {
   haze: number;
   air: number;
   ember: Ember;
+  shown: Shown;
   melt: [night: number, noon: number];
   lump: [depth: number, along: number, up: number, across: number];
 }
@@ -101,13 +103,10 @@ export const WAVES = [0.61, 0.55, 0.465];
 const FLAT_LEAST = 0.008;
 const NO_FROST = 2;
 const DARK: Ember = [0, 0, 0, 0];
-const EMBER_HEAT = 1500;
-const EMBER_MOST = 1.6;
-const EMBER_POWER = 0.3;
-const EMBER_FROM = [650, 900];
-const EMBER_HUE = [0.8, 1400];
+const UNLIT: Shown = { lamps: [], sky: 0, glow: 0 };
+const EMBER_HUE = [500, 0.8, 1400];
 const ALKALI_BLUE = 0.28;
-const LAVA_GLOW = [1.1, 1.5];
+const LAVA_GAIN = 1.6;
 const ALKALI = [1200, 1600];
 const MELT_SPAN = [ROCK_MELT - 100, ROCK_MELT + 400];
 const NIGHT_SHARE = 0.35;
@@ -135,20 +134,27 @@ export function familyOf(physics: Physics): Family {
   return physics.mass >= STAR_LEAST ? "star" : wrapped(physics) ? "fluid" : "solid";
 }
 
-export function emberOf(kelvin: number, tinge = 0): Ember {
-  if (kelvin <= EMBER_FROM[0]) {
-    return DARK;
-  }
+export function emberOf(kelvin: number, tinge = 0): [number, number, number] {
   const shone = (wave: number, heat: number) => wave ** -5 / (Math.exp(WIEN / (wave * heat)) - 1);
-  const raw =
-    (shone(WAVES[0], kelvin) / shone(WAVES[0], EMBER_HEAT)) ** EMBER_POWER *
-    smooth(EMBER_FROM[0], EMBER_FROM[1], kelvin);
-  const hue = Math.min(EMBER_HUE[0] * kelvin, EMBER_HUE[1]);
+  const hue = Math.max(EMBER_HUE[0], Math.min(EMBER_HUE[1] * kelvin, EMBER_HUE[2]));
   const red = shone(WAVES[0], hue);
   const green = (shone(WAVES[1], hue) / red) * (1 - 0.5 * tinge);
   const blue = shone(WAVES[2], hue) / red;
-  const bright = EMBER_MOST * (1 - Math.exp(-raw / EMBER_MOST));
-  return [1, green, blue + tinge * (ALKALI_BLUE - blue), bright];
+  return [1, green, blue + tinge * (ALKALI_BLUE - blue)];
+}
+
+function lavaHeat(physics: Physics): number {
+  if (moltenOf(physics) <= 0) {
+    return 0;
+  }
+  const even = smooth(4, 6, physics.air > 0 ? Math.log10(physics.air) : 0);
+  const noon = physics.heat * (Math.SQRT2 + (1 - Math.SQRT2) * even);
+  return Math.max(ROCK_MELT, Math.min(LAVA_MOST, noon));
+}
+
+export function shownOf(physics: Physics, seen: number[]): Shown {
+  const family = familyOf(physics);
+  return shownLight(seen, family === "fluid" ? physics.heat : lavaHeat(physics));
 }
 
 export function flatnessOf(physics: Physics): number {
@@ -238,7 +244,7 @@ function brew(given: Partial<Brew> & Pick<Brew, "band" | "size" | "tint">): Brew
 
 const JOVIAN: Giant = {
   ember: DARK,
-  lent: 1,
+  shown: UNLIT,
   vents: 0.4,
   zones: [0xefe6d2, 0xe3d2b0, 0xd9c8a8, 0xe8dcc0],
   belts: [0x9a6a4a, 0x7a4b35, 0xa87a52, 0x86705e],
@@ -277,7 +283,7 @@ const JOVIAN: Giant = {
 
 const SATURNIAN: Giant = {
   ember: DARK,
-  lent: 1,
+  shown: UNLIT,
   vents: 0.4,
   zones: [0xf5e0a8, 0xf0d590, 0xf7e7ba],
   belts: [0xdcb872, 0xcfa35c, 0xe3c483, 0xc9a868],
@@ -305,7 +311,7 @@ const SATURNIAN: Giant = {
 
 const NEPTUNIAN: Giant = {
   ember: DARK,
-  lent: 1,
+  shown: UNLIT,
   vents: 0.4,
   zones: [0x3f6fd0, 0x4a7bd8, 0x3a66c4],
   belts: [0x2f58b8, 0x2a4fa8, 0x3560bc],
@@ -334,7 +340,7 @@ const NEPTUNIAN: Giant = {
 
 const URANIAN: Giant = {
   ember: DARK,
-  lent: 1,
+  shown: UNLIT,
   vents: 0.4,
   zones: [0xa0dbe8, 0xaae2ea, 0x9cd6e6],
   belts: [0x93cfe0, 0x98d3e2, 0x8fcbdc],
@@ -359,7 +365,7 @@ const URANIAN: Giant = {
 
 const WATERY: Giant = {
   ember: DARK,
-  lent: 1,
+  shown: UNLIT,
   vents: 0.4,
   zones: [0xf2f4f6, 0xe6ecf2, 0xf7f3ea],
   belts: [0xb9c4d2, 0xa6b6c8, 0xcfc8ba, 0x9fb0c4],
@@ -387,7 +393,7 @@ const WATERY: Giant = {
 
 const CLEAR: Giant = {
   ember: DARK,
-  lent: 1,
+  shown: UNLIT,
   vents: 0.4,
   zones: [0x3d6fb8, 0x4478c0, 0x3a68ae],
   belts: [0x335fa6, 0x2f589c, 0x3964aa],
@@ -412,7 +418,7 @@ const CLEAR: Giant = {
 
 const SCORCHED: Giant = {
   ember: DARK,
-  lent: 1,
+  shown: UNLIT,
   vents: 0.4,
   zones: [0x2a2f3c, 0x343846, 0x262b38],
   belts: [0x1c1f2a, 0x221f24, 0x1a1d28],
@@ -437,7 +443,7 @@ const SCORCHED: Giant = {
 
 const DUSTY: Giant = {
   ember: DARK,
-  lent: 1,
+  shown: UNLIT,
   vents: 0.4,
   zones: [0x5a4038, 0x4c3832, 0x64483a],
   belts: [0x2c1c1a, 0x341f1a, 0x261a1c, 0x3a2620],
@@ -508,7 +514,7 @@ function blended(from: Giant, to: Giant, share: number): Giant {
   const fade = Math.abs(1 - 2 * share);
   return {
     ember: lead.ember,
-    lent: 1,
+    shown: UNLIT,
     vents: mix(from.vents, to.vents),
     zones: tones(from.zones, to.zones),
     belts: tones(from.belts, to.belts),
@@ -554,8 +560,9 @@ function giantShares(physics: Physics) {
   };
 }
 
-export function giantOf(body: Body): Giant {
+export function giantOf(body: Body, seen: number[]): Giant {
   const { physics } = body;
+  const shown = shownOf(physics, seen);
   const shares = giantShares(physics);
   const heavy = blended(SATURNIAN, JOVIAN, shares.heavy);
   const cold = blended(heavy, blended(URANIAN, NEPTUNIAN, shares.lively), shares.light);
@@ -570,8 +577,11 @@ export function giantOf(body: Body): Giant {
   const pace = Math.max(0.75, Math.min(1.35, Math.sqrt(physics.day / (12 * HOUR))));
   return {
     ...giant,
-    ember: emberOf(physics.heat, 0.8 * (1 - smooth(ALKALI[0], ALKALI[1], physics.heat))),
-    lent: body.parent === null ? 1 : lentShare(physics),
+    ember: [
+      ...emberOf(physics.heat, 0.8 * (1 - smooth(ALKALI[0], ALKALI[1], physics.heat))),
+      shown.glow,
+    ],
+    shown,
     vents: 0.35 + 0.5 * shares.bare,
     zones: giant.zones.map(shift),
     belts: giant.belts.map(shift),
@@ -642,6 +652,7 @@ const BARREN: Skin = {
   haze: 0x8a8a8a,
   air: 0,
   ember: DARK,
+  shown: UNLIT,
   melt: [0, 0],
   lump: [0, 1, 1, 1],
 };
@@ -668,6 +679,7 @@ const DESERT: Skin = {
   haze: 0xd89a70,
   air: 0.4,
   ember: DARK,
+  shown: UNLIT,
   melt: [0, 0],
   lump: [0, 1, 1, 1],
 };
@@ -689,6 +701,7 @@ const SEA: Skin = {
   haze: 0x6fa8ff,
   air: 1,
   ember: DARK,
+  shown: UNLIT,
   melt: [0, 0],
   lump: [0, 1, 1, 1],
 };
@@ -716,6 +729,7 @@ const ICE: Skin = {
   haze: 0xa8d8ff,
   air: 0.6,
   ember: DARK,
+  shown: UNLIT,
   melt: [0, 0],
   lump: [0, 1, 1, 1],
 };
@@ -767,6 +781,7 @@ function merged(from: Skin, to: Skin, share: number): Skin {
     haze: tone(from.haze, to.haze, share),
     air: mix(from.air, to.air),
     ember: from.ember,
+    shown: from.shown,
     melt: from.melt,
     lump: from.lump,
   };
@@ -815,8 +830,6 @@ export function recipeOf(body: Body): [name: string, share: number][] {
       ["dark", hot * (1 - dusty)],
       ["dusty", dusty],
       ["behind a veil", thin],
-      ["glowing", Math.min(1, emberOf(physics.heat)[3])],
-      ["lit by the star", lentShare(physics)],
     ];
   }
   const { airy, hot, wet, icy, thick } = skinShares(physics);
@@ -835,8 +848,10 @@ export function recipeOf(body: Body): [name: string, share: number][] {
   ];
 }
 
-export function skinOf(body: Body): Skin {
+export function skinOf(body: Body, seen: number[]): Skin {
   const { physics } = body;
+  const shown = shownOf(physics, seen);
+  const lava = lavaHeat(physics);
   const random = createRandom(body.seed + 61);
   const turn = 0.04 * (2 * random.next() - 1);
   const vivid = random.next();
@@ -862,12 +877,6 @@ export function skinOf(body: Body): Skin {
   const noon = physics.heat * (Math.SQRT2 + (1 - Math.SQRT2) * even);
   const night = physics.heat * (NIGHT_SHARE + (1 - NIGHT_SHARE) * even);
   const melted = (heat: number) => (heat - MELT_SPAN[0]) / (MELT_SPAN[1] - MELT_SPAN[0]);
-  const lava = moltenOf(physics) > 0;
-  const molten = (heat: number): Ember => {
-    const [red, green, blue] = emberOf(heat);
-    const share = smooth(ROCK_MELT, LAVA_MOST, heat);
-    return [red, green, blue, LAVA_GLOW[0] + (LAVA_GLOW[1] - LAVA_GLOW[0]) * share];
-  };
   const rough = roughOf(physics) * (physics.disks.length > 0 ? 0.4 : 1);
   const across = 1 - 0.35 * rough * random.next();
   const up = across * (1 - 0.3 * rough * random.next());
@@ -878,8 +887,9 @@ export function skinOf(body: Body): Skin {
     fog: thick > 0 ? fogOf(physics) : skin.fog,
     haze: thick > 0 ? tone(skin.haze, fogOf(physics), thick) : skin.haze,
     air: wet ? 1 : Math.max(0, Math.min(1.1, 0.35 * (pressure - 2) * Math.sign(physics.air))),
-    ember: lava ? molten(Math.max(ROCK_MELT, Math.min(LAVA_MOST, noon))) : DARK,
-    melt: lava ? [melted(night), melted(noon)] : [0, 0],
+    ember: lava > 0 ? [...emberOf(lava), LAVA_GAIN * shown.glow] : DARK,
+    shown,
+    melt: lava > 0 ? [melted(night), melted(noon)] : [0, 0],
     lump: [LUMP_DEPTH * rough, 1, up, across],
   };
 }

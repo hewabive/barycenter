@@ -50,6 +50,7 @@ A body has a nature of its own, apart from how the game divides it.
 - A ring belongs to no kind of body. Any body may carry one inside the distance at which its pull would tear a moon apart, ice where it is cold and dark dust where it is warm. Giants often have one and rocky bodies seldom.
 - A ring and a belt are one thing, a disk of small matter around a body. Around a planet it is dense and close, and is a ring. Around a star it is sparse and wide, a belt of small bodies in an orbit that no planet took, of rock inside the frost line and of ice beyond it. Most systems have a belt or two.
 - The game shows a conventional scale. Sizes, distances and periods are compressed so that a system fits a screen and a turn of a far body takes hours and not years, and they keep the order and the nesting of the real ones. The home body always has radius 1, a year of 9600 ticks and a day of 1200.
+- Light is on a conventional scale as well, and it is light as an eye sees it. A body is lit by its star and by whatever it circles that glows, and where nothing lights it, by the stars of the sky. How bright a body is drawn falls with the light that reaches it far more gently than that light does: a body thirty times farther from its star than the home is half as bright. Of the lights of one body, its own glow among them, the strongest is drawn in full and the others by a gentler share of what they are, so what is brighter stays brighter and nothing that shines is lost.
 
 ## Time
 

@@ -1,4 +1,11 @@
-import { createRandom, positionOf, type Sketch, spinOf } from "@barycenter/sim";
+import {
+  createRandom,
+  positionOf,
+  type Sketch,
+  seenGlow,
+  shownLight,
+  spinOf,
+} from "@barycenter/sim";
 import {
   BufferAttribute,
   BufferGeometry,
@@ -170,7 +177,7 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
   const sky = createSky(system.bodies[0].seed);
   scene.add(sky);
 
-  const { looks, shine } = createLooks(renderer, system.bodies);
+  const { looks, sources, tintOf } = createLooks(renderer, system);
   const home = system.home === null ? null : looks[system.home];
   home?.refine(fine);
   const star = looks.find((look) => look.body.parent === null) ?? looks[0];
@@ -184,9 +191,20 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
   }
   const spots = new BufferAttribute(new Float32Array(3 * looks.length), 3);
   const girths = new BufferAttribute(new Float32Array(looks.length), 1);
+  const lamps = new BufferAttribute(new Float32Array(3 * looks.length), 3);
   const specks = new BufferGeometry();
   specks.setAttribute("position", spots);
   specks.setAttribute("girth", girths);
+  specks.setAttribute("lamp", lamps);
+  specks.setAttribute(
+    "shine",
+    new BufferAttribute(
+      new Float32Array(
+        looks.flatMap((look) => [look.shine.r, look.shine.g, look.shine.b, look.dusk]),
+      ),
+      4,
+    ),
+  );
   const shades = (pick: (look: Look) => Color) =>
     new BufferAttribute(
       new Float32Array(looks.flatMap((look) => [pick(look).r, pick(look).g, pick(look).b])),
@@ -203,14 +221,18 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
   const speckMaterial = new ShaderMaterial({
     vertexShader: SPECK_VERTEX,
     fragmentShader: SPECK_FRAGMENT,
-    uniforms: { shine: { value: shine }, scale: { value: 1 }, least: { value: SPECK_PIXELS } },
+    uniforms: { scale: { value: 1 }, least: { value: SPECK_PIXELS } },
   });
   const dust = new Points(specks, speckMaterial);
   dust.frustumCulled = false;
   world.add(dust);
-  const belts = star.body.disks.map((lane, index) =>
-    createBelt(lane, star.body.physics.disks[index], star.body.seed + index, shine, coarse.matches),
-  );
+  const belts = star.body.disks.map((lane, index) => {
+    const disk = star.body.physics.disks[index];
+    const { heat, radius } = star.body.physics;
+    const seen = seenGlow(heat) * ((2 * radius) / (disk.inner + disk.outer)) ** 2;
+    const shine = tintOf(star.body).multiplyScalar(shownLight([seen], 0).lamps[0]);
+    return createBelt(lane, disk, star.body.seed + index, shine, coarse.matches);
+  });
   for (const belt of belts) {
     world.add(belt.points);
   }
@@ -301,8 +323,8 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
   const pose = new Quaternion();
   const still = new Quaternion();
   const rig = new Quaternion();
-  const sunward = new Vector3();
-  const starAt = new Vector3();
+  const places = looks.map(() => new Vector3());
+  const rays = [new Vector3(), new Vector3()];
   const facing = new Vector3();
   const sunlit = new Vector3();
   const swing = new Quaternion();
@@ -368,19 +390,28 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
     }
 
     scene.updateMatrixWorld(true);
-    star.frame.getWorldPosition(starAt);
     const pixels = stage.clientHeight / 2 / Math.tan((camera.fov * Math.PI) / 360);
     let closest = Number.POSITIVE_INFINITY;
     let farthest = 0;
     let waking: Look | null = null;
     let widest = WAKE_PIXELS;
-    for (const look of looks) {
-      look.frame.getWorldPosition(place);
+    looks.forEach((look, index) => {
+      look.frame.getWorldPosition(places[index]);
+    });
+    for (const [index, look] of looks.entries()) {
+      const place = places[index];
       const gap = place.distanceTo(camera.position);
       closest = Math.min(closest, gap - look.body.radius);
       farthest = Math.max(farthest, gap + look.body.radius);
-      sunward.copy(starAt).sub(place).normalize();
-      look.light(sunward, look === home ? chart : 0, shown);
+      const lit = sources[index];
+      rays.forEach((ray, at) => {
+        if (at < lit.length) {
+          ray.copy(places[lit[at]]).sub(place).normalize();
+        } else {
+          ray.set(0, 0, 0);
+        }
+      });
+      look.light(rays, look === home ? chart : 0, shown);
       const wide = (look.body.radius * pixels) / Math.max(gap, 1e-6);
       if (look === home || look === star || look === to) {
         continue;
@@ -399,9 +430,12 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
     looks.forEach((look, index) => {
       spots.setXYZ(index, look.frame.position.x, look.frame.position.y, look.frame.position.z);
       girths.setX(index, look.detail() === 0 ? look.body.radius : 0);
+      const lamp = looks[sources[index][0] ?? index].frame.position;
+      lamps.setXYZ(index, lamp.x, lamp.y, lamp.z);
     });
     spots.needsUpdate = true;
     girths.needsUpdate = true;
+    lamps.needsUpdate = true;
     const dense = renderer.getPixelRatio();
     speckMaterial.uniforms.scale.value = pixels * dense;
     speckMaterial.uniforms.least.value = SPECK_PIXELS * dense;

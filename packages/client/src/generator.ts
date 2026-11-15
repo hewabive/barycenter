@@ -10,8 +10,10 @@ import {
   densityOf,
   EARTH_AIR,
   EARTH_GRAVITY,
+  EARTH_LIGHT,
   EARTH_MASS,
   EARTH_RADIUS,
+  EARTH_SEEN,
   escapeOf,
   frostOf,
   GASES,
@@ -20,7 +22,8 @@ import {
   HOUR,
   hillOf,
   JUPITER_MASS,
-  lentShare,
+  LUMENS,
+  lampsOf,
   moltenOf,
   rocheOf,
   roughOf,
@@ -28,18 +31,18 @@ import {
   SUN_MASS,
   SUN_RADIUS,
   seaCover,
+  seenGlow,
   sketchSystem,
   starHeat,
   YEAR,
 } from "@barycenter/sim";
 import { button, el, required, write } from "./dom.ts";
-import { familyOf, flatnessOf, recipeOf } from "./looks.ts";
+import { familyOf, flatnessOf, recipeOf, shownOf } from "./looks.ts";
 import { createSpace } from "./space.ts";
 
 type Fact = [name: string, value: string] | string;
 
 const PACES = [0, 2, 16, 128, 1024];
-const EARTH_LIGHT = 1361;
 const ROCK_GRAIN = 3000;
 const ICE_GRAIN = 900;
 
@@ -112,6 +115,12 @@ function factsOf(body: Body): Fact[] {
   const moons = system.bodies.filter((other) => other.parent === body.id).length;
   const rough = roughOf(physics);
   const molten = moltenOf(physics);
+  const glow = (LUMENS * seenGlow(physics.heat)) / Math.PI;
+  const lamps = lampsOf(system, body.id).slice(0, 2);
+  const shown = shownOf(
+    physics,
+    lamps.map((lamp) => lamp.seen),
+  );
   const facts: Fact[] = [
     "Body",
     ["Class", classOf(physics)],
@@ -167,14 +176,7 @@ function factsOf(body: Body): Fact[] {
           ? "none"
           : `${figure(physics.light)} W/m² · ${figure(physics.light / EARTH_LIGHT)} of the Earth's`,
       ],
-      [
-        "Seen light",
-        parent === null || lentShare(physics) >= 0.9995
-          ? parent === null
-            ? "its own glow"
-            : "the light of the star, reflected"
-          : `${share(lentShare(physics))} reflected from the star, the rest its own glow`,
-      ],
+      ["Glow an eye sees", glow >= 1e-6 ? `${figure(glow)} candela on a square meter` : "none"],
       ["Molten rock", molten > 0 ? `${share(molten)} of the surface` : "none"],
       [
         "Air",
@@ -237,6 +239,17 @@ function factsOf(body: Body): Fact[] {
                   `${figure(disk.inner / physics.radius)} to ${figure(disk.outer / physics.radius)} radii · density ${figure(disk.depth)} · ice ${share(disk.ice)} · ${figure(disk.mass)} kg`,
                 ],
         )),
+    "Light",
+    ...(lamps.length === 0
+      ? [["Lit by", "the stars of the sky alone"] satisfies Fact]
+      : lamps.map(
+          ({ source, seen }, at): Fact => [
+            at === 0 ? "Lit by" : "And by",
+            `${system.bodies[source].name} · ${figure(LUMENS * seen)} lux · ${figure(seen / EARTH_SEEN)} of daylight on the Earth · drawn at ${share(shown.lamps[at])}`,
+          ],
+        )),
+    ["Sky drawn at", share(shown.sky)],
+    ["Glow drawn at", shown.glow > 0 ? share(shown.glow) : "none"],
     "On screen",
     [
       "Drawn as",

@@ -12,6 +12,7 @@ import {
   STAR_LEAST,
   SUN_GLOW,
   SUN_MASS,
+  seenGlow,
 } from "@barycenter/sim";
 import { PerspectiveCamera, Scene, Vector3, WebGLRenderer } from "three";
 import { createStudio } from "./bodies.ts";
@@ -99,16 +100,17 @@ renderer.setPixelRatio(1);
 renderer.setSize(side, side);
 renderer.setClearColor(0x070a10);
 const studio = createStudio(renderer);
-const shine = studio.shineOf(bodyOf(star, 0));
+const tint = studio.shineOf(bodyOf(star, 0));
 const camera = new PerspectiveCamera(40, 1, 0.1, 100);
 const sunward = new Vector3(-0.55, 0.35, 0.75).normalize();
-const dark = new Vector3();
 
 const written = (value: number) =>
   value >= 100 ? value.toFixed(0) : value >= 1 ? value.toPrecision(3) : value.toPrecision(2);
 
 const paint = (body: Body, column: number, row: number) => {
-  const look = studio.shape(body, shine);
+  const lit = body.physics.orbit > 0;
+  const seen = lit ? seenGlow(star.heat) * (star.radius / body.physics.orbit) ** 2 : 0;
+  const look = studio.shape(body, lit ? [{ seen, tint }] : []);
   look.refine(detail);
   const scene = new Scene();
   look.frame.rotation.x = LEAN;
@@ -116,7 +118,7 @@ const paint = (body: Body, column: number, row: number) => {
   camera.position.set(0, 0, VIEW * look.girth);
   camera.lookAt(0, 0, 0);
   scene.updateMatrixWorld(true);
-  look.light(body.physics.orbit > 0 ? sunward : dark, 0, tick);
+  look.light(lit ? [sunward] : [], 0, tick);
   renderer.render(scene, camera);
   const left = MARGIN + column * (side + MARGIN);
   const top = MARGIN + row * (side + CAPTION + MARGIN);

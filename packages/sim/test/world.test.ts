@@ -11,22 +11,28 @@ import {
   EARTH_AIR,
   EARTH_MASS,
   EARTH_RADIUS,
+  EARTH_SEEN,
   elevationAt,
   GIGAYEAR,
   innerHeat,
   JUPITER_MASS,
-  lentShare,
+  LUMENS,
+  lampsOf,
   moltenOf,
   type Physics,
   positionOf,
   radiusOf,
   roughOf,
+  SKY_LIGHT,
   type Sketch,
   STAR_LEAST,
   SUN_GLOW,
   SUN_MASS,
   seaCover,
+  seenGlow,
+  seenShare,
   shareOf,
+  shownLight,
   sketchSystem,
   slerp,
   starHeat,
@@ -504,17 +510,84 @@ test("a body in gas keeps heat of its own, more of it when heavy or young", () =
   assert.ok(innerHeat(20 * JUPITER_MASS, old, 0.5) < 0.7 * dwarf);
   const least = starHeat(starGlow(STAR_LEAST), starRadius(STAR_LEAST));
   assert.ok(Math.abs(innerHeat(0.999 * STAR_LEAST, old, 0.5) / least - 1) < 0.06);
-  assert.equal(lentShare({ heat: 124, light: 50 }), 1);
-  assert.ok(lentShare({ heat: 1436, light: 1.4e6 }) > 0.99);
-  const far = lentShare({ heat: 1013, light: 0.0226 });
-  assert.ok(far > 0.005 && far < 0.1, `far brown dwarf ${far}`);
-  assert.ok(lentShare({ heat: 2000, light: 0.0226 }) < far);
   const gas = { iron: 0.01, rock: 0.02, ice: 0.02, gas: 0.95 };
   const cool = radiusOf(JUPITER_MASS, gas, 500);
   assert.equal(radiusOf(JUPITER_MASS, gas), cool);
   const puffed = radiusOf(JUPITER_MASS, gas, 1800) / cool;
   assert.ok(puffed > 1.25 && puffed < 1.6, `puffed ${puffed}`);
   assert.ok(radiusOf(5 * JUPITER_MASS, gas, 1800) / radiusOf(5 * JUPITER_MASS, gas) < puffed);
+});
+
+test("light is drawn on a scale that keeps what is brighter brighter", () => {
+  assert.ok(Math.abs(LUMENS * seenShare(5772) - 93) < 3);
+  assert.ok(Math.abs(LUMENS * seenShare(2900) - 17) < 2);
+  assert.ok(Math.abs(LUMENS * EARTH_SEEN - 127000) < 4000);
+  const ember = (LUMENS * seenGlow(1000)) / Math.PI;
+  assert.ok(ember > 1 && ember < 6, `a thousand kelvin ${ember}`);
+  assert.equal(seenGlow(30), 0);
+  assert.equal(seenGlow(0), 0);
+  assert.deepEqual(shownLight([EARTH_SEEN], 0), shownLight([EARTH_SEEN], 288));
+
+  const home = shownLight([EARTH_SEEN], 288);
+  assert.ok(Math.abs(home.lamps[0] - 1) < 1e-9);
+  assert.equal(home.glow, 0);
+  assert.ok(Math.abs(home.sky - 0.025) < 1e-9);
+  const far = shownLight([EARTH_SEEN / 900], 50);
+  assert.ok(
+    far.lamps[0] > 0.45 && far.lamps[0] < 0.55,
+    `at thirty times the distance ${far.lamps[0]}`,
+  );
+  assert.ok(shownLight([EARTH_SEEN / 30], 100).lamps[0] > far.lamps[0]);
+  assert.ok(shownLight([EARTH_SEEN * 1000], 288).lamps[0] <= 1.35);
+
+  const dwarf = shownLight([EARTH_SEEN * 1.66e-5], 1013);
+  assert.ok(dwarf.glow > dwarf.lamps[0] && dwarf.lamps[0] > 0.2 * dwarf.glow);
+  assert.ok(dwarf.glow > 0.3 && dwarf.glow < 0.7, `far brown dwarf ${dwarf.glow}`);
+  const scorched = shownLight([EARTH_SEEN * 1000], 1436);
+  assert.ok(scorched.lamps[0] > 5 * scorched.glow && scorched.glow > 0.05);
+  const even = seenGlow(1500) / 0.3;
+  const level = shownLight([even], 1500);
+  assert.ok(Math.abs(level.lamps[0] - level.glow) < 1e-9);
+  assert.ok(shownLight([even], 2000).glow > level.glow);
+  assert.equal(shownLight([EARTH_SEEN], 600).glow, 0);
+
+  const dark = shownLight([], 300);
+  assert.ok(dark.sky > 0.08 && dark.sky < 0.2, `under the stars alone ${dark.sky}`);
+  const pair = shownLight([SKY_LIGHT * 1e4, SKY_LIGHT * 10], 100);
+  assert.ok(pair.lamps[0] > pair.lamps[1] && pair.lamps[1] > pair.sky);
+
+  let lit = 0;
+  for (let seed = 1; seed <= 120; seed++) {
+    const system = sketchSystem(seed, { settled: false, star: null });
+    for (const body of system.bodies) {
+      const lamps = lampsOf(system, body.id);
+      const label = `seed ${seed}, ${body.name}`;
+      if (body.parent === null) {
+        assert.deepEqual(lamps, [], label);
+        continue;
+      }
+      const centre = system.bodies[0].physics;
+      const sun = lamps.find((lamp) => lamp.source === 0);
+      if (centre.mass >= STAR_LEAST) {
+        assert.ok(sun, label);
+        const given = body.physics.light * seenShare(centre.heat);
+        assert.ok(Math.abs(sun.seen / given - 1) < 0.01, `${label}: ${sun.seen} ${given}`);
+      }
+      assert.ok(
+        lamps.every((lamp, at) => at === 0 || lamp.seen <= lamps[at - 1].seen),
+        label,
+      );
+      const host = system.bodies[body.parent];
+      if (host.parent !== null && host.physics.heat > 900) {
+        assert.ok(
+          lamps.some((lamp) => lamp.source === host.id),
+          label,
+        );
+        lit += 1;
+      }
+    }
+  }
+  assert.ok(lit > 5, `moons lit by what they circle ${lit}`);
 });
 
 test("small bodies are loose and not round, and rock melts where it is hot", () => {
