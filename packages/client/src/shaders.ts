@@ -463,7 +463,7 @@ const GAS = `
     float drop = -stood.y / (abs(sunny.y) < 1e-4 ? 1e-4 : sunny.y);
     float across = (length((stood + sunny * drop).xz) - hoop.x) / (hoop.y - hoop.x);
     float veil = texture2D(grit, vec2(across, 0.5)).a * step(0.0, drop) * step(0.0, across) * step(across, 1.0);
-    albedo *= 1.0 - ${real(RING_SHADE)} * veil;
+    shaded = ${real(RING_SHADE)} * veil;
   }
 `;
 
@@ -495,6 +495,7 @@ void main() {
   float wet = 0.0;
   float cover = 0.0;
   float bump = 0.0;
+  float shaded = 0.0;
   ${kind === "gas" ? GAS : solid(SKINS[kind])}
   float depth = bump * mix(1.0, 0.3, wet);
   vec3 charted = albedo * hillshade(at, slope, depth);
@@ -502,7 +503,7 @@ void main() {
   vec3 normal = normalize(pose * (tilted(at, slope, depth) * bulge));
   float day = smoothstep(-0.15, 0.25, dot(round, sun));
   float direct = clamp(dot(normal, sun), 0.0, 1.0);
-  vec3 orbited = albedo * (0.025 + 1.1 * direct * day * shine);
+  vec3 orbited = albedo * (0.025 + 1.1 * direct * day * (1.0 - shaded) * shine);
   orbited += shine * wet * day * 0.3 * pow(max(dot(reflect(-sun, round), eye), 0.0), 40.0);
   orbited = mix(
     orbited,
