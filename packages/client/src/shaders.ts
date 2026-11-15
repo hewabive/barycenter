@@ -104,6 +104,13 @@ const SWIRL_RATE = 4;
 const WAKE_REACH = 3;
 const WAKE_GAIN = 0.8;
 const RING_SHADE = 0.8;
+const LUMP_SCALE = 0.9;
+const LUMP_SPAN = 0.06;
+const LAVA_FLOOR = -0.4;
+const LAVA_SPAN = 2;
+const CRUST_GLOW = 0.04;
+const SHORE_GLOW = 0.3;
+const DAY_DIM = 0.7;
 
 const GRAIN_MEAN = 0.52;
 const GRAIN_SCALE = 36;
@@ -324,7 +331,40 @@ void main() {
 }
 `;
 
+export const LUMP_VERTEX = `
+${FIELD}
+uniform vec4 lump;
+varying vec3 vAt;
+varying vec3 vPlace;
+varying vec3 vLean;
+
+float outline(vec3 at) {
+  vec3 squeezed = at / lump.yzw;
+  return inversesqrt(dot(squeezed, squeezed))
+    * (1.0 + lump.x * layered(at * ${real(LUMP_SCALE)} + 3.7, seed + 211u, 3));
+}
+
+void main() {
+  vAt = position;
+  vLean = position;
+  vec3 moved = position;
+  if (lump.x > 0.0) {
+    vec3 helper = abs(position.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+    vec3 first = normalize(cross(helper, position));
+    vec3 second = cross(position, first);
+    vec3 ahead = normalize(position + first * ${real(LUMP_SPAN)});
+    vec3 aside = normalize(position + second * ${real(LUMP_SPAN)});
+    moved = position * outline(position);
+    vLean = normalize(cross(ahead * outline(ahead) - moved, aside * outline(aside) - moved));
+  }
+  vec4 placed = modelMatrix * vec4(moved, 1.0);
+  vPlace = placed.xyz;
+  gl_Position = projectionMatrix * viewMatrix * placed;
+}
+`;
+
 const SOLID_UNIFORMS = `
+uniform vec2 melt;
 uniform vec2 ramp;
 uniform vec4 clime;
 uniform vec4 marks;
@@ -352,6 +392,24 @@ const SOLID = `
   wet = clime.w * (1.0 - smoothstep(-edge, edge, height));
   albedo = mix(land, water, wet);
   bump = relish;
+  if (melt.y > 0.0) {
+    float noon = pow(clamp(dot(round, sun), 0.0, 1.0), 0.25);
+    float local = mix(melt.x, melt.y, noon);
+    float level = ${real(LAVA_FLOOR)} + ${real(LAVA_SPAN)} * local;
+    float sunk = 1.0 - smoothstep(-0.03, 0.03, rise - level);
+    float churn = survey(at.yzx).a;
+    vec2 plates = vec2(churn * 3.0 + 0.5, other * 3.0);
+    vec2 seams = abs(fract(plates) - 0.5) / (fwidth(plates) + 0.02);
+    float crack = 1.0 - smoothstep(0.4, 1.6, min(seams.x, seams.y));
+    float cooled = other - 0.6 * churn + 0.9 - 0.7 * min(local, 2.2) - 0.5 * min(level - rise, 1.0);
+    float raft = smoothstep(-0.1, 0.1, cooled);
+    float swell = 0.28 + 0.72 * smoothstep(-0.45, 0.5, 0.8 * churn - 0.6 * other);
+    float lit = mix(swell, ${real(CRUST_GLOW)} + 0.9 * crack, raft);
+    float shore = (1.0 - sunk) * exp(-max(rise - level, 0.0) / 0.07) * step(0.0, local);
+    emit = ember.rgb * ember.a * (sunk * lit + ${real(SHORE_GLOW)} * shore);
+    albedo = mix(albedo, palette[2] * 0.35, sunk);
+    bump *= 1.0 - 0.8 * sunk;
+  }
   if (chart < 0.999 && deck.x + deck.y > 0.0) {
     vec4 high = survey(spun(at, drift).yzx);
     vec3 back = spun(at, -2.0 * drift);
@@ -365,6 +423,7 @@ const SOLID = `
 `;
 
 const GAS_UNIFORMS = `
+uniform float vents;
 uniform sampler2D bands;
 uniform vec4 stream;
 uniform vec2 shift;
@@ -435,7 +494,11 @@ const GAS = `
   cloud = mix(cloud, dye, inside * stain.a);
   float crest = exp(-pow((rank - 1.25) / 0.2, 2.0)) * smoothstep(0.1, 0.9, seat.y * sign(chief.y) / max(rank, 1e-3));
   cloud = mix(cloud, vec3(1.0), habit.w * crest * smoothstep(-0.1, 0.25, mixed.b + 0.5 * mixed.g));
-  albedo = cloud * mix(0.72, 1.0, pow(max(dot(round, eye), 0.0), 0.6));
+  float facing = pow(max(dot(round, eye), 0.0), 0.6);
+  albedo = cloud * mix(0.72, 1.0, facing);
+  float vent = mix(vents, 1.0, tone.a) * (1.0 + 0.4 * mixed.g + 0.25 * mixed.b);
+  float glare = 1.0 - ${real(DAY_DIM)} * smoothstep(-0.1, 0.5, dot(round, sun));
+  emit = ember.rgb * ember.a * vent * glare * (1.0 - 0.5 * inside * stain.a) * mix(0.45, 1.0, facing);
 `;
 
 export function bodyFragment(fluid: boolean): string {
@@ -453,17 +516,21 @@ uniform vec3 shine;
 uniform sampler2D grit;
 uniform vec2 hoop;
 uniform vec3 sunny;
+uniform vec4 ember;
 ${fluid ? GAS_UNIFORMS : SOLID_UNIFORMS}
 uniform mat4 modelMatrix;
 varying vec3 vAt;
 varying vec3 vPlace;
+varying vec3 vLean;
 
 void main() {
   vec3 at = normalize(vAt);
+  vec3 lean = normalize(vLean);
   mat3 pose = mat3(modelMatrix);
   vec3 bulge = vec3(1.0, squash, 1.0);
-  vec3 round = normalize(pose * (at * bulge));
+  vec3 round = normalize(pose * (lean * bulge));
   vec3 eye = normalize(cameraPosition - vPlace);
+  vec3 emit = vec3(0.0);
   vec3 albedo;
   vec3 slope = vec3(0.0);
   float wet = 0.0;
@@ -482,11 +549,12 @@ void main() {
   float depth = bump * mix(1.0, 0.3, wet);
   vec3 charted = albedo * hillshade(at, slope, depth);
 
-  vec3 normal = normalize(pose * (tilted(at, slope, depth) * bulge));
-  float day = smoothstep(-0.15, 0.25, dot(round, sun));
+  vec3 normal = normalize(pose * ((lean + tilted(at, slope, depth) - at) * bulge));
+  float day = smoothstep(-0.15, 0.25, dot(round, sun)) * step(0.5, dot(sun, sun));
   float direct = clamp(dot(normal, sun), 0.0, 1.0);
   vec3 orbited = albedo * (0.025 + 1.1 * direct * day * (1.0 - shaded) * shine);
   orbited += shine * wet * day * 0.3 * pow(max(dot(reflect(-sun, round), eye), 0.0), 40.0);
+  orbited += 1.0 - exp(-emit);
   orbited = mix(
     orbited,
     fog * (1.0 - murk) * (0.03 + 0.95 * shine * day * (1.0 - shaded) * clamp(dot(round, sun) + 0.25, 0.0, 1.0)),
@@ -494,7 +562,7 @@ void main() {
   );
 
   float limb = pow(1.0 - max(dot(round, eye), 0.0), 3.0);
-  orbited += haze * limb * air * (0.1 + 0.9 * day);
+  orbited += haze * limb * air * (0.1 + 0.9 * day) * step(0.5, dot(sun, sun));
   charted += haze * limb * air * 0.4;
 
   gl_FragColor = vec4(mix(orbited, charted, chart), 1.0);
@@ -699,10 +767,12 @@ void main() {
 
 export const SPECK_VERTEX = `
 attribute vec3 tone;
+attribute vec3 ember;
 attribute float girth;
 uniform float scale;
 uniform float least;
 varying vec3 vTone;
+varying vec3 vEmber;
 varying vec3 vSun;
 varying float vAid;
 
@@ -710,6 +780,7 @@ void main() {
   vec4 placed = modelViewMatrix * vec4(position, 1.0);
   vSun = normalize(mat3(modelViewMatrix) * -position + vec3(0.0, 0.0, 1e-6));
   vTone = tone;
+  vEmber = ember;
   float wide = 2.0 * girth * scale / max(-placed.z, 1e-3);
   vAid = 1.0 - smoothstep(least, 2.0 * least, wide);
   gl_PointSize = max(wide, least);
@@ -720,6 +791,7 @@ void main() {
 export const SPECK_FRAGMENT = `
 uniform vec3 shine;
 varying vec3 vTone;
+varying vec3 vEmber;
 varying vec3 vSun;
 varying float vAid;
 
@@ -731,7 +803,7 @@ void main() {
   float facing = dot(normal, vSun);
   float lit = smoothstep(-0.15, 0.25, facing) * clamp(facing, 0.0, 1.0);
   vec3 shaded = vTone * (0.025 + 1.1 * lit * shine);
-  gl_FragColor = vec4(mix(shaded, 0.7 * vTone * shine, vAid), 1.0);
+  gl_FragColor = vec4(mix(shaded, 0.7 * vTone * shine, vAid) + 1.0 - exp(-vEmber), 1.0);
   #include <colorspace_fragment>
 }
 `;

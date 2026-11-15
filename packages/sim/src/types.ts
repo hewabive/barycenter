@@ -59,6 +59,7 @@ export interface Physics {
   gases: number[];
   life: number;
   vigor: number;
+  age: number;
   orbit: number;
   year: number;
   day: number;

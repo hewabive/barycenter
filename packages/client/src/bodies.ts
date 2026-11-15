@@ -28,6 +28,8 @@ import {
   type WebGLRenderer,
 } from "three";
 import {
+  type Ember,
+  emberOf,
   type Flame,
   familyOf,
   flameOf,
@@ -37,6 +39,8 @@ import {
   type Hoop,
   hoopOf,
   skinOf,
+  WAVES,
+  WIEN,
 } from "./looks.ts";
 import {
   BAKE_FRAGMENT,
@@ -51,6 +55,7 @@ import {
   GAS_STEPS,
   LIMB,
   LIMB_DEPTH,
+  LUMP_VERTEX,
   PALETTE_ROOM,
   RING_FRAGMENT,
   RING_VERTEX,
@@ -67,6 +72,7 @@ export interface Look {
   frame: Group;
   girth: number;
   tone: Color;
+  ember: Color;
   detail(): number;
   relief(): CubeTexture;
   light(sun: Vector3, chart: number, tick: number): void;
@@ -76,7 +82,7 @@ export interface Look {
 }
 
 export interface Studio {
-  shineOf(star: Body | undefined): Color;
+  shineOf(centre: Body | undefined): Color;
   shape(body: Body, shine: Color): Look;
 }
 
@@ -127,8 +133,10 @@ const GRANULE_CHURN = 0.02;
 const GOLDEN_TURN = 2.39996;
 const REGION_LIFE = 1400;
 const SHINE_PALE = 0.6;
-const WIEN = 14388;
-const WAVES = [0.61, 0.55, 0.465];
+const SHINE_LEAST = 0.3;
+const DIM_PALE = 0.25;
+const DIM_HEAT = 1000;
+const SPECK_EMBER = 0.6;
 
 function regionsOf(star: Body, flame: Flame): Region[] {
   const random = createRandom(star.seed);
@@ -332,7 +340,7 @@ export function createLooks(
   bodies: Body[],
 ): { looks: Look[]; shine: Color } {
   const studio = createStudio(renderer);
-  const shine = studio.shineOf(bodies.find((body) => familyOf(body.physics) === "star"));
+  const shine = studio.shineOf(bodies.find((body) => body.parent === null));
   return { looks: bodies.map((body) => studio.shape(body, shine)), shine };
 }
 
@@ -483,10 +491,19 @@ export function createStudio(renderer: WebGLRenderer): Studio {
     };
   };
 
-  const shineOf = (star: Body | undefined) =>
-    star === undefined
-      ? new Color(0xffffff)
-      : new Color(flameOf(star).tint).lerp(new Color(0xffffff), SHINE_PALE);
+  const shineOf = (centre: Body | undefined) => {
+    if (centre === undefined) {
+      return new Color(0xffffff);
+    }
+    if (familyOf(centre.physics) === "star") {
+      return new Color(flameOf(centre).tint).lerp(new Color(0xffffff), SHINE_PALE);
+    }
+    const [, , , bright] = emberOf(centre.physics.heat);
+    const [red, green, blue] = emberOf(Math.max(centre.physics.heat, DIM_HEAT));
+    return new Color(red, green, blue)
+      .lerp(new Color(0xffffff), DIM_PALE)
+      .multiplyScalar(Math.max(SHINE_LEAST, Math.min(1, bright)));
+  };
 
   const ignite = (body: Body): Look => {
     const flame = flameOf(body);
@@ -558,6 +575,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       frame,
       girth: body.radius,
       tone: tint,
+      ember: new Color(0, 0, 0),
       ...surface,
       light(_toward, _chart, tick) {
         const one = beat(tick / GRANULE_LIFE);
@@ -619,6 +637,9 @@ export function createStudio(renderer: WebGLRenderer): Studio {
     const stream = new Vector4(0, 1, 0, 0);
     const shift = new Vector2();
     const flat = 1 - flatnessOf(body.physics);
+    const lump = skin === null ? new Vector4(0, 1, 1, 1) : new Vector4(...skin.lump);
+    const girth = body.radius / Math.cbrt(lump.y * lump.z * lump.w);
+    const glow: Ember = giant?.ember ?? skin?.ember ?? [0, 0, 0, 0];
     const hoop = hoopOf(body);
     const grit = hoop === null ? null : gritOf(body, hoop);
     const bands = giant === null ? null : chartOf(body, giant, lanes);
@@ -642,9 +663,13 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       grit: { value: grit },
       hoop: { value: reach },
       sunny: { value: sunny },
+      ember: { value: new Vector4(...glow) },
+      lump: { value: lump },
+      seed: { value: body.seed },
       ...(skin === null
         ? {}
         : {
+            melt: { value: new Vector2(...skin.melt) },
             ramp: {
               value: wet
                 ? new Vector2(0, body.relief.peak - (body.relief.sea ?? 0))
@@ -658,6 +683,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       ...(giant === null
         ? {}
         : {
+            vents: { value: giant.vents },
             bands: { value: bands },
             stream: { value: stream },
             shift: { value: shift },
@@ -693,13 +719,14 @@ export function createStudio(renderer: WebGLRenderer): Studio {
     const globe = new Mesh(
       ball,
       new ShaderMaterial({
-        vertexShader: BODY_VERTEX,
+        vertexShader: LUMP_VERTEX,
         fragmentShader: bodyFragment(giant !== null),
         defines,
         uniforms,
       }),
     );
-    globe.scale.set(body.radius, body.radius * flat, body.radius);
+    globe.scale.set(girth, girth * flat, girth);
+    globe.frustumCulled = lump.x === 0;
     globe.visible = false;
     shown.push(globe);
     frame.add(globe);
@@ -766,12 +793,16 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       tone.lerp(palette[1], 0.8 * seaCover(body.physics));
       tone.lerp(new Color(skin.fog), Math.max(skin.shroud, 0.3 * skin.clouds));
     }
+    const seen = giant === null ? 0.5 * (skin?.melt[1] ?? 0) * (1 - (skin?.shroud ?? 0)) : 1;
+    const ember = new Color(glow[0], glow[1], glow[2]);
+    ember.multiplyScalar(SPECK_EMBER * glow[3] * Math.max(0, Math.min(1, seen)));
 
     return {
       body,
       frame,
       girth: body.radius * Math.max(1, RING_VIEW * reach.y),
       tone,
+      ember,
       ...surface,
       light(toward, chart, tick) {
         sun.copy(toward);

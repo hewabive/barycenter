@@ -13,8 +13,10 @@ export const ASTRONOMICAL_UNIT = 1.496e11;
 export const HOUR = 3600;
 export const DAY = 86400;
 export const YEAR = 3.156e7;
+export const GIGAYEAR = 1e9 * YEAR;
 export const STAR_LEAST = 0.075 * SUN_MASS;
-export const FLUID_SHARE = 0.002;
+export const BROWN_LEAST = 13 * JUPITER_MASS;
+export const ROCK_MELT = 1400;
 
 const GRAVITY = 6.674e-11;
 const FROST_LINE = 2.7 * ASTRONOMICAL_UNIT;
@@ -32,6 +34,25 @@ const GAS_PEAK = 318;
 const GAS_FROM = 3;
 const GAS_FULL = 300;
 const GAS_MOST = 0.95;
+const DEEP_AIR = 1e8;
+const PUFF_FROM = 1000;
+const PUFF_SPAN = 1000;
+const PUFF_MOST = 1.4;
+const PUFF_GAIN = 0.5;
+const POROUS_MOST = 0.4;
+const POROUS_SPAN = [18.5, 20.5];
+const ROUND_ROCK = 3e5;
+const ROUND_ICE = 2e5;
+const SUN_SPAN = 10 * GIGAYEAR;
+const COOLING_HEAT = 100;
+const COOLING_AGE = 4.5 * GIGAYEAR;
+const COOLING_PACE = 0.3;
+const COOLING_LIGHT = 0.25;
+const COOLING_HEAVY = 0.6;
+const BURNING_POWER = 8;
+const DUST_HEAT = [1300, 2200];
+const STUFFY_HEAT = [600, 2000];
+const STUFFY_MOST = 0.8;
 const ESCAPE_MARGIN = 6;
 const DAYSIDE = 1.4;
 const MELTING = 273;
@@ -110,6 +131,7 @@ export interface Volatiles {
   weathered: number;
   pool: number;
   frozen: boolean;
+  ceiling?: number;
 }
 const FLATTENING = 0.7;
 const ROCHE = 2.44;
@@ -134,6 +156,25 @@ export function starHeat(glow: number, radius: number): number {
   return (SUN_HEAT * (glow / SUN_GLOW) ** 0.25) / Math.sqrt(radius / SUN_RADIUS);
 }
 
+export function starSpan(mass: number): number {
+  return SUN_SPAN * (mass / SUN_MASS) ** -2.5;
+}
+
+export function glowOf(radius: number, heat: number): number {
+  return 4 * Math.PI * radius ** 2 * RADIATION * heat ** 4;
+}
+
+export function innerHeat(mass: number, age: number, vigor: number): number {
+  const jupiters = mass / JUPITER_MASS;
+  const steady = smooth(-1, 0.5, Math.log10(jupiters));
+  const mood = 1 + (0.75 * vigor - 0.45) * (1 - steady);
+  const slope = jupiters < 1 ? COOLING_LIGHT : COOLING_HEAVY;
+  const cooling = COOLING_HEAT * jupiters ** slope * (COOLING_AGE / age) ** COOLING_PACE * mood;
+  const limit = starHeat(starGlow(STAR_LEAST), starRadius(STAR_LEAST));
+  const burning = limit * (mass / STAR_LEAST) ** BURNING_POWER;
+  return Math.min(limit, (cooling ** 4 + burning ** 4) ** 0.25);
+}
+
 export function frostOf(glow: number): number {
   return FROST_LINE * Math.sqrt(glow / SUN_GLOW);
 }
@@ -156,23 +197,33 @@ function solidRadius(mass: number, iron: number, rock: number, ice: number): num
   if (mass <= 0 || whole <= 0) {
     return 0;
   }
-  const loose = whole / (iron / IRON_DENSITY + rock / ROCK_DENSITY + ice / ICE_DENSITY);
+  const packed = whole / (iron / IRON_DENSITY + rock / ROCK_DENSITY + ice / ICE_DENSITY);
+  const holes = POROUS_MOST * (1 - smooth(POROUS_SPAN[0], POROUS_SPAN[1], Math.log10(mass)));
+  const loose = packed * (1 - holes);
   const earths = mass / EARTH_MASS;
   const squeezed = (1 + earths / SQUEEZE_MASS) ** -SQUEEZE_POWER;
   return EARTH_RADIUS * Math.cbrt((earths * EARTH_DENSITY) / loose) * squeezed;
 }
 
-function gasRadius(mass: number): number {
+function gasRadius(mass: number, warmth: number): number {
   const share = mass / EARTH_MASS / GAS_PEAK;
-  return EARTH_RADIUS * GAS_RADIUS * share ** (share < 1 ? 0.15 : -0.04);
+  const light = Math.max(0.3, Math.min(1.5, share ** -0.3));
+  const excess = Math.max(0, Math.min(PUFF_MOST, (warmth - PUFF_FROM) / PUFF_SPAN));
+  const cold = EARTH_RADIUS * GAS_RADIUS * share ** (share < 1 ? 0.15 : -0.04);
+  return cold * (1 + PUFF_GAIN * light * excess);
 }
 
 export function radiusOf(
   mass: number,
   shares: { iron: number; rock: number; ice: number; gas: number },
+  warmth = 0,
 ): number {
   const core = solidRadius(mass * (1 - shares.gas), shares.iron, shares.rock, shares.ice);
-  return Math.cbrt(core ** 3 + shares.gas * gasRadius(mass) ** 3);
+  return Math.cbrt(core ** 3 + shares.gas * gasRadius(mass, warmth) ** 3);
+}
+
+export function wrapped(physics: Pick<Physics, "mass" | "radius" | "gas">): boolean {
+  return columnOf(physics.mass, physics.radius) * physics.gas >= DEEP_AIR;
 }
 
 export function densityOf(mass: number, radius: number): number {
@@ -257,7 +308,9 @@ export function climateOf(given: Volatiles): Climate {
           : given.frozen
             ? BRIGHT_ICE
             : BRIGHT_ROCK;
-      const next = balanceHeat(given.glow, given.distance, albedo) * warmed(partials);
+      const bare = balanceHeat(given.glow, given.distance, albedo);
+      const kept = 1 - STUFFY_MOST * smooth(STUFFY_HEAT[0], STUFFY_HEAT[1], bare);
+      const next = Math.min(given.ceiling ?? bare * 10, bare * (1 + (warmed(partials) - 1) * kept));
       heat += 0.5 * (next - heat);
     }
     const sea =
@@ -303,10 +356,16 @@ function tracesOf(mass: number): Partial<Record<Gas, number>> {
   return Object.fromEntries(Object.entries(SUN_TRACES).map(([gas, share]) => [gas, share * rich]));
 }
 
-export function envelopeOf(mass: number, glow: number, distance: number): Climate {
-  const heat = balanceHeat(glow, distance, BRIGHT_GAS);
+export function envelopeOf(mass: number, glow: number, distance: number, inner: number): Climate {
+  const heat = (balanceHeat(glow, distance, BRIGHT_GAS) ** 4 + inner ** 4) ** 0.25;
   const traces = tracesOf(mass);
-  const kept = GASES.map((gas) => Math.min(traces[gas] ?? 0, vaporOf(gas, heat) / EARTH_AIR));
+  const broken: Partial<Record<Gas, number>> = {
+    methane: smooth(900, 1300, heat),
+    ammonia: smooth(500, 800, heat),
+  };
+  const kept = GASES.map((gas) =>
+    Math.min((traces[gas] ?? 0) * (1 - (broken[gas] ?? 0)), vaporOf(gas, heat) / EARTH_AIR),
+  );
   const light = 1 - kept.reduce((sum, share) => sum + share, 0);
   const gases = GASES.map((gas, index) =>
     gas === "hydrogen"
@@ -319,13 +378,35 @@ export function envelopeOf(mass: number, glow: number, distance: number): Climat
 }
 
 export function cloudsOf(physics: Physics): string {
-  if (physics.gas < FLUID_SHARE || physics.mass >= STAR_LEAST) {
+  if (!wrapped(physics) || physics.mass >= STAR_LEAST) {
     return seaCover(physics) > 0 ? "water" : "none";
   }
   const traces = tracesOf(physics.mass);
   const decks: Gas[] = ["methane", "ammonia", "water"];
   const deck = decks.find((gas) => (traces[gas] ?? 0) > vaporOf(gas, physics.heat) / EARTH_AIR);
-  return deck ?? (physics.heat > 900 ? "rock" : "none");
+  const dusty = physics.heat > DUST_HEAT[0] && physics.heat < DUST_HEAT[1];
+  return deck ?? (dusty ? "rock and iron" : "none");
+}
+
+export function roughOf(physics: Physics): number {
+  const solid = physics.iron + physics.rock + physics.ice;
+  if (solid <= 0 || wrapped(physics)) {
+    return 0;
+  }
+  const round = ROUND_ROCK - (ROUND_ROCK - ROUND_ICE) * (physics.ice / solid);
+  const stiff = 1 - Math.min(1, 2 * moltenOf(physics));
+  return stiff * (1 - smooth(0.5, 1.2, physics.radius / round));
+}
+
+export function moltenOf(physics: Physics): number {
+  if (wrapped(physics)) {
+    return 0;
+  }
+  const even = smooth(4, 6, Math.log10(Math.max(physics.air, 1)));
+  const noon = Math.SQRT2 * physics.heat;
+  const lit = noon <= ROCK_MELT ? 0 : 0.5 * (1 - (ROCK_MELT / noon) ** 4);
+  const whole = smooth(ROCK_MELT - 100, ROCK_MELT + 100, physics.heat);
+  return lit + (whole - lit) * even;
 }
 
 export function flatOf(physics: Physics): number {
@@ -350,7 +431,7 @@ export function strippedShare(
 }
 
 export function seaCover(physics: Physics): number {
-  if (physics.gas >= FLUID_SHARE || physics.air < TRIPLE_AIR) {
+  if (physics.air < TRIPLE_AIR || wrapped(physics)) {
     return 0;
   }
   const vapor = (shareOf(physics, "water") * physics.air) / columnOf(physics.mass, physics.radius);
@@ -375,15 +456,20 @@ export function classOf(physics: Physics): string {
     ];
     return shades.find(([heat]) => physics.heat < heat)?.[1] ?? "white star";
   }
-  if (physics.gas >= FLUID_SHARE) {
-    if (earths >= 4000) {
-      return "brown dwarf";
+  if (wrapped(physics)) {
+    if (physics.mass >= BROWN_LEAST) {
+      const types: [number, string][] = [
+        [500, "Y"],
+        [DUST_HEAT[0], "T"],
+        [DUST_HEAT[1], "L"],
+      ];
+      return `brown dwarf ${types.find(([heat]) => physics.heat < heat)?.[1] ?? "M"}`;
     }
     const frozen = earths >= 10 || physics.ice > physics.rock + physics.iron;
     const giant = physics.gas > 0.5 ? "gas giant" : frozen ? "ice giant" : "gas dwarf";
     return physics.heat > 800 ? `hot ${giant}` : giant;
   }
-  const size = earths < 1e-3 ? "body" : "world";
+  const size = roughOf(physics) > 0.5 ? "lump" : earths < 1e-3 ? "body" : "world";
   const cover = seaCover(physics);
   if (cover > 0) {
     return physics.life > 0 ? "living world" : cover > 0.9 ? "ocean world" : "sea world";

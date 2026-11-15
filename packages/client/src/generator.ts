@@ -15,16 +15,20 @@ import {
   escapeOf,
   frostOf,
   GASES,
+  GIGAYEAR,
   gravityOf,
   HOUR,
   hillOf,
   JUPITER_MASS,
+  moltenOf,
   rocheOf,
+  roughOf,
   SUN_GLOW,
   SUN_MASS,
   SUN_RADIUS,
   seaCover,
   sketchSystem,
+  starHeat,
   YEAR,
 } from "@barycenter/sim";
 import { button, el, required, write } from "./dom.ts";
@@ -42,7 +46,7 @@ const asked = Number.parseInt(query.get("seed") ?? "", 10);
 const seed = Number.isFinite(asked) ? asked : Math.floor(Math.random() * 1e6);
 const settled = query.get("home") === "1";
 const given = Number.parseFloat(query.get("star") ?? "");
-const starMass = Number.isFinite(given) && given > 0 ? Math.min(3, Math.max(0.08, given)) : null;
+const starMass = Number.isFinite(given) && given > 0 ? Math.min(3, Math.max(0.013, given)) : null;
 
 const address = (next: { seed: number; settled: boolean; star: number | null }) => {
   const search = new URLSearchParams({ seed: String(next.seed), home: next.settled ? "1" : "0" });
@@ -104,13 +108,15 @@ function factsOf(body: Body): Fact[] {
   const density = densityOf(physics.mass, physics.radius);
   const family = familyOf(physics);
   const moons = system.bodies.filter((other) => other.parent === body.id).length;
+  const rough = roughOf(physics);
+  const molten = moltenOf(physics);
   const facts: Fact[] = [
     "Body",
     ["Class", classOf(physics)],
     ["Mass", `${massOf(physics.mass)} · ${figure(physics.mass)} kg`],
     [
       "Radius",
-      physics.glow > 0
+      family === "star"
         ? `${figure(physics.radius / SUN_RADIUS)} suns · ${figure(physics.radius / 1000)} km`
         : `${figure(physics.radius / EARTH_RADIUS)} earths · ${figure(physics.radius / 1000)} km`,
     ],
@@ -118,9 +124,15 @@ function factsOf(body: Body): Fact[] {
     ["Gravity", `${figure(gravityOf(physics.mass, physics.radius) / EARTH_GRAVITY)} g`],
     ["Escape speed", `${figure(escapeOf(physics.mass, physics.radius) / 1000)} km/s`],
     ["Flattening", figure(flatnessOf(physics))],
+    [
+      "Shape",
+      rough === 0
+        ? "round"
+        : `${share(rough)} of the way from round to a lump, too small to pull itself round`,
+    ],
     ["Activity", figure(physics.vigor)],
   ];
-  if (physics.glow > 0) {
+  if (family === "star") {
     facts.push(
       ["Temperature", `${figure(physics.heat, 4)} K`],
       ["Light", `${figure(physics.glow / SUN_GLOW)} suns`],
@@ -135,7 +147,19 @@ function factsOf(body: Body): Fact[] {
         `iron ${share(physics.iron)} · rock ${share(physics.rock)} · ice ${share(physics.ice)} · gas ${share(physics.gas)}`,
       ],
       ["Temperature", `${figure(physics.heat)} K · ${figure(physics.heat - 273.15)} °C`],
-      ["As a black body", `${figure(balanceHeat(lit.glow, distanceOf(body), 0))} K`],
+      [
+        "As a black body",
+        parent === null
+          ? "none, nothing lights it"
+          : `${figure(balanceHeat(lit.glow, distanceOf(body), 0))} K`,
+      ],
+      [
+        "Heat of its own",
+        physics.glow > 0
+          ? `${figure(starHeat(physics.glow, physics.radius))} K · ${figure(physics.glow)} W · ${figure(physics.glow / SUN_GLOW)} suns`
+          : "none to speak of",
+      ],
+      ["Molten rock", molten > 0 ? `${share(molten)} of the surface` : "none"],
       [
         "Air",
         family === "fluid"
@@ -247,9 +271,9 @@ const seedField = el("input", { type: "number", value: String(seed), min: "0", s
 const starField = el("input", {
   type: "number",
   value: starMass === null ? "" : String(starMass),
-  min: "0.08",
+  min: "0.013",
   max: "3",
-  step: "0.05",
+  step: "0.01",
   placeholder: "any",
 });
 const homeField = el("input", { type: "checkbox" });
@@ -281,7 +305,12 @@ required<HTMLElement>("#topbar").append(
   button("Make", "Make the system of this seed", () => go(read())),
   button("Next", "Make the system of the next seed", () => go(read() + 1)),
   button("Random", "Make the system of a random seed", () => go(Math.floor(Math.random() * 1e6))),
-  el("label", { title: "The mass of the star in solar masses" }, "Star", starField),
+  el(
+    "label",
+    { title: "The mass of the centre in solar masses; below 0.075 it is a brown dwarf" },
+    "Star",
+    starField,
+  ),
   el("label", { title: "Make the system around a living home, as a game does" }, homeField, "home"),
   ...speeds,
   clock,
@@ -296,12 +325,12 @@ const summary = el(
   el(
     "div",
     {},
-    `${star.name}, ${classOf(star.physics)} of ${massOf(star.physics.mass)} and ${figure(star.physics.heat, 4)} K`,
+    `${star.name}, ${classOf(star.physics)} of ${massOf(star.physics.mass)} and ${figure(star.physics.heat, 4)} K, ${figure(star.physics.age / GIGAYEAR)} billion years old`,
   ),
   el(
     "div",
     { class: "hint" },
-    `${planets} around the star, ${system.bodies.length - 1 - planets} moons and ${star.physics.disks.length} belts · ${
+    `${planets} around it, ${system.bodies.length - 1 - planets} moons and ${star.physics.disks.length} belts · ${
       system.home === null
         ? "no home"
         : `home ${system.bodies[system.home].name}, the system of world seed ${seed}`

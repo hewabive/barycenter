@@ -91,6 +91,7 @@ const LABEL_GAP = 12;
 const MOON_CLEARANCE = 70;
 const SUNLIT_TURN = 0.6;
 const SUNLIT_LIFT = 0.3;
+const STAR_CLEAR = 1.7;
 const WAKE_PIXELS = 7;
 const SLEEP_PIXELS = 3.5;
 const SPECK_PIXELS = 3;
@@ -186,12 +187,18 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
   const specks = new BufferGeometry();
   specks.setAttribute("position", spots);
   specks.setAttribute("girth", girths);
+  const shades = (pick: (look: Look) => Color) =>
+    new BufferAttribute(
+      new Float32Array(looks.flatMap((look) => [pick(look).r, pick(look).g, pick(look).b])),
+      3,
+    );
   specks.setAttribute(
     "tone",
-    new BufferAttribute(
-      new Float32Array(looks.flatMap((look) => [look.tone.r, look.tone.g, look.tone.b])),
-      3,
-    ),
+    shades((look) => look.tone),
+  );
+  specks.setAttribute(
+    "ember",
+    shades((look) => look.ember),
   );
   const speckMaterial = new ShaderMaterial({
     vertexShader: SPECK_VERTEX,
@@ -343,8 +350,12 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
       camera.lookAt(0, 0, 0);
     }
     if (glide?.start) {
-      sunlit.copy(star.frame.position).sub(to.frame.position).applyQuaternion(rig).normalize();
-      sunlit.applyAxisAngle(upward, SUNLIT_TURN);
+      sunlit.copy(star.frame.position).sub(to.frame.position).applyQuaternion(rig);
+      const apart = sunlit.length();
+      const clear = STAR_CLEAR * star.body.radius;
+      const cosine = (apart ** 2 + glide.to ** 2 - clear ** 2) / (2 * apart * glide.to);
+      const aside = cosine < 1 ? Math.acos(Math.max(-1, cosine)) : 0;
+      sunlit.normalize().applyAxisAngle(upward, Math.max(SUNLIT_TURN, aside));
       sunlit.y += SUNLIT_LIFT;
       swing.setFromUnitVectors(glide.start, sunlit.normalize());
       partway.identity().slerp(swing, eased(glide.share));

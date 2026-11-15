@@ -3,6 +3,8 @@ import { test } from "node:test";
 import {
   ASTRONOMICAL_UNIT,
   angleBetween,
+  BROWN_LEAST,
+  classOf,
   climateOf,
   columnOf,
   createWorld,
@@ -10,8 +12,14 @@ import {
   EARTH_MASS,
   EARTH_RADIUS,
   elevationAt,
-  FLUID_SHARE,
+  GIGAYEAR,
+  innerHeat,
+  JUPITER_MASS,
+  moltenOf,
+  type Physics,
   positionOf,
+  radiusOf,
+  roughOf,
   type Sketch,
   STAR_LEAST,
   SUN_GLOW,
@@ -20,11 +28,21 @@ import {
   shareOf,
   sketchSystem,
   slerp,
+  starHeat,
   stocked,
   strippedShare,
   type Vector,
+  wrapped,
 } from "../src/index.ts";
-import { densityOf, hillOf, rocheOf, yearOf } from "../src/physics.ts";
+import {
+  densityOf,
+  hillOf,
+  rocheOf,
+  starGlow,
+  starRadius,
+  starSpan,
+  yearOf,
+} from "../src/physics.ts";
 import { sidesOf } from "../src/sphere.ts";
 
 const SEEDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
@@ -218,14 +236,16 @@ test("the physics of every body holds together", () => {
       const whole = physics.iron + physics.rock + physics.ice + physics.gas;
       assert.ok(Math.abs(whole - 1) < 1e-3, label);
       assert.ok(physics.mass > 0 && physics.radius > 0 && physics.heat > 0, label);
-      const airy = physics.air > 0 || (physics.gas >= FLUID_SHARE && physics.glow === 0);
+      const airy = physics.air > 0 || (wrapped(physics) && physics.mass < STAR_LEAST);
       const gases = physics.gases.reduce((sum, part) => sum + part, 0);
       assert.ok(airy ? Math.abs(gases - 1) < 1e-3 : physics.gases.length === 0, label);
       const density = densityOf(physics.mass, physics.radius);
       assert.ok(
-        density > 200 && density < (physics.glow > 0 ? 200000 : 20000),
+        density > 50 && density < (physics.glow > 0 ? 200000 : 20000),
         `${label}: ${density}`,
       );
+      assert.equal(physics.glow > 0, wrapped(physics), label);
+      assert.equal(physics.age, system.bodies[0].physics.age, label);
       assert.equal(body.disks.length, physics.disks.length, label);
       for (const disk of physics.disks) {
         assert.ok(disk.inner > physics.radius && disk.outer > disk.inner, label);
@@ -446,7 +466,7 @@ test("a system sketched without a home has no life and can be given its star", (
     { length: 60 },
     (_, seed) => sketchSystem(seed + 1, { settled: false, star: null }).bodies.length,
   );
-  assert.ok(Math.min(...sizes) >= 1 && Math.max(...sizes) > 12 && Math.max(...sizes) < 40);
+  assert.ok(Math.min(...sizes) >= 1 && Math.max(...sizes) > 12 && Math.max(...sizes) < 48);
 });
 
 test("systems differ in their stars and in what circles them", () => {
@@ -457,7 +477,7 @@ test("systems differ in their stars and in what circles them", () => {
   const heats = systems.map((system) => system.bodies[0].physics.heat);
   assert.ok(Math.min(...heats) < 4200 && Math.max(...heats) > 6500);
   const fluid = systems.filter((system) =>
-    system.bodies.some((body) => body.parent === 0 && body.physics.gas >= FLUID_SHARE),
+    system.bodies.some((body) => body.parent === 0 && wrapped(body.physics)),
   );
   assert.ok(fluid.length > 30);
   const ringed = systems.filter((system) =>
@@ -466,6 +486,102 @@ test("systems differ in their stars and in what circles them", () => {
   const belted = systems.filter((system) => system.bodies[0].physics.disks.length > 0);
   assert.ok(ringed.length > 10);
   assert.ok(belted.length > 15 && belted.length < 58);
+});
+
+test("a body in gas keeps heat of its own, more of it when heavy or young", () => {
+  const old = 4.5 * GIGAYEAR;
+  const jupiter = innerHeat(JUPITER_MASS, old, 0.6);
+  assert.ok(jupiter > 85 && jupiter < 115, `jupiter ${jupiter}`);
+  const calm = innerHeat(0.046 * JUPITER_MASS, old, 0);
+  const lively = innerHeat(0.054 * JUPITER_MASS, old, 1);
+  assert.ok(calm < 32 && lively > 45 && lively < 70, `ice giants ${calm} ${lively}`);
+  const dwarf = innerHeat(50 * JUPITER_MASS, old, 0.5);
+  assert.ok(dwarf > 900 && dwarf < 1250, `brown dwarf ${dwarf}`);
+  assert.ok(innerHeat(50 * JUPITER_MASS, GIGAYEAR, 0.5) > 1.3 * dwarf);
+  assert.ok(innerHeat(20 * JUPITER_MASS, old, 0.5) < 0.7 * dwarf);
+  const least = starHeat(starGlow(STAR_LEAST), starRadius(STAR_LEAST));
+  assert.ok(Math.abs(innerHeat(0.999 * STAR_LEAST, old, 0.5) / least - 1) < 0.06);
+  const gas = { iron: 0.01, rock: 0.02, ice: 0.02, gas: 0.95 };
+  const cool = radiusOf(JUPITER_MASS, gas, 500);
+  assert.equal(radiusOf(JUPITER_MASS, gas), cool);
+  const puffed = radiusOf(JUPITER_MASS, gas, 1800) / cool;
+  assert.ok(puffed > 1.25 && puffed < 1.6, `puffed ${puffed}`);
+  assert.ok(radiusOf(5 * JUPITER_MASS, gas, 1800) / radiusOf(5 * JUPITER_MASS, gas) < puffed);
+});
+
+test("small bodies are loose and not round, and rock melts where it is hot", () => {
+  const body = (mass: number, ice: number, heat = 200, air = 0): Physics => {
+    const shares = { iron: 0.2 * (1 - ice), rock: 0.8 * (1 - ice), ice, gas: 0 };
+    const rest = { glow: 0, gases: [], life: 0, vigor: 0.5, age: GIGAYEAR, orbit: 1, year: 1 };
+    return {
+      mass,
+      radius: radiusOf(mass, shares),
+      ...shares,
+      heat,
+      air,
+      ...rest,
+      day: 1,
+      disks: [],
+    };
+  };
+  const pebble = body(1e16, 0);
+  assert.equal(roughOf(pebble), 1);
+  assert.equal(classOf(pebble), "barren lump");
+  assert.ok(densityOf(pebble.mass, pebble.radius) < 2600);
+  assert.ok(roughOf(body(5.6e18, 0.7)) > 0.9);
+  const middling = roughOf(body(2.6e20, 0));
+  assert.ok(middling > 0.2 && middling < 0.8, `vesta ${middling}`);
+  assert.equal(roughOf(body(9.4e20, 0.25)), 0);
+  assert.equal(roughOf(body(EARTH_MASS, 0)), 0);
+
+  assert.equal(moltenOf(body(EARTH_MASS, 0, 288, EARTH_AIR)), 0);
+  assert.equal(moltenOf(body(EARTH_MASS, 0, 900)), 0);
+  const bare = moltenOf(body(EARTH_MASS, 0, 1500));
+  assert.ok(bare > 0.3 && bare <= 0.5, `bare ${bare}`);
+  assert.equal(moltenOf(body(EARTH_MASS, 0, 1600, 100 * EARTH_AIR)), 1);
+  assert.equal(classOf(body(EARTH_MASS, 0, 1500)), "lava world");
+});
+
+test("a centre too light to be a star is a brown dwarf with small worlds close to it", () => {
+  for (const seed of SEEDS) {
+    const { bodies } = sketchSystem(seed, { settled: false, star: 0.04 * SUN_MASS });
+    const centre = bodies[0].physics;
+    const label = `seed ${seed}`;
+    assert.ok(classOf(centre).startsWith("brown dwarf"), label);
+    assert.ok(centre.glow > 0 && centre.glow < 1e-3 * SUN_GLOW, label);
+    assert.ok(centre.heat > 400 && centre.heat < 2900, `${label}: ${centre.heat}`);
+    assert.ok(Math.abs(centre.radius / 7.15e7 - 1) < 0.3, label);
+    for (const body of bodies.filter((other) => other.parent === 0)) {
+      assert.ok(body.physics.mass <= 0.0021 * centre.mass, `${label}, ${body.name}`);
+      assert.ok(body.physics.orbit < 2 * ASTRONOMICAL_UNIT, `${label}, ${body.name}`);
+    }
+  }
+});
+
+test("rare bodies turn up among many systems", () => {
+  const systems = Array.from({ length: 300 }, (_, seed) =>
+    sketchSystem(seed + 1, { settled: false, star: null }),
+  );
+  const having = (test: (physics: Physics, system: Sketch) => boolean) =>
+    systems.filter((system) => system.bodies.some((body) => test(body.physics, system))).length;
+  const dark = systems.filter((system) => system.bodies[0].physics.mass < STAR_LEAST).length;
+  assert.ok(dark > 5 && dark < 60, `brown centres ${dark}`);
+  const paired = having((physics) => physics.orbit > 0 && physics.mass >= BROWN_LEAST);
+  assert.ok(paired > 3 && paired < 45, `companions ${paired}`);
+  const molten = having((physics) => moltenOf(physics) > 0.02);
+  assert.ok(molten > 8 && molten < 90, `lava ${molten}`);
+  const lumpy = having((physics) => roughOf(physics) > 0.5);
+  assert.ok(lumpy > 150, `lumps ${lumpy}`);
+  const glowing = having((physics) => physics.orbit > 0 && wrapped(physics) && physics.heat > 800);
+  assert.ok(glowing > 2, `glowing ${glowing}`);
+  for (const system of systems) {
+    const centre = system.bodies[0].physics;
+    assert.ok(centre.age >= 0.09 * GIGAYEAR && centre.age <= 10 * GIGAYEAR);
+    assert.ok(centre.age < starSpan(centre.mass));
+    const heavy = system.bodies.filter((body) => body.physics.mass >= BROWN_LEAST && body.id > 0);
+    assert.ok(heavy.every((body) => body.physics.mass < 0.081 * centre.mass));
+    assert.ok(heavy.every((body) => classOf(body.physics).startsWith("brown dwarf")));
+  }
 });
 
 test("relief is the same at the same place and smooth between places", () => {
