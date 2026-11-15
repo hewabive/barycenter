@@ -49,7 +49,8 @@ interface Skin {
 const SHELL_SCALE = 1.04;
 const FLARE_REACH = 4.5;
 const PALETTE_ROOM = 8;
-const CLOUD_DAYS = 6;
+const CLOUD_TURN = 2400;
+const JET_TURN = 1800;
 
 const WARM_GAS = [0xc9a57a, 0x8a5a3a, 0xe8d6b4, 0x6f5a4a];
 const COLD_GAS = [0x5f8fc0, 0x2f5f9a, 0xa9cfe6, 0x35507a];
@@ -214,7 +215,8 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
       light(toward, chart, tick) {
         sun.copy(toward);
         uniforms.chart.value = chart;
-        uniforms.drift.value = (2 * Math.PI * tick) / (body.day * CLOUD_DAYS);
+        const turn = body.kind === "gas" ? JET_TURN : CLOUD_TURN;
+        uniforms.drift.value = (2 * Math.PI * (tick % turn)) / turn;
       },
       refine(wanted) {
         if (wanted === size) {

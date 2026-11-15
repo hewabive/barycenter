@@ -90,6 +90,7 @@ float elevation(vec3 at) {
 
 const SLOPE_RANGE = 8;
 const SLOPE_SPAN = 5;
+const JET_COUNT = 7;
 const HEIGHT_RANGE = 2.5;
 
 export const BAKE_VERTEX = `
@@ -135,12 +136,25 @@ void main() {
 const SURVEY = `
 uniform samplerCube relief;
 
-vec4 survey(vec3 at) {
-  vec4 found = textureCube(relief, at);
+vec4 decoded(vec4 found) {
 #ifdef PACKED
   found = vec4((found.rgb - 0.5) * ${real(SLOPE_RANGE)}, (found.a - 0.5) * ${real(HEIGHT_RANGE)});
 #endif
   return found;
+}
+
+vec4 survey(vec3 at) {
+  return decoded(textureCube(relief, at));
+}
+
+vec3 spun(vec3 at, float angle) {
+  float along = cos(angle);
+  float across = sin(angle);
+  return vec3(along * at.x + across * at.z, at.y, along * at.z - across * at.x);
+}
+
+vec4 surveyTurned(vec3 at, float angle, vec3 right, vec3 down) {
+  return decoded(textureGrad(relief, spun(at, angle), spun(right, angle), spun(down, angle)));
 }
 
 vec3 tilted(vec3 at, vec3 slope, float depth) {
@@ -186,13 +200,12 @@ const SKINS: Record<Exclude<BodyKind, "star">, string> = {
   albedo = mix(land, water, wet);
   bump = 0.07;
   if (chart < 0.999) {
-    vec3 slid = vec3(
-      cos(drift) * at.x + sin(drift) * at.z,
-      at.y,
-      cos(drift) * at.z - sin(drift) * at.x
-    );
-    float mass = survey(slid.yzx).a + 0.6 * survey(vec3(-slid.z, slid.x, -slid.y)).a;
-    cover = 0.9 * smoothstep(0.15, 0.95, mass);
+    vec4 high = survey(spun(at, drift).yzx);
+    vec3 back = spun(at, -2.0 * drift);
+    vec4 low = survey(vec3(-back.z, back.x, -back.y));
+    float belt = 0.2 * cos(at.y * 5.2) - 0.08;
+    float mass = high.a + 0.6 * low.a + 0.02 * (high.r + low.g) + belt;
+    cover = 0.9 * smoothstep(0.2, 1.0, mass);
   }
 `,
   desert: `
@@ -229,6 +242,24 @@ const SKINS: Record<Exclude<BodyKind, "star">, string> = {
 `,
 };
 
+const STILL = `
+  vec4 ground = survey(at);
+  float other = survey(at.zxy).a;
+`;
+
+const JETS = `
+  float belt = (at.y * 0.5 + 0.5) * ${real(JET_COUNT)};
+  float lower = floor(belt);
+  vec3 right = dFdx(at);
+  vec3 down = dFdy(at);
+  vec4 ground = mix(
+    surveyTurned(at, paceOf(lower) * drift, right, down),
+    surveyTurned(at, paceOf(lower + 1.0) * drift, right, down),
+    smoothstep(0.3, 0.7, belt - lower)
+  );
+  float other = survey(spun(at, drift).zxy).a;
+`;
+
 export function bodyFragment(kind: Exclude<BodyKind, "star">): string {
   return `
 ${SURVEY}
@@ -243,12 +274,15 @@ uniform mat4 modelMatrix;
 varying vec3 vAt;
 varying vec3 vPlace;
 
+float paceOf(float belt) {
+  return (mod(belt, 2.0) * 2.0 - 1.0) * (1.0 + mod(belt * 2.0 + 1.0, 3.0));
+}
+
 void main() {
   vec3 at = normalize(vAt);
-  vec4 ground = survey(at);
+  ${kind === "gas" ? JETS : STILL}
   float height = ground.a;
   vec3 slope = ground.rgb;
-  float other = survey(at.zxy).a;
   float edge = fwidth(height) + 1e-4;
   vec3 albedo;
   float wet = 0.0;
