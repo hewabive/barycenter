@@ -5,7 +5,9 @@ import {
   densityOf,
   EARTH_AIR,
   EARTH_MASS,
+  EARTH_RADIUS,
   FLUID_SHARE,
+  frostOf,
   gasShare,
   greenhouse,
   gripOf,
@@ -24,7 +26,7 @@ import {
 import { createRandom, type Random } from "./random.ts";
 import { elevationAt } from "./relief.ts";
 import { scatter } from "./sphere.ts";
-import type { Body, Physics, Relief, Ring, StarSystem, Vector } from "./types.ts";
+import type { Body, Physics, Relief, Ring, Sketch, StarSystem, Vector } from "./types.ts";
 
 export interface Site {
   star: Physics;
@@ -33,17 +35,32 @@ export interface Site {
   orbit: number;
 }
 
+export interface Plan {
+  settled: boolean;
+  star: number | null;
+}
+
 interface Draft {
   physics: Physics;
   parent: number | null;
   tilt: number;
 }
 
-const FROST_LINE = 2.7 * ASTRONOMICAL_UNIT;
+interface Anchor {
+  radius: number;
+  orbit: number;
+  year: number;
+  day: number;
+}
+
 const INNER_EDGE = 0.15 * ASTRONOMICAL_UNIT;
 const OUTER_EDGE = 40 * ASTRONOMICAL_UNIT;
 const INNER_STEPS = 2;
 const OUTER_STEPS = 5;
+const WILD_STEPS = 10;
+const SYSTEM_SALT = 0x5bd1e995;
+const SETTLED_STARS = [0.3, 1.6];
+const WILD_STARS = [0.1, 2.5];
 const PLANET_SHARE = 0.85;
 const STRIP_MASS = 10;
 const STRIP_HEAT = 600;
@@ -146,7 +163,7 @@ export function formed(mass: number, site: Site, random: Random, locked = false)
   const typical = gasShare(mass);
   const odds = (typical / (1 - typical)) * decades(random, -0.3, 0.3);
   const gas = stripped ? 0 : odds / (1 + odds);
-  const beyond = site.distance > FROST_LINE * Math.sqrt(glow / SUN_GLOW);
+  const beyond = site.distance > frostOf(glow);
   const damp = beyond
     ? between(random, 0.3, 0.65)
     : decades(random, -5.5, -3.2) * (bare > PARCH_HEAT ? 0.01 : 1);
@@ -212,7 +229,7 @@ function settled(star: Physics, orbit: number, random: Random): Physics {
 }
 
 function massAt(distance: number, star: Physics, random: Random): number {
-  const place = distance / (FROST_LINE * Math.sqrt(star.glow / SUN_GLOW));
+  const place = distance / frostOf(star.glow);
   const pick = random.next();
   if (place < 0.8) {
     return EARTH_MASS * (pick < 0.12 ? decades(random, 0.5, 1) : decades(random, -1.4, 0.45));
@@ -300,12 +317,7 @@ export function reliefOf(physics: Physics, seed: number): Relief {
   return { ...shape, sea: level(cover), peak: level(cover + HIGH_SHARE * (1 - cover)) };
 }
 
-function arranged(bodies: Body[], home: number): Body[] {
-  const anchor = bodies[home].physics;
-  let lead = bodies[home];
-  while (lead.parent !== null && bodies[lead.parent].parent !== null) {
-    lead = bodies[lead.parent];
-  }
+function arranged(bodies: Body[], anchor: Anchor): Body[] {
   const radius = bodies.map((body) => (body.physics.radius / anchor.radius) ** SIZE_POWER);
   const orbit = bodies.map(() => 0);
   const reach = (id: number): number => {
@@ -320,7 +332,7 @@ function arranged(bodies: Body[], home: number): Body[] {
       const span = reach(child.id);
       const drawn =
         parent === null
-          ? HOME_ORBIT * (child.physics.orbit / lead.physics.orbit) ** ORBIT_POWER
+          ? HOME_ORBIT * (child.physics.orbit / anchor.orbit) ** ORBIT_POWER
           : MOON_REACH * radius[id] * Math.sqrt(child.physics.orbit / physics.radius);
       orbit[child.id] = Math.max(drawn, edge + span);
       edge = orbit[child.id] + span + gap;
@@ -376,7 +388,16 @@ function trimmed(physics: Physics): Physics {
   };
 }
 
-export function createSystem(random: Random): StarSystem {
+export function createSystem(seed: number): StarSystem {
+  const { home, bodies } = sketchSystem(seed, { settled: true, star: null });
+  if (home === null) {
+    throw new Error("a settled system has a home");
+  }
+  return { home, bodies };
+}
+
+export function sketchSystem(world: number, plan: Plan): Sketch {
+  const random = createRandom(world ^ SYSTEM_SALT);
   const taken = new Set<string>();
   const pick = (list: string[]) => list[Math.floor(random.next() * list.length)];
   const name = (): string => {
@@ -390,23 +411,30 @@ export function createSystem(random: Random): StarSystem {
   const seed = () => Math.floor(random.next() * 0x7fffffff);
   const homeSeed = seed();
 
-  const star = kindled(SUN_MASS * decades(random, Math.log10(0.3), Math.log10(1.6)), random);
+  const [least, most] = plan.settled ? SETTLED_STARS : WILD_STARS;
+  const drawn = SUN_MASS * decades(random, Math.log10(least), Math.log10(most));
+  const star = kindled(plan.star ?? drawn, random);
   const lit = Math.sqrt(star.glow / SUN_GLOW);
-  const homeOrbit = (ASTRONOMICAL_UNIT * lit) / Math.sqrt(between(random, 0.92, 1.08));
-  const orbits = [homeOrbit];
   const nearest = Math.max(INNER_EDGE * lit, 6 * star.radius);
-  let inward = homeOrbit;
-  for (let step = 0; step < INNER_STEPS; step++) {
-    inward /= between(random, 1.45, 2);
-    if (inward < nearest) {
-      break;
-    }
-    if (random.next() < PLANET_SHARE) {
-      orbits.unshift(inward);
+  const orbits: number[] = [];
+  let homeOrbit: number | null = null;
+  if (plan.settled) {
+    const settledAt = (ASTRONOMICAL_UNIT * lit) / Math.sqrt(between(random, 0.92, 1.08));
+    homeOrbit = settledAt;
+    orbits.push(settledAt);
+    let inward = settledAt;
+    for (let step = 0; step < INNER_STEPS; step++) {
+      inward /= between(random, 1.45, 2);
+      if (inward < nearest) {
+        break;
+      }
+      if (random.next() < PLANET_SHARE) {
+        orbits.unshift(inward);
+      }
     }
   }
-  let outward = homeOrbit;
-  for (let step = 0; step < OUTER_STEPS; step++) {
+  let outward = homeOrbit ?? (nearest * decades(random, 0, 0.5)) / 1.5;
+  for (let step = 0; step < (plan.settled ? OUTER_STEPS : WILD_STEPS); step++) {
     outward *= between(random, 1.5, 2.1);
     if (outward > OUTER_EDGE * lit) {
       break;
@@ -417,7 +445,7 @@ export function createSystem(random: Random): StarSystem {
   }
 
   const drafts: Draft[] = [{ physics: star, parent: null, tilt: 0 }];
-  let home = 0;
+  let home: number | null = null;
   for (const orbit of orbits) {
     const settledHere = orbit === homeOrbit;
     const site = { star, distance: orbit, around: star, orbit };
@@ -457,10 +485,21 @@ export function createSystem(random: Random): StarSystem {
       relief: id === home ? { ...HOME_SHAPE, sea: null, peak: 0.5 } : reliefOf(physics, own),
     };
   });
-  return { home, bodies: arranged(bodies, home) };
+  const settledOn = home === null ? null : bodies[home].physics;
+  const light = ASTRONOMICAL_UNIT * lit;
+  const anchor: Anchor =
+    settledOn === null
+      ? { radius: EARTH_RADIUS, orbit: light, year: yearOf(light, star.mass), day: DAY }
+      : {
+          radius: settledOn.radius,
+          orbit: settledOn.orbit,
+          year: settledOn.year,
+          day: settledOn.day,
+        };
+  return { home, bodies: arranged(bodies, anchor) };
 }
 
-export function positionOf(system: StarSystem, id: number, tick: number): Vector {
+export function positionOf(system: Sketch, id: number, tick: number): Vector {
   const body = system.bodies[id];
   if (body.parent === null) {
     return { x: 0, y: 0, z: 0 };

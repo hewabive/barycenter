@@ -64,6 +64,11 @@ export interface StarSystem {
   bodies: Body[];
 }
 
+export interface Sketch {
+  home: number | null;
+  bodies: Body[];
+}
+
 export interface MapCell {
   id: number;
   position: Vector;

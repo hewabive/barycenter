@@ -6,8 +6,10 @@ import {
   elevationAt,
   FLUID_SHARE,
   positionOf,
+  type Sketch,
   STAR_LEAST,
   seaCover,
+  sketchSystem,
   slerp,
   type Vector,
 } from "../src/index.ts";
@@ -15,6 +17,16 @@ import { densityOf, hillOf, rocheOf, yearOf } from "../src/physics.ts";
 import { sidesOf } from "../src/sphere.ts";
 
 const SEEDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+function sketches(): { label: string; system: Sketch }[] {
+  return SEEDS.flatMap((seed) => [
+    { label: `seed ${seed}`, system: createWorld({ seed }).map.system },
+    {
+      label: `wild seed ${seed}`,
+      system: sketchSystem(seed, { settled: false, star: null }),
+    },
+  ]);
+}
 
 test("the same seed produces the same world", () => {
   assert.deepEqual(createWorld({ seed: 7 }), createWorld({ seed: 7 }));
@@ -185,17 +197,19 @@ test("a system has one star, a home body and others around them", () => {
 });
 
 test("the physics of every body holds together", () => {
-  for (const seed of SEEDS) {
-    const { system } = createWorld({ seed }).map;
+  for (const { label: world, system } of sketches()) {
     const star = system.bodies[0].physics;
     for (const body of system.bodies) {
       const { physics } = body;
-      const label = `seed ${seed}, ${body.name}`;
+      const label = `${world}, ${body.name}`;
       const whole = physics.iron + physics.rock + physics.ice + physics.gas;
       assert.ok(Math.abs(whole - 1) < 1e-3, label);
       assert.ok(physics.mass > 0 && physics.radius > 0 && physics.heat > 0, label);
       const density = densityOf(physics.mass, physics.radius);
-      assert.ok(density > 200 && density < 20000, `${label}: ${density}`);
+      assert.ok(
+        density > 200 && density < (physics.glow > 0 ? 200000 : 20000),
+        `${label}: ${density}`,
+      );
       if (physics.ring !== null) {
         assert.ok(physics.ring.inner > physics.radius, label);
         assert.ok(physics.ring.outer > physics.ring.inner, label);
@@ -221,12 +235,13 @@ test("the physics of every body holds together", () => {
 });
 
 test("the drawn scale keeps the order and the nesting of the real one", () => {
-  for (const seed of SEEDS) {
-    const { system } = createWorld({ seed }).map;
-    const home = system.bodies[system.home];
-    assert.equal(home.radius, 1);
-    assert.equal(home.year, 9600);
-    assert.equal(home.day, 1200);
+  for (const { label: world, system } of sketches()) {
+    if (system.home !== null) {
+      const home = system.bodies[system.home];
+      assert.equal(home.radius, 1);
+      assert.equal(home.year, 9600);
+      assert.equal(home.day, 1200);
+    }
     const reach = (id: number): number => {
       const body = system.bodies[id];
       const ring = (body.physics.ring?.outer ?? 0) / body.physics.radius;
@@ -237,7 +252,7 @@ test("the drawn scale keeps the order and the nesting of the real one", () => {
       );
     };
     for (const body of system.bodies) {
-      const label = `seed ${seed}, ${body.name}`;
+      const label = `${world}, ${body.name}`;
       const around = system.bodies
         .filter((other) => other.parent === body.id)
         .sort((left, right) => left.physics.orbit - right.physics.orbit);
@@ -260,6 +275,23 @@ test("the drawn scale keeps the order and the nesting of the real one", () => {
       }
     }
   }
+});
+
+test("a system sketched without a home has no life and can be given its star", () => {
+  for (const seed of SEEDS) {
+    const wild = sketchSystem(seed, { settled: false, star: null });
+    assert.equal(wild.home, null);
+    assert.ok(wild.bodies.every((body) => body.physics.life === 0));
+    assert.deepEqual(wild, sketchSystem(seed, { settled: false, star: null }));
+    const given = sketchSystem(seed, { settled: true, star: 2e30 });
+    assert.equal(given.bodies[0].physics.mass, 2e30);
+    assert.notEqual(given.home, null);
+  }
+  const sizes = Array.from(
+    { length: 60 },
+    (_, seed) => sketchSystem(seed + 1, { settled: false, star: null }).bodies.length,
+  );
+  assert.ok(Math.min(...sizes) >= 1 && Math.max(...sizes) > 12 && Math.max(...sizes) < 40);
 });
 
 test("systems differ in their stars and in what circles them", () => {

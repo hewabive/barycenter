@@ -45,6 +45,8 @@ While developing, run the server and the client with live reload and open `http:
 
     pnpm dev
 
+Two more pages need no game server. `http://localhost:5183/generator.html` makes star systems from a seed, with a home or lifeless, and lists every number of a body. `http://localhost:5183/atlas.html` draws a sheet of bodies by mass and by distance from the star.
+
 Click a region to select it, then settle its neutral land or press a rival from the panel. The same panel sets the garrison of the region, lays roads to its neighbors and aims an attack at one cell. The sliders in the panel set the leaning of the whole power. Space pauses and resumes, and the keys 1 to 4 set the speed. The address accepts `?room=name` to keep several games apart, and `?seed=` and `?rivals=` to set up a new one.
 
 Zoom out to leave the chart of the home planet and see it from orbit, then its star system. Click a body or its name to fly to it, and the home planet to return.

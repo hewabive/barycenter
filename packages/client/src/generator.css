@@ -1,0 +1,75 @@
+body {
+  grid-template-columns: 1fr clamp(300px, 42vw, 460px);
+}
+
+#topbar label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#topbar a {
+  color: var(--accent);
+}
+
+#topbar .clock {
+  min-width: 90px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.bodies,
+.facts {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.bodies td,
+.facts td {
+  padding: 2px 4px;
+  vertical-align: top;
+}
+
+.bodies tr {
+  cursor: pointer;
+}
+
+.bodies tr.active {
+  background: var(--raised);
+}
+
+.bodies td.moon {
+  padding-left: 16px;
+}
+
+.bodies td:nth-child(n + 3),
+.facts td:last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.bodies td:nth-child(2),
+.facts td:first-child {
+  color: var(--muted);
+}
+
+.facts td:first-child {
+  white-space: nowrap;
+}
+
+.facts tr.group td {
+  padding-top: 8px;
+  text-align: left;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.raw {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

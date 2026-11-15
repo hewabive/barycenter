@@ -1,4 +1,4 @@
-import { createRandom, positionOf, type StarSystem, spinOf } from "@barycenter/sim";
+import { createRandom, positionOf, type Sketch, spinOf } from "@barycenter/sim";
 import {
   BufferGeometry,
   Color,
@@ -40,6 +40,8 @@ export interface Space {
   onPresent(listener: () => void): void;
   onResize(listener: (width: number, height: number) => void): void;
   onTap(listener: (at: Vector3 | null) => void): void;
+  onFocus(listener: (id: number) => void): void;
+  focus(id: number): void;
   visit(toward: Vector3): void;
 }
 
@@ -127,7 +129,7 @@ function createSky(seed: number): Points {
   return sky;
 }
 
-export function createSpace(stage: HTMLElement, system: StarSystem): Space {
+export function createSpace(stage: HTMLElement, system: Sketch): Space {
   const renderer = new WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   stage.append(renderer.domElement);
@@ -161,10 +163,14 @@ export function createSpace(stage: HTMLElement, system: StarSystem): Space {
   scene.add(sky);
 
   const looks = createLooks(renderer, system.bodies, rough);
-  const home = looks[system.home];
-  home.refine(fine);
+  const home = system.home === null ? null : looks[system.home];
+  home?.refine(fine);
   const star = looks.find((look) => look.body.parent === null) ?? looks[0];
   star.refine(fine);
+  const first = home ?? star;
+  if (home === null) {
+    camera.position.set(0, 0.35, 1).setLength(PORTRAIT * star.girth);
+  }
   for (const look of looks) {
     world.add(look.frame);
   }
@@ -210,12 +216,13 @@ export function createSpace(stage: HTMLElement, system: StarSystem): Space {
   let since = performance.now();
   let chart = 1;
   let busy = () => false;
-  const shift: Shift = { from: system.home, to: system.home, share: 1 };
+  const shift: Shift = { from: first.body.id, to: first.body.id, share: 1 };
   let glide: Glide | null = null;
   const frameListeners: ((elapsed: number) => void)[] = [];
   const presentListeners: (() => void)[] = [];
   const resizeListeners: ((width: number, height: number) => void)[] = [];
   const tapListeners: ((at: Vector3 | null) => void)[] = [];
+  const focusListeners: ((id: number) => void)[] = [];
   const eye = new Vector3();
 
   const attend = (id: number) => {
@@ -228,6 +235,9 @@ export function createSpace(stage: HTMLElement, system: StarSystem): Space {
       shift.to = id;
       shift.share = 0;
       looks[id].refine(fine);
+      for (const listener of focusListeners) {
+        listener(id);
+      }
     }
     const body = looks[id].body;
     const wanted = id === system.home ? HOME_VIEW : PORTRAIT * looks[id].girth;
@@ -291,10 +301,10 @@ export function createSpace(stage: HTMLElement, system: StarSystem): Space {
       .multiplyScalar(away - 1)
       .applyQuaternion(rig);
 
-    const homeward = to === home ? share : from === home ? 1 - share : 0;
+    const homeward = home === null ? 0 : to === home ? share : from === home ? 1 - share : 0;
     chart = homeward * (1 - ramp(distance, CHART_FULL, CHART_GONE));
 
-    if (glide?.toward) {
+    if (glide?.toward && home !== null) {
       facing.copy(glide.toward).applyQuaternion(home.frame.quaternion).applyQuaternion(rig);
       camera.position.copy(facing).setLength(distance);
       camera.lookAt(0, 0, 0);
@@ -333,7 +343,7 @@ export function createSpace(stage: HTMLElement, system: StarSystem): Space {
     sky.updateMatrixWorld(true);
     trackMaterial.opacity = 0.55 * (1 - chart);
     eye.copy(camera.position);
-    home.frame.worldToLocal(eye);
+    first.frame.worldToLocal(eye);
   };
 
   const projected = new Vector3();
@@ -426,7 +436,7 @@ export function createSpace(stage: HTMLElement, system: StarSystem): Space {
       emit(null);
       return;
     }
-    if (found !== home || shift.to !== system.home || chart < 0.5) {
+    if (home === null || found !== home || shift.to !== system.home || chart < 0.5) {
       attend(found.body.id);
       return;
     }
@@ -496,8 +506,8 @@ export function createSpace(stage: HTMLElement, system: StarSystem): Space {
   return {
     camera,
     labels,
-    surface: home.frame,
-    relief: home.relief(),
+    surface: first.frame,
+    relief: first.relief(),
     defines,
     eye,
     chart: () => chart,
@@ -519,7 +529,12 @@ export function createSpace(stage: HTMLElement, system: StarSystem): Space {
       listener(Math.max(1, stage.clientWidth), Math.max(1, stage.clientHeight));
     },
     onTap: (listener) => tapListeners.push(listener),
+    onFocus: (listener) => focusListeners.push(listener),
+    focus: attend,
     visit(toward) {
+      if (system.home === null) {
+        return;
+      }
       if (shift.to !== system.home) {
         attend(system.home);
       }

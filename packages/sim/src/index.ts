@@ -14,14 +14,23 @@ export {
 export type { Duty, Muster, Route } from "./muster.ts";
 export {
   ASTRONOMICAL_UNIT,
+  balanceHeat,
   classOf,
   DAY,
+  densityOf,
   EARTH_AIR,
+  EARTH_GRAVITY,
   EARTH_MASS,
   EARTH_RADIUS,
+  escapeOf,
   FLUID_SHARE,
   flatOf,
+  frostOf,
+  gravityOf,
   HOUR,
+  hillOf,
+  JUPITER_MASS,
+  rocheOf,
   STAR_LEAST,
   SUN_GLOW,
   SUN_MASS,
@@ -34,7 +43,16 @@ export { elevationAt, RELIEF_SHAPE } from "./relief.ts";
 export { type ForceReport, forceReportFor } from "./report.ts";
 export { circumcenter, hullFaces } from "./sphere.ts";
 export { cloneState, issue, step } from "./step.ts";
-export { formed, kindled, positionOf, reliefOf, type Site, spinOf } from "./system.ts";
+export {
+  formed,
+  kindled,
+  type Plan,
+  positionOf,
+  reliefOf,
+  type Site,
+  sketchSystem,
+  spinOf,
+} from "./system.ts";
 export { retune } from "./tune.ts";
 export {
   type Body,
@@ -60,6 +78,7 @@ export {
   type Rejection,
   type Relief,
   type Ring,
+  type Sketch,
   type StarSystem,
   type State,
   type StepResult,

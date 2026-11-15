@@ -407,18 +407,29 @@ function blended(from: Giant, to: Giant, share: number): Giant {
   };
 }
 
+function giantShares(physics: Physics) {
+  const weight = Math.log(physics.mass / EARTH_MASS);
+  return {
+    heavy: smooth(Math.log(110), Math.log(280), weight),
+    light: Math.max(
+      1 - smooth(Math.log(25), Math.log(80), weight),
+      0.8 * (1 - smooth(45, 70, physics.heat)),
+    ),
+    lively: physics.vigor,
+    mild: smooth(140, 200, physics.heat),
+    warm: smooth(330, 450, physics.heat),
+    hot: smooth(800, 1100, physics.heat),
+  };
+}
+
 export function giantOf(body: Body): Giant {
   const { physics } = body;
-  const weight = Math.log(physics.mass / EARTH_MASS);
-  const heavy = blended(SATURNIAN, JOVIAN, smooth(Math.log(110), Math.log(280), weight));
-  const light = Math.max(
-    1 - smooth(Math.log(25), Math.log(80), weight),
-    0.8 * (1 - smooth(45, 70, physics.heat)),
-  );
-  const cold = blended(heavy, blended(URANIAN, NEPTUNIAN, physics.vigor), light);
-  const mild = blended(cold, WATERY, smooth(140, 200, physics.heat));
-  const warm = blended(mild, CLEAR, smooth(330, 450, physics.heat));
-  const giant = blended(warm, SCORCHED, smooth(800, 1100, physics.heat));
+  const shares = giantShares(physics);
+  const heavy = blended(SATURNIAN, JOVIAN, shares.heavy);
+  const cold = blended(heavy, blended(URANIAN, NEPTUNIAN, shares.lively), shares.light);
+  const mild = blended(cold, WATERY, shares.mild);
+  const warm = blended(mild, CLEAR, shares.warm);
+  const giant = blended(warm, SCORCHED, shares.hot);
   const random = createRandom(body.seed + 83);
   const turn = 0.03 * (2 * random.next() - 1);
   const vivid = 0.8 + 0.4 * random.next();
@@ -599,6 +610,51 @@ function ground(skin: Skin, change: (shade: number) => number): Skin {
   };
 }
 
+function skinShares(physics: Physics) {
+  const pressure = physics.air > 0 ? Math.log10(physics.air) : 0;
+  return {
+    pressure,
+    airy: smooth(2.5, 4.5, pressure),
+    hot: smooth(700, 1200, physics.heat),
+    wet: seaCover(physics) > 0,
+    icy: smooth(0.03, 0.25, physics.ice) * (1 - smooth(200, 273, physics.heat)),
+    thick: smooth(5.7, 6.7, pressure),
+  };
+}
+
+export function recipeOf(body: Body): [name: string, share: number][] {
+  const { physics } = body;
+  const family = familyOf(physics);
+  if (family === "star") {
+    return [];
+  }
+  if (family === "fluid") {
+    const { heavy, light, lively, mild, warm, hot } = giantShares(physics);
+    const cold = (1 - mild) * (1 - warm) * (1 - hot);
+    return [
+      ["banded", cold * (1 - light) * heavy],
+      ["golden", cold * (1 - light) * (1 - heavy)],
+      ["deep blue", cold * light * lively],
+      ["pale cyan", cold * light * (1 - lively)],
+      ["white", mild * (1 - warm) * (1 - hot)],
+      ["azure", warm * (1 - hot)],
+      ["dark", hot],
+    ];
+  }
+  const { airy, hot, wet, icy, thick } = skinShares(physics);
+  const dry = wet ? 0 : 1 - icy;
+  const seas = wet ? 1 - icy : 0;
+  return [
+    ["bare rock", dry * (1 - airy) * (1 - hot)],
+    ["desert", dry * airy * (1 - hot)],
+    ["charred rock", dry * hot],
+    ["sea", seas * (1 - physics.life)],
+    ["living", seas * physics.life],
+    ["ice", icy],
+    ["under fog", thick],
+  ];
+}
+
 export function skinOf(body: Body): Skin {
   const { physics } = body;
   const random = createRandom(body.seed + 61);
@@ -606,15 +662,11 @@ export function skinOf(body: Body): Skin {
   const vivid = random.next();
   const bright = 0.8 + 0.4 * random.next();
   const soot = random.next();
-  const pressure = physics.air > 0 ? Math.log10(physics.air) : 0;
-  const airy = smooth(2.5, 4.5, pressure);
-  const wet = seaCover(physics) > 0;
-  const chilled = 1 - smooth(200, 273, physics.heat);
-  const icy = smooth(0.03, 0.25, physics.ice) * chilled;
+  const { pressure, airy, hot, wet, icy, thick } = skinShares(physics);
 
   const rock = ground(BARREN, (shade) => varied(shade, turn, 0.5 + 3 * vivid, bright));
   const sand = ground(DESERT, (shade) => varied(shade, turn, 0.8 + 0.4 * vivid, bright));
-  const dry = merged(merged(rock, sand, airy), CHARRED, smooth(700, 1200, physics.heat));
+  const dry = merged(merged(rock, sand, airy), CHARRED, hot);
   const temperate = wet ? merged(SEA, LIVING, physics.life) : dry;
   const dirty = ground(ICE, (shade) => varied(shade, turn, 1, 1 - 0.45 * soot * soot));
   const tholin = { ...dirty, patch: 0.55 * (1 - smooth(55, 90, physics.heat)) };
@@ -626,7 +678,6 @@ export function skinOf(body: Body): Skin {
     : icy >= 0.5 || airy === 0
       ? NO_FROST
       : 1.05 - 0.17 * damp * (1 - smooth(250, 320, physics.heat));
-  const thick = smooth(5.7, 6.7, pressure);
   return {
     ...skin,
     frost,

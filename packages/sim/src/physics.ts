@@ -7,6 +7,8 @@ export const SUN_HEAT = 5772;
 export const EARTH_MASS = 5.972e24;
 export const EARTH_RADIUS = 6.371e6;
 export const EARTH_AIR = 101325;
+export const EARTH_GRAVITY = 9.81;
+export const JUPITER_MASS = 1.898e27;
 export const ASTRONOMICAL_UNIT = 1.496e11;
 export const HOUR = 3600;
 export const DAY = 86400;
@@ -15,6 +17,7 @@ export const STAR_LEAST = 0.075 * SUN_MASS;
 export const FLUID_SHARE = 0.002;
 
 const GRAVITY = 6.674e-11;
+const FROST_LINE = 2.7 * ASTRONOMICAL_UNIT;
 const RADIATION = 5.67e-8;
 const BOLTZMANN = 1.381e-23;
 const NITROGEN = 28 * 1.661e-27;
@@ -59,6 +62,18 @@ export function starRadius(mass: number): number {
 
 export function starHeat(glow: number, radius: number): number {
   return (SUN_HEAT * (glow / SUN_GLOW) ** 0.25) / Math.sqrt(radius / SUN_RADIUS);
+}
+
+export function frostOf(glow: number): number {
+  return FROST_LINE * Math.sqrt(glow / SUN_GLOW);
+}
+
+export function gravityOf(mass: number, radius: number): number {
+  return (GRAVITY * mass) / radius ** 2;
+}
+
+export function escapeOf(mass: number, radius: number): number {
+  return Math.sqrt((2 * GRAVITY * mass) / radius);
 }
 
 export function gasShare(mass: number): number {
@@ -111,9 +126,8 @@ export function balanceHeat(glow: number, distance: number, albedo: number): num
 }
 
 export function gripOf(mass: number, radius: number, heat: number): number {
-  const leave = Math.sqrt((2 * GRAVITY * mass) / radius);
   const thermal = Math.sqrt((3 * BOLTZMANN * DAYSIDE * heat) / NITROGEN);
-  return leave / (ESCAPE_MARGIN * thermal);
+  return escapeOf(mass, radius) / (ESCAPE_MARGIN * thermal);
 }
 
 export function greenhouse(air: number): number {
