@@ -51,6 +51,12 @@ export interface Hoop {
 
 export type Ember = [red: number, green: number, blue: number, bright: number];
 
+export interface Season {
+  frost: number;
+  melt: [night: number, noon: number];
+  ember: Ember;
+}
+
 export interface Giant {
   ember: Ember;
   shown: Shown;
@@ -143,18 +149,44 @@ export function emberOf(kelvin: number, tinge = 0): [number, number, number] {
   return [1, green, blue + tinge * (ALKALI_BLUE - blue)];
 }
 
-function lavaHeat(physics: Physics): number {
-  if (moltenOf(physics) <= 0) {
+function lavaHeat(physics: Physics, heat: number): number {
+  if (moltenOf({ ...physics, heat }) <= 0) {
     return 0;
   }
   const even = smooth(4, 6, physics.air > 0 ? Math.log10(physics.air) : 0);
-  const noon = physics.heat * (Math.SQRT2 + (1 - Math.SQRT2) * even);
+  const noon = heat * (Math.SQRT2 + (1 - Math.SQRT2) * even);
   return Math.max(ROCK_MELT, Math.min(LAVA_MOST, noon));
 }
 
 export function shownOf(physics: Physics, seen: number[]): Shown {
   const family = familyOf(physics);
-  return shownLight(seen, family === "fluid" ? physics.heat : lavaHeat(physics));
+  return shownLight(seen, family === "fluid" ? physics.heat : lavaHeat(physics, physics.heat));
+}
+
+export function seasonOf(body: Body, seen: number[], heat: number): Season {
+  const { physics } = body;
+  if (familyOf(physics) === "fluid") {
+    const tinge = 0.8 * (1 - smooth(ALKALI[0], ALKALI[1], heat));
+    const glow = shownLight(seen, heat).glow;
+    return { frost: NO_FROST, melt: [0, 0], ember: [...emberOf(heat, tinge), glow] };
+  }
+  const { pressure, airy, wet, icy } = skinShares(physics);
+  const damp = Math.max(0, Math.min(1, Math.log10(Math.max(physics.ice, 1e-6) / 1e-6) / 2.5));
+  const frost = wet
+    ? Math.max(0.2, Math.min(1.3, 0.925 + 0.014 * (heat - 288)))
+    : icy >= 0.5 || airy === 0
+      ? NO_FROST
+      : 1.05 - 0.17 * damp * (1 - smooth(250, 320, heat));
+  const lava = lavaHeat(physics, heat);
+  if (lava <= 0) {
+    return { frost, melt: [0, 0], ember: DARK };
+  }
+  const even = smooth(4, 6, pressure);
+  const noon = heat * (Math.SQRT2 + (1 - Math.SQRT2) * even);
+  const night = heat * (NIGHT_SHARE + (1 - NIGHT_SHARE) * even);
+  const melted = (warmth: number) => (warmth - MELT_SPAN[0]) / (MELT_SPAN[1] - MELT_SPAN[0]);
+  const glow = LAVA_GAIN * shownLight(seen, lava).glow;
+  return { frost, melt: [melted(night), melted(noon)], ember: [...emberOf(lava), glow] };
 }
 
 export function flatnessOf(physics: Physics): number {
@@ -577,10 +609,7 @@ export function giantOf(body: Body, seen: number[]): Giant {
   const pace = Math.max(0.75, Math.min(1.35, Math.sqrt(physics.day / (12 * HOUR))));
   return {
     ...giant,
-    ember: [
-      ...emberOf(physics.heat, 0.8 * (1 - smooth(ALKALI[0], ALKALI[1], physics.heat))),
-      shown.glow,
-    ],
+    ember: seasonOf(body, seen, physics.heat).ember,
     shown,
     vents: 0.35 + 0.5 * shares.bare,
     zones: giant.zones.map(shift),
@@ -851,7 +880,7 @@ export function recipeOf(body: Body): [name: string, share: number][] {
 export function skinOf(body: Body, seen: number[]): Skin {
   const { physics } = body;
   const shown = shownOf(physics, seen);
-  const lava = lavaHeat(physics);
+  const season = seasonOf(body, seen, physics.heat);
   const random = createRandom(body.seed + 61);
   const turn = 0.04 * (2 * random.next() - 1);
   const vivid = random.next();
@@ -867,29 +896,19 @@ export function skinOf(body: Body, seen: number[]): Skin {
   const tholin = { ...dirty, patch: 0.55 * (1 - smooth(55, 90, physics.heat)) };
   const skin = merged(temperate, tholin, icy);
 
-  const damp = Math.max(0, Math.min(1, Math.log10(Math.max(physics.ice, 1e-6) / 1e-6) / 2.5));
-  const frost = wet
-    ? Math.max(0.2, Math.min(1.3, 0.925 + 0.014 * (physics.heat - 288)))
-    : icy >= 0.5 || airy === 0
-      ? NO_FROST
-      : 1.05 - 0.17 * damp * (1 - smooth(250, 320, physics.heat));
-  const even = smooth(4, 6, pressure);
-  const noon = physics.heat * (Math.SQRT2 + (1 - Math.SQRT2) * even);
-  const night = physics.heat * (NIGHT_SHARE + (1 - NIGHT_SHARE) * even);
-  const melted = (heat: number) => (heat - MELT_SPAN[0]) / (MELT_SPAN[1] - MELT_SPAN[0]);
   const rough = roughOf(physics) * (physics.disks.length > 0 ? 0.4 : 1);
   const across = 1 - 0.35 * rough * random.next();
   const up = across * (1 - 0.3 * rough * random.next());
   return {
     ...skin,
-    frost,
+    frost: season.frost,
     shroud: thick,
     fog: thick > 0 ? fogOf(physics) : skin.fog,
     haze: thick > 0 ? tone(skin.haze, fogOf(physics), thick) : skin.haze,
     air: wet ? 1 : Math.max(0, Math.min(1.1, 0.35 * (pressure - 2) * Math.sign(physics.air))),
-    ember: lava > 0 ? [...emberOf(lava), LAVA_GAIN * shown.glow] : DARK,
+    ember: season.ember,
     shown,
-    melt: lava > 0 ? [melted(night), melted(noon)] : [0, 0],
+    melt: season.melt,
     lump: [LUMP_DEPTH * rough, 1, up, across],
   };
 }

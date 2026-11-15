@@ -34,6 +34,7 @@ import {
   starSpan,
   stocked,
   strippedShare,
+  swingOf,
   wrapped,
   yearOf,
 } from "./physics.ts";
@@ -73,11 +74,18 @@ export interface Plan {
   star: number | null;
 }
 
+interface Beat {
+  sun: number;
+  sweep: number;
+  season: number;
+}
+
 interface Draft {
   physics: Physics;
   parent: number | null;
   tilt: number | null;
   slant: number | null;
+  beat: Beat | null;
 }
 
 interface Kin {
@@ -217,6 +225,8 @@ export function kindled(mass: number, age: number, random: Random): Physics {
       radius,
       ...shares,
       heat: climate.heat,
+      coldest: climate.heat,
+      hottest: climate.heat,
       glow: glowOf(radius, inner),
       light: 0,
       air: 0,
@@ -232,6 +242,8 @@ export function kindled(mass: number, age: number, random: Random): Physics {
     radius,
     ...shares,
     heat: starHeat(glow, radius),
+    coldest: starHeat(glow, radius),
+    hottest: starHeat(glow, radius),
     glow,
     light: 0,
     air: 0,
@@ -361,6 +373,8 @@ export function formed(mass: number, site: Site, random: Random, locked = false)
     ice,
     gas,
     heat: climate.heat,
+    coldest: climate.heat,
+    hottest: climate.heat,
     glow: fluid ? glowOf(radius, inner) : 0,
     light,
     air: climate.air,
@@ -409,6 +423,8 @@ function settled(star: Physics, orbit: number, stretch: number, random: Random):
     radius,
     ...shares,
     heat: climate.heat,
+    coldest: climate.heat,
+    hottest: climate.heat,
     glow: 0,
     light: lightAt(star.glow, orbit),
     air: climate.air,
@@ -650,6 +666,8 @@ function trimmed(physics: Physics): Physics {
     ice: trim(physics.ice),
     gas: trim(physics.gas),
     heat: trim(physics.heat),
+    coldest: trim(physics.coldest),
+    hottest: trim(physics.hottest),
     glow: trim(physics.glow),
     light: trim(physics.light),
     air: trim(physics.air),
@@ -808,11 +826,17 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
     TIED_REACH * Math.cbrt(star.mass / SUN_MASS) * (age / (10 * GIGAYEAR)) ** (1 / 6);
 
   const drafts: Draft[] = [
-    { physics: { ...first, disks: belts }, parent: null, tilt: 0, slant: 0 },
+    { physics: { ...first, disks: belts }, parent: null, tilt: 0, slant: 0, beat: null },
   ];
+  const beatOf = (planet: Physics, sun: Physics, distance: number): Beat => ({
+    sun: lightAt(sun.glow, distance),
+    sweep: planet.stretch,
+    season: planet.year,
+  });
   const adopt = (kin: Kin, parent: number) => {
     const own = drafts.length;
-    drafts.push({ physics: kin.physics, parent, tilt: null, slant: kin.slant });
+    const { beat } = drafts[parent];
+    drafts.push({ physics: kin.physics, parent, tilt: null, slant: kin.slant, beat });
     for (const moon of kin.moons) {
       adopt(moon, own);
     }
@@ -825,7 +849,7 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
     const year = yearOf(closeAt, star.mass);
     const light = lightAt(first.glow, closeAt);
     const paths = { orbit: closeAt, stretch: closeStretch, year, day: year, light };
-    drafts.push({ physics: { ...close, ...paths }, parent: 0, tilt: null, slant: 0 });
+    drafts.push({ physics: { ...close, ...paths }, parent: 0, tilt: null, slant: 0, beat: null });
   }
   let home: number | null = null;
   for (const orbit of orbits) {
@@ -835,7 +859,8 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
       const light = lightAt(first.glow, farAt * (1 - farStretch ** 2) ** 0.25);
       const paths = { orbit: farAt, stretch: farStretch, year, light };
       const slant = TWIN_SLANT * leaned;
-      drafts.push({ physics: { ...far, ...paths }, parent: 0, tilt: TWIN_SLANT * spread, slant });
+      const lean = TWIN_SLANT * spread;
+      drafts.push({ physics: { ...far, ...paths }, parent: 0, tilt: lean, slant, beat: null });
       const reach = Math.max(Math.sqrt(far.glow / SUN_GLOW), DIM_REACH);
       const hold = Math.min(TWIN_HOLD * farAt * (1 - farStretch), OUTER_EDGE * reach);
       const inner = Math.max(INNER_EDGE * reach, STAR_CLEARANCE * far.radius);
@@ -859,7 +884,14 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
           const planet = formed(mass, site, random);
           const id = drafts.length;
           const tilt = tipped();
-          drafts.push({ physics: planet, parent: twin, tilt: tied ? null : tilt, slant: null });
+          const beat = beatOf(planet, far, distance);
+          drafts.push({
+            physics: planet,
+            parent: twin,
+            tilt: tied ? null : tilt,
+            slant: null,
+            beat,
+          });
           for (const kin of moonsOf(planet, far, far, distance, light, 0, random, turns)) {
             adopt(kin, id);
           }
@@ -903,7 +935,8 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
     const id = drafts.length;
     const steep = !settledHere && random.next() < 0.1;
     const tilt = steep ? between(random, 0.5, 1.75) : MAX_TILT * random.next();
-    drafts.push({ physics: planet, parent: 0, tilt: tied ? null : tilt, slant });
+    const beat = beatOf(planet, star, distance);
+    drafts.push({ physics: planet, parent: 0, tilt: tied ? null : tilt, slant, beat });
     if (settledHere) {
       home = id;
     }
@@ -914,7 +947,12 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
 
   const bodies: Body[] = [];
   for (const [id, draft] of drafts.entries()) {
-    const physics = trimmed(draft.physics);
+    const { beat } = draft;
+    const [coldest, hottest] =
+      beat === null
+        ? [draft.physics.heat, draft.physics.heat]
+        : swingOf(draft.physics, beat.sun, beat.sweep, beat.season);
+    const physics = trimmed({ ...draft.physics, coldest, hottest });
     const drawn = Math.floor(marks.next() * 0x7fffffff);
     const own = id === home ? homeSeed : drawn;
     const named = name();
@@ -1064,6 +1102,28 @@ export function positionOf(system: Sketch, id: number, tick: number): Vector {
   const share = swayOf(system, id);
   const apart = courseOf(mate, anomalyOf(mate, tick));
   return { x: hub.x - share * apart.x, y: hub.y - share * apart.y, z: hub.z - share * apart.z };
+}
+
+export function heatAt(system: Sketch, id: number, tick: number): number {
+  const { heat, coldest, hottest } = system.bodies[id].physics;
+  let path = system.bodies[id];
+  while (path.parent !== null) {
+    const host = system.bodies[path.parent];
+    if (host.parent === null || host.physics.mass >= STAR_LEAST) {
+      break;
+    }
+    path = host;
+  }
+  const oval = path.physics.stretch;
+  if (path.parent === null || oval <= 0 || hottest - coldest <= 0) {
+    return heat;
+  }
+  const even = (1 - oval ** 2) ** 0.25;
+  const share = (reach: number) => Math.sqrt(even / reach);
+  const now = share(1 - oval * Math.cos(anomalyOf(path, tick)));
+  return now >= 1
+    ? heat + ((hottest - heat) * (now - 1)) / (share(1 - oval) - 1)
+    : heat - ((heat - coldest) * (1 - now)) / (1 - share(1 + oval));
 }
 
 export function poleOf(body: Body): Vector {

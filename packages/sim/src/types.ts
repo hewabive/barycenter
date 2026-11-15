@@ -54,6 +54,8 @@ export interface Physics {
   ice: number;
   gas: number;
   heat: number;
+  coldest: number;
+  hottest: number;
   glow: number;
   light: number;
   air: number;

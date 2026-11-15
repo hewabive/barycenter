@@ -64,6 +64,12 @@ const LIGHT_MOST = 1.35;
 const FILL_LIGHT = 0.025;
 const GLOW_FROM = [650, 900];
 export const SKY_LIGHT = 3e-7;
+const GAS_STORE = 14300;
+const AIR_STORE = 1000;
+const WATER_STORE = 4.2e6;
+const SEA_DEPTH = 50;
+const ROCK_STORE = 2e6;
+const ROCK_CREEP = 1e-6;
 const STUFFY_HEAT = [600, 2000];
 const STUFFY_MOST = 0.8;
 const ESCAPE_MARGIN = 6;
@@ -501,6 +507,39 @@ export function seaCover(physics: Physics): number {
     return 0;
   }
   return Math.max(0.1, Math.min(0.97, 0.3 + 0.3 * Math.log10(liquid / DAMP_LEAST)));
+}
+
+export function heatStore(physics: Physics, season: number): number {
+  const pull = gravityOf(physics.mass, physics.radius);
+  if (wrapped(physics)) {
+    return (GAS_STORE * EARTH_AIR) / pull;
+  }
+  const air = (AIR_STORE * physics.air) / pull;
+  const sea = seaCover(physics) * WATER_STORE * SEA_DEPTH;
+  const ground = ROCK_STORE * Math.sqrt((ROCK_CREEP * season) / Math.PI);
+  return air + sea + ground;
+}
+
+export function swingOf(
+  physics: Physics,
+  sun: number,
+  sweep: number,
+  season: number,
+): [coldest: number, hottest: number] {
+  if (sweep <= 0 || season <= 0 || physics.light <= 0) {
+    return [physics.heat, physics.heat];
+  }
+  const part = Math.min(1, sun / physics.light);
+  const own = wrapped(physics) ? (starHeat(physics.glow, physics.radius) / physics.heat) ** 4 : 0;
+  const slack = heatStore(physics, season) / (4 * RADIATION * physics.heat ** 3);
+  const follow = 1 / Math.hypot(1, (2 * Math.PI * slack) / season);
+  const even = (1 - sweep ** 2) ** 0.25;
+  const at = (reach: number) => {
+    const lit = 1 + part * ((even / reach) ** 2 - 1);
+    const bare = (1 + (1 - Math.min(1, own)) * (lit - 1)) ** 0.25;
+    return physics.heat * (1 + follow * (bare - 1));
+  };
+  return [at(1 + sweep), at(1 - sweep)];
 }
 
 export const EARTH_LIGHT = 1361;

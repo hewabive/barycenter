@@ -173,6 +173,12 @@ function factsOf(body: Body): Fact[] {
       ],
       ["Temperature", `${figure(physics.heat)} K · ${figure(physics.heat - 273.15)} °C`],
       [
+        "Over its year",
+        physics.hottest - physics.coldest < 1
+          ? "the same"
+          : `from ${figure(physics.coldest)} K at its farthest to ${figure(physics.hottest)} K at its nearest`,
+      ],
+      [
         "As a black body",
         parent === null
           ? "none, nothing lights it"

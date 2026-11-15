@@ -46,6 +46,7 @@ import {
   giantOf,
   type Hoop,
   hoopOf,
+  seasonOf,
   skinOf,
   WAVES,
   WIEN,
@@ -87,6 +88,7 @@ export interface Look {
   detail(): number;
   relief(): CubeTexture;
   light(rays: Vector3[], chart: number, tick: number): void;
+  warm(heat: number): void;
   refine(size: number): void;
   restore(): void;
   dispose(): void;
@@ -152,6 +154,7 @@ const SHINE_PALE = 0.6;
 const DIM_PALE = 0.25;
 const SPECK_EMBER = 0.6;
 const RING_GLEAM = 0.25;
+const WARM_STEP = 0.5;
 const NOWHERE = new Vector3();
 
 function regionsOf(star: Body, flame: Flame): Region[] {
@@ -602,6 +605,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       shine: new Color(0, 0, 0),
       dusk: 0,
       ...surface,
+      warm() {},
       light(_rays, _chart, tick) {
         const one = beat(tick / GRANULE_LIFE);
         const two = beat(tick / GRANULE_LIFE + 0.5);
@@ -680,6 +684,10 @@ export function createStudio(renderer: WebGLRenderer): Studio {
         : new Vector2(hoop.parts[0][0], hoop.parts[hoop.parts.length - 1][1]);
     const sunny = new Vector3(1, 0, 0);
     const upright = new Quaternion();
+    const embers = new Vector4(...glow);
+    const melt = new Vector2(...(skin?.melt ?? [0, 0]));
+    const clime = new Vector4(skin?.frost ?? 0, skin?.lift ?? 0, skin?.snowy ?? 0, wet ? 1 : 0);
+    let warmth = body.physics.heat;
     const uniforms = {
       relief: { value: null as CubeTexture | null },
       palette: { value: palette },
@@ -695,19 +703,19 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       grit: { value: grit },
       hoop: { value: reach },
       sunny: { value: sunny },
-      ember: { value: new Vector4(...glow) },
+      ember: { value: embers },
       lump: { value: lump },
       seed: { value: body.seed },
       ...(skin === null
         ? {}
         : {
-            melt: { value: new Vector2(...skin.melt) },
+            melt: { value: melt },
             ramp: {
               value: wet
                 ? new Vector2(0, body.relief.peak - (body.relief.sea ?? 0))
                 : new Vector2(skin.low, skin.span),
             },
-            clime: { value: new Vector4(skin.frost, skin.lift, skin.snowy, wet ? 1 : 0) },
+            clime: { value: clime },
             marks: { value: new Vector4(skin.patch, skin.belted, skin.cracks, 0) },
             deck: { value: new Vector2(skin.clouds, skin.shroud) },
             relish: { value: skin.bump },
@@ -846,6 +854,16 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       shine: shines[0],
       dusk: lit.sky,
       ...surface,
+      warm(heat) {
+        if (Math.abs(heat - warmth) < WARM_STEP) {
+          return;
+        }
+        warmth = heat;
+        const season = seasonOf(body, seen, heat);
+        embers.set(...season.ember);
+        melt.set(...season.melt);
+        clime.x = season.frost;
+      },
       light(rays, chart, tick) {
         suns.forEach((sun, at) => {
           sun.copy(rays[at] ?? NOWHERE);

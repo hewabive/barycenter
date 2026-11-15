@@ -3,6 +3,7 @@ import {
   centreOf,
   courseOf,
   createRandom,
+  heatAt,
   positionOf,
   type Sketch,
   seenGlow,
@@ -103,6 +104,7 @@ const MOON_CLEARANCE = 70;
 const SUNLIT_TURN = 0.6;
 const SUNLIT_LIFT = 0.3;
 const STAR_CLEAR = 1.7;
+const SWING_LEAST = 0.005;
 const WAKE_PIXELS = 7;
 const SLEEP_PIXELS = 3.5;
 const SPECK_PIXELS = 3;
@@ -336,6 +338,9 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
   const still = new Quaternion();
   const rig = new Quaternion();
   const places = looks.map(() => new Vector3());
+  const swung = looks.map(
+    ({ body }) => body.physics.hottest > (1 + SWING_LEAST) * body.physics.coldest,
+  );
   const origin = new Vector3();
   const rays = [new Vector3(), new Vector3()];
   const facing = new Vector3();
@@ -431,6 +436,9 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
         }
       });
       look.light(rays, look === home ? chart : 0, shown);
+      if (swung[index]) {
+        look.warm(heatAt(system, look.body.id, shown));
+      }
       const wide = (look.body.radius * pixels) / Math.max(gap, 1e-6);
       if (look === home || look === star || look === to) {
         continue;

@@ -16,6 +16,7 @@ import {
   elevationAt,
   GIGAYEAR,
   glowOf,
+  heatAt,
   hubOf,
   innerHeat,
   JUPITER_MASS,
@@ -43,6 +44,7 @@ import {
   stocked,
   strippedShare,
   swayOf,
+  swingOf,
   type Vector,
   wrapped,
 } from "../src/index.ts";
@@ -253,6 +255,7 @@ test("the physics of every body holds together", () => {
       const whole = physics.iron + physics.rock + physics.ice + physics.gas;
       assert.ok(Math.abs(whole - 1) < 1e-3, label);
       assert.ok(physics.mass > 0 && physics.radius > 0 && physics.heat > 0, label);
+      assert.ok(physics.coldest <= physics.heat && physics.heat <= physics.hottest, label);
       const airy = physics.air > 0 || (wrapped(physics) && physics.mass < STAR_LEAST);
       const gases = physics.gases.reduce((sum, part) => sum + part, 0);
       assert.ok(airy ? Math.abs(gases - 1) < 1e-3 : physics.gases.length === 0, label);
@@ -787,6 +790,64 @@ test("two bodies of like mass circle the point between them", () => {
   assert.ok(swayed > 0, `stars swayed by a brown dwarf ${swayed}`);
 });
 
+test("a world on a long oval is hot at its nearest and cold at its farthest", () => {
+  const year = 3.156e7;
+  const world = (air: number, ice: number, heat: number): Physics => {
+    const shares = { iron: 0.3 * (1 - ice), rock: 0.7 * (1 - ice), ice, gas: 0 };
+    const paths = { orbit: 1.5e11, stretch: 0.5, year, day: 9e4, disks: [] };
+    const state = { heat, coldest: heat, hottest: heat, glow: 0, light: 1361, air, gases: [1] };
+    const rest = { life: 0, vigor: 0.5, age: GIGAYEAR };
+    return {
+      mass: EARTH_MASS,
+      radius: radiusOf(EARTH_MASS, shares),
+      ...shares,
+      ...state,
+      ...rest,
+      ...paths,
+    };
+  };
+  const bare = world(0, 0, 280);
+  const [cold, hot] = swingOf(bare, 1361, 0.5, year);
+  assert.ok(hot / 280 > 1.25 && hot / 280 < 1.37, `bare rock at its nearest ${hot}`);
+  assert.ok(cold / 280 > 0.78 && cold / 280 < 0.86, `bare rock at its farthest ${cold}`);
+  assert.deepEqual(swingOf(bare, 1361, 0, year), [280, 280]);
+  const wet = world(EARTH_AIR, 3e-5, 288);
+  assert.ok(seaCover(wet) > 0);
+  const [chill, warm] = swingOf(wet, 1361, 0.5, year);
+  assert.ok(warm - 288 < 0.35 * (hot - 280) && warm > 288, `sea world at its nearest ${warm}`);
+  assert.ok(chill > 265 && chill < 288, `sea world at its farthest ${chill}`);
+  const [, lent] = swingOf(bare, 1361 / 4, 0.5, year);
+  assert.ok(lent < hot && lent > 280);
+  assert.ok(swingOf(bare, 1361, 0.2, year)[1] < hot);
+
+  let swung = 0;
+  for (let seed = 1; seed <= 200; seed++) {
+    const system = sketchSystem(seed, { settled: false, star: null });
+    for (const body of system.bodies) {
+      const { heat, coldest, hottest } = body.physics;
+      const label = `seed ${seed}, ${body.name}`;
+      const samples = Array.from({ length: 24 }, (_, step) =>
+        heatAt(system, body.id, (step * body.year) / 24),
+      );
+      assert.ok(Math.min(...samples) >= coldest - 1e-6 * heat, label);
+      assert.ok(Math.max(...samples) <= hottest + 1e-6 * heat, label);
+      if (body.parent === 0 && hottest > 1.15 * coldest) {
+        const nearest = (-body.phase * body.year) / (2 * Math.PI);
+        assert.ok(Math.abs(heatAt(system, body.id, nearest) - hottest) < 1e-6 * heat, label);
+        const farthest = nearest + body.year / 2;
+        assert.ok(Math.abs(heatAt(system, body.id, farthest) - coldest) < 1e-6 * heat, label);
+        const moons = system.bodies.filter((moon) => moon.parent === body.id);
+        assert.ok(
+          moons.every((moon) => moon.physics.hottest > moon.physics.coldest),
+          label,
+        );
+        swung += 1;
+      }
+    }
+  }
+  assert.ok(swung > 10, `worlds with a wide swing ${swung}`);
+});
+
 test("small bodies are loose and not round, and rock melts where it is hot", () => {
   const body = (mass: number, ice: number, heat = 200, air = 0): Physics => {
     const shares = { iron: 0.2 * (1 - ice), rock: 0.8 * (1 - ice), ice, gas: 0 };
@@ -797,6 +858,8 @@ test("small bodies are loose and not round, and rock melts where it is hot", () 
       radius: radiusOf(mass, shares),
       ...shares,
       heat,
+      coldest: heat,
+      hottest: heat,
       air,
       ...rest,
       day: 1,
