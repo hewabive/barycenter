@@ -90,12 +90,19 @@ float elevation(vec3 at) {
 
 const SLOPE_RANGE = 8;
 const SLOPE_SPAN = 5;
-const JET_WAVES = 11;
-const JET_REACH = 1.4;
-const EDDY_REACH = 0.07;
-const FLOW_BEATS = 6;
-const STORM_TWIST = 3.5;
-const STORM_STRETCH = 1.5;
+const EDDY_SCALE = 4;
+const EDDY_SQUEEZE = 4;
+const EDDY_REACH = 0.002;
+const EDDY_SPAN = 0.008;
+const LIFT_RANGE = 0.15;
+const STREAK_SCALE = 5;
+const STREAK_SQUEEZE = 7;
+const PUFF_SCALE = 9;
+const SECTOR_SCALE = 1.3;
+const SWIRL_TWIST = 1.6;
+const SWIRL_RATE = 4;
+const WAKE_REACH = 3;
+const WAKE_GAIN = 0.8;
 
 const GRAIN_MEAN = 0.52;
 const GRAIN_SCALE = 36;
@@ -111,7 +118,7 @@ const ARCH_SPAN = 3;
 const ARCH_RISE = 1.8;
 const ARCH_CAP = 0.04;
 
-export const STORM_ROOM = 4;
+export const STORM_ROOM = 8;
 export const SPOT_ROOM = 16;
 export const LIMB = 0.28;
 export const LIMB_DEPTH = 0.4;
@@ -211,6 +218,53 @@ void main() {
 }
 `;
 
+export const GAS_STEPS = 8;
+
+export const GAS_STEP_FRAGMENT = `
+${FIELD}
+${HEADING}
+uniform samplerCube prior;
+
+float swell(vec3 at) {
+  vec3 wide = vec3(at.x, at.y * ${real(EDDY_SQUEEZE)}, at.z) * ${real(EDDY_SCALE)};
+  return noise(wide, seed + 3u) + 0.4 * noise(turned(wide) * 1.15, seed + 4u);
+}
+
+void main() {
+  vec3 from = normalize(heading());
+  vec3 at = normalize(from + textureCube(prior, from).xyz);
+  vec3 helper = abs(at.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+  vec3 first = normalize(cross(helper, at));
+  vec3 second = cross(at, first);
+  float here = swell(at);
+  float ahead = swell(normalize(at + first * ${real(EDDY_SPAN)}));
+  float aside = swell(normalize(at + second * ${real(EDDY_SPAN)}));
+  vec3 next = normalize(at - ${real(EDDY_REACH / EDDY_SPAN)} * ((ahead - here) * second - (aside - here) * first));
+  gl_FragColor = vec4(next - from, 1.0);
+}
+`;
+
+export const GAS_BAKE_FRAGMENT = `
+${FIELD}
+${HEADING}
+uniform samplerCube prior;
+
+void main() {
+  vec3 at = normalize(heading());
+  vec3 source = normalize(at + textureCube(prior, at).xyz);
+  float lift = asin(clamp(source.y, -1.0, 1.0)) - asin(clamp(at.y, -1.0, 1.0));
+  float streak = layered(
+    vec3(source.x, source.y * ${real(STREAK_SQUEEZE)}, source.z) * ${real(STREAK_SCALE)}, seed + 41u, 4);
+  float puff = layered(source * ${real(PUFF_SCALE)}, seed + 53u, 3);
+  float sector = layered(vec3(at.x, at.y * 4.0, at.z) * ${real(SECTOR_SCALE)}, seed + 67u, 2);
+  vec4 churned = vec4(lift / ${real(LIFT_RANGE)}, 0.45 * streak, 0.45 * puff, 0.45 * sector);
+#ifdef PACKED
+  churned = clamp(churned + 0.5, 0.0, 1.0);
+#endif
+  gl_FragColor = churned;
+}
+`;
+
 const SPIN = `
 vec3 spun(vec3 at, float angle) {
   float along = cos(angle);
@@ -231,6 +285,14 @@ vec4 decoded(vec4 found) {
 
 vec4 survey(vec3 at) {
   return decoded(textureCube(relief, at));
+}
+
+vec4 carried(vec3 at) {
+  vec4 found = textureCube(relief, at);
+#ifdef PACKED
+  found -= 0.5;
+#endif
+  return found;
 }
 
 vec3 tilted(vec3 at, vec3 slope, float depth) {
@@ -320,38 +382,78 @@ function solid(skin: string): string {
 `;
 }
 
+const GAS_UNIFORMS = `
+uniform sampler2D bands;
+uniform vec4 stream;
+uniform vec2 shift;
+uniform vec3 mood;
+uniform vec4 storms[${STORM_ROOM}];
+uniform vec4 whirls[${STORM_ROOM}];
+uniform vec4 stains[${STORM_ROOM}];
+`;
+
 const GAS = `
-  vec4 eddies = decoded(textureLod(relief, spun(at, drift).zxy, grain));
-  vec3 east = cross(vec3(0.0, 1.0, 0.0), at);
-  vec3 flow = ${real(JET_REACH)} * sin(at.y * ${real(JET_WAVES)}) * east
-    + ${real(EDDY_REACH)} * cross(at, spun(eddies.rgb.yzx, -drift));
-  vec3 stain = vec3(0.0);
-  float stained = 0.0;
-  for (int storm = 0; storm < ${STORM_ROOM}; storm++) {
-    vec3 from = at - storms[storm].xyz;
-    float size = storms[storm].w;
-    float core = exp(-(dot(from, from) + ${real(STORM_STRETCH)} * from.y * from.y) / (size * size + 1e-6));
-    bool warm = storm % 2 == 0;
-    flow += (warm ? 1.0 : -1.0) * ${real(STORM_TWIST)} * core * cross(storms[storm].xyz, at);
-    stain += core * (warm ? palette[4] : palette[5]);
-    stained += core;
+  float lane = asin(clamp(at.y, -1.0, 1.0));
+  float bend = 0.0;
+  float churned = 0.0;
+  float least = 1e9;
+  float second = 1e9;
+  vec4 chief = vec4(0.0);
+  vec4 habit = vec4(1.0, 0.0, 0.0, 0.0);
+  vec4 stain = vec4(0.0);
+  vec2 seat = vec2(0.0);
+  vec3 along = vec3(0.0);
+  for (int index = 0; index < ${STORM_ROOM}; index++) {
+    vec4 storm = storms[index];
+    vec4 whirl = whirls[index];
+    vec3 east = normalize(cross(vec3(0.0, 1.0, 0.0), storm.xyz));
+    vec3 from = at - storm.xyz;
+    vec2 spot = vec2(dot(from, east) / whirl.x, dot(from, cross(storm.xyz, east))) / (storm.w + 1e-6);
+    float reach = dot(spot, spot);
+    bend -= storm.w * spot.y / max(reach, 1.0) * exp(-reach / 40.0);
+    vec2 trail = (spot - vec2(whirl.z, -1.6 * sign(storm.y))) / vec2(${real(WAKE_REACH)}, 1.0);
+    churned += step(1e-3, abs(whirl.z)) * exp(-dot(trail, trail));
+    if (reach < least) {
+      second = least;
+      least = reach;
+      chief = storm;
+      habit = whirl;
+      stain = stains[index];
+      seat = spot;
+      along = east;
+    } else {
+      second = min(second, reach);
+    }
   }
-  float beat = drift * ${real(FLOW_BEATS / (2 * Math.PI))} + 0.4 * eddies.a;
-  vec2 phase = fract(vec2(beat, beat + 0.5));
-  vec2 share = 1.0 - abs(2.0 * phase - 1.0);
-  vec3 first = normalize(at - flow * (phase.x - 0.5));
-  vec3 second = normalize(at - flow * (phase.y - 0.5));
-  vec2 rough = vec2(survey(first).a, survey(second).a);
-  vec2 lane = vec2(first.y, second.y) * 9.0 + rough * 1.1 + eddies.a * 0.3;
-  float band = dot(share, 0.5 + 0.5 * sin(lane * 2.0));
-  float fine = dot(share, 0.5 + 0.5 * sin(lane * 5.3 + 1.7));
-  vec3 cloud = mix(mix(palette[0], palette[1], band), palette[2], fine * 0.35);
-  cloud = mix(
-    cloud,
-    stain / max(stained, 1e-4) * (0.85 + 0.5 * dot(share, rough) - 0.2 * stained),
-    0.85 * smoothstep(0.2, 0.7, stained)
-  );
-  albedo = mix(cloud, palette[3], smoothstep(0.7, 0.95, abs(at.y)));
+  float rank = sqrt(least);
+  float alone = smoothstep(0.0, 0.6, 1.0 - least / second);
+  float swirl = habit.y * alone * least * exp(1.0 - least);
+  vec2 wind = swirl * (${real(SWIRL_TWIST)} + ${real(SWIRL_RATE)} * stream.xz);
+  vec3 north = cross(chief.xyz, along);
+  vec2 leanOne = vec2(cos(wind.x) * seat.x + sin(wind.x) * seat.y, cos(wind.x) * seat.y - sin(wind.x) * seat.x) - seat;
+  vec2 leanTwo = vec2(cos(wind.y) * seat.x + sin(wind.y) * seat.y, cos(wind.y) * seat.y - sin(wind.y) * seat.x) - seat;
+  vec3 placeOne = normalize(at + (leanOne.x * habit.x * along + leanOne.y * north) * chief.w);
+  vec3 placeTwo = normalize(at + (leanTwo.x * habit.x * along + leanTwo.y * north) * chief.w);
+
+  vec4 lanes = texture2D(bands, vec2(lane / ${real(Math.PI)} + 0.5, 0.75));
+  float loose = smoothstep(0.7, 1.8, rank);
+  vec2 slide = shift - (2.0 * lanes.r - 1.0) * loose * stream.xz;
+  vec4 mixed = carried(spun(placeOne, slide.x)) * stream.y + carried(spun(placeTwo, slide.y)) * stream.w;
+
+  float stir = mood.x * lanes.g * (1.0 + ${real(WAKE_GAIN)} * min(churned, 1.0)) * (1.0 + 1.2 * mixed.a);
+  float label = lane + bend + stir * ${real(LIFT_RANGE)} * mixed.r;
+  vec4 tone = texture2D(bands, vec2(label / ${real(Math.PI)} + 0.5, 0.25));
+  vec3 cloud = tone.rgb * tone.rgb;
+  cloud *= 1.0 + mood.y * (0.4 + lanes.g) * mixed.g;
+  cloud = mix(cloud, sqrt(cloud), mood.z * tone.a * smoothstep(0.05, 0.3, mixed.b));
+
+  float inside = 1.0 - smoothstep(0.92, 1.04, rank + 0.1 * mixed.g);
+  float collar = smoothstep(0.7, 1.0, rank);
+  vec3 dye = stain.rgb * (1.0 + 2.0 * mixed.g + 0.5 * mixed.r - 0.2 * collar - 0.12 * exp(-least / 0.15));
+  cloud = mix(cloud, dye, inside * stain.a);
+  float crest = exp(-pow((rank - 1.25) / 0.2, 2.0)) * smoothstep(0.1, 0.9, seat.y * sign(chief.y) / max(rank, 1e-3));
+  cloud = mix(cloud, vec3(1.0), habit.w * crest * smoothstep(-0.1, 0.25, mixed.b + 0.5 * mixed.g));
+  albedo = cloud * mix(0.72, 1.0, pow(max(dot(round, eye), 0.0), 0.6));
 `;
 
 export function bodyFragment(kind: Exclude<BodyKind, "star">): string {
@@ -364,15 +466,19 @@ uniform float chart;
 uniform float span;
 uniform float air;
 uniform float drift;
-uniform float grain;
+uniform float squash;
 uniform vec3 shine;
-uniform vec4 storms[${STORM_ROOM}];
+${kind === "gas" ? GAS_UNIFORMS : ""}
 uniform mat4 modelMatrix;
 varying vec3 vAt;
 varying vec3 vPlace;
 
 void main() {
   vec3 at = normalize(vAt);
+  mat3 pose = mat3(modelMatrix);
+  vec3 bulge = vec3(1.0, squash, 1.0);
+  vec3 round = normalize(pose * (at * bulge));
+  vec3 eye = normalize(cameraPosition - vPlace);
   vec3 albedo;
   vec3 slope = vec3(0.0);
   float wet = 0.0;
@@ -382,10 +488,7 @@ void main() {
   float depth = bump * mix(1.0, 0.3, wet);
   vec3 charted = albedo * hillshade(at, slope, depth);
 
-  mat3 pose = mat3(modelMatrix);
-  vec3 round = normalize(pose * at);
-  vec3 normal = normalize(pose * tilted(at, slope, depth));
-  vec3 eye = normalize(cameraPosition - vPlace);
+  vec3 normal = normalize(pose * (tilted(at, slope, depth) * bulge));
   float day = smoothstep(-0.15, 0.25, dot(round, sun));
   float direct = clamp(dot(normal, sun), 0.0, 1.0);
   vec3 orbited = albedo * (0.025 + 1.1 * direct * day * shine);
