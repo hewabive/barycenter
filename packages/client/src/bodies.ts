@@ -655,7 +655,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       haze: { value: haze },
       sun: { value: sun },
       chart: { value: 0 },
-      air: { value: giant?.air ?? skin?.air ?? 0 },
+      air: { value: giant === null ? (skin?.air ?? 0) : giant.air * giant.lent },
       fog: { value: new Color(skin?.fog ?? 0xffffff) },
       shine: { value: shine },
       drift: { value: 0 },
@@ -664,6 +664,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       hoop: { value: reach },
       sunny: { value: sunny },
       ember: { value: new Vector4(...glow) },
+      lent: { value: giant?.lent ?? 1 },
       lump: { value: lump },
       seed: { value: body.seed },
       ...(skin === null
@@ -793,6 +794,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       tone.lerp(palette[1], 0.8 * seaCover(body.physics));
       tone.lerp(new Color(skin.fog), Math.max(skin.shroud, 0.3 * skin.clouds));
     }
+    tone.multiplyScalar(giant?.lent ?? 1);
     const seen = giant === null ? 0.5 * (skin?.melt[1] ?? 0) * (1 - (skin?.shroud ?? 0)) : 1;
     const ember = new Color(glow[0], glow[1], glow[2]);
     ember.multiplyScalar(SPECK_EMBER * glow[3] * Math.max(0, Math.min(1, seen)));

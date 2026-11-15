@@ -20,6 +20,7 @@ import {
   HOUR,
   hillOf,
   JUPITER_MASS,
+  lentShare,
   moltenOf,
   rocheOf,
   roughOf,
@@ -38,6 +39,7 @@ import { createSpace } from "./space.ts";
 type Fact = [name: string, value: string] | string;
 
 const PACES = [0, 2, 16, 128, 1024];
+const EARTH_LIGHT = 1361;
 const ROCK_GRAIN = 3000;
 const ICE_GRAIN = 900;
 
@@ -158,6 +160,20 @@ function factsOf(body: Body): Fact[] {
         physics.glow > 0
           ? `${figure(starHeat(physics.glow, physics.radius))} K · ${figure(physics.glow)} W · ${figure(physics.glow / SUN_GLOW)} suns`
           : "none to speak of",
+      ],
+      [
+        "Light of the star",
+        parent === null
+          ? "none"
+          : `${figure(physics.light)} W/m² · ${figure(physics.light / EARTH_LIGHT)} of the Earth's`,
+      ],
+      [
+        "Seen light",
+        parent === null || lentShare(physics) >= 0.9995
+          ? parent === null
+            ? "its own glow"
+            : "the light of the star, reflected"
+          : `${share(lentShare(physics))} reflected from the star, the rest its own glow`,
       ],
       ["Molten rock", molten > 0 ? `${share(molten)} of the surface` : "none"],
       [

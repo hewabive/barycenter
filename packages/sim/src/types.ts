@@ -55,6 +55,7 @@ export interface Physics {
   gas: number;
   heat: number;
   glow: number;
+  light: number;
   air: number;
   gases: number[];
   life: number;

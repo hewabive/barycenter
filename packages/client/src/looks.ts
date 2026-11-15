@@ -5,6 +5,7 @@ import {
   flatOf,
   type Gas,
   HOUR,
+  lentShare,
   moltenOf,
   type Physics,
   ROCK_MELT,
@@ -51,6 +52,7 @@ export type Ember = [red: number, green: number, blue: number, bright: number];
 
 export interface Giant {
   ember: Ember;
+  lent: number;
   vents: number;
   zones: number[];
   belts: number[];
@@ -236,6 +238,7 @@ function brew(given: Partial<Brew> & Pick<Brew, "band" | "size" | "tint">): Brew
 
 const JOVIAN: Giant = {
   ember: DARK,
+  lent: 1,
   vents: 0.4,
   zones: [0xefe6d2, 0xe3d2b0, 0xd9c8a8, 0xe8dcc0],
   belts: [0x9a6a4a, 0x7a4b35, 0xa87a52, 0x86705e],
@@ -274,6 +277,7 @@ const JOVIAN: Giant = {
 
 const SATURNIAN: Giant = {
   ember: DARK,
+  lent: 1,
   vents: 0.4,
   zones: [0xf5e0a8, 0xf0d590, 0xf7e7ba],
   belts: [0xdcb872, 0xcfa35c, 0xe3c483, 0xc9a868],
@@ -301,6 +305,7 @@ const SATURNIAN: Giant = {
 
 const NEPTUNIAN: Giant = {
   ember: DARK,
+  lent: 1,
   vents: 0.4,
   zones: [0x3f6fd0, 0x4a7bd8, 0x3a66c4],
   belts: [0x2f58b8, 0x2a4fa8, 0x3560bc],
@@ -329,6 +334,7 @@ const NEPTUNIAN: Giant = {
 
 const URANIAN: Giant = {
   ember: DARK,
+  lent: 1,
   vents: 0.4,
   zones: [0xa0dbe8, 0xaae2ea, 0x9cd6e6],
   belts: [0x93cfe0, 0x98d3e2, 0x8fcbdc],
@@ -353,6 +359,7 @@ const URANIAN: Giant = {
 
 const WATERY: Giant = {
   ember: DARK,
+  lent: 1,
   vents: 0.4,
   zones: [0xf2f4f6, 0xe6ecf2, 0xf7f3ea],
   belts: [0xb9c4d2, 0xa6b6c8, 0xcfc8ba, 0x9fb0c4],
@@ -380,6 +387,7 @@ const WATERY: Giant = {
 
 const CLEAR: Giant = {
   ember: DARK,
+  lent: 1,
   vents: 0.4,
   zones: [0x3d6fb8, 0x4478c0, 0x3a68ae],
   belts: [0x335fa6, 0x2f589c, 0x3964aa],
@@ -404,6 +412,7 @@ const CLEAR: Giant = {
 
 const SCORCHED: Giant = {
   ember: DARK,
+  lent: 1,
   vents: 0.4,
   zones: [0x2a2f3c, 0x343846, 0x262b38],
   belts: [0x1c1f2a, 0x221f24, 0x1a1d28],
@@ -428,6 +437,7 @@ const SCORCHED: Giant = {
 
 const DUSTY: Giant = {
   ember: DARK,
+  lent: 1,
   vents: 0.4,
   zones: [0x5a4038, 0x4c3832, 0x64483a],
   belts: [0x2c1c1a, 0x341f1a, 0x261a1c, 0x3a2620],
@@ -498,6 +508,7 @@ function blended(from: Giant, to: Giant, share: number): Giant {
   const fade = Math.abs(1 - 2 * share);
   return {
     ember: lead.ember,
+    lent: 1,
     vents: mix(from.vents, to.vents),
     zones: tones(from.zones, to.zones),
     belts: tones(from.belts, to.belts),
@@ -560,6 +571,7 @@ export function giantOf(body: Body): Giant {
   return {
     ...giant,
     ember: emberOf(physics.heat, 0.8 * (1 - smooth(ALKALI[0], ALKALI[1], physics.heat))),
+    lent: body.parent === null ? 1 : lentShare(physics),
     vents: 0.35 + 0.5 * shares.bare,
     zones: giant.zones.map(shift),
     belts: giant.belts.map(shift),
@@ -804,6 +816,7 @@ export function recipeOf(body: Body): [name: string, share: number][] {
       ["dusty", dusty],
       ["behind a veil", thin],
       ["glowing", Math.min(1, emberOf(physics.heat)[3])],
+      ["lit by the star", lentShare(physics)],
     ];
   }
   const { airy, hot, wet, icy, thick } = skinShares(physics);

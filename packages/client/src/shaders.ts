@@ -110,7 +110,6 @@ const LAVA_FLOOR = -0.4;
 const LAVA_SPAN = 2;
 const CRUST_GLOW = 0.04;
 const SHORE_GLOW = 0.3;
-const DAY_DIM = 0.7;
 
 const GRAIN_MEAN = 0.52;
 const GRAIN_SCALE = 36;
@@ -497,8 +496,7 @@ const GAS = `
   float facing = pow(max(dot(round, eye), 0.0), 0.6);
   albedo = cloud * mix(0.72, 1.0, facing);
   float vent = mix(vents, 1.0, tone.a) * (1.0 + 0.4 * mixed.g + 0.25 * mixed.b);
-  float glare = 1.0 - ${real(DAY_DIM)} * smoothstep(-0.1, 0.5, dot(round, sun));
-  emit = ember.rgb * ember.a * vent * glare * (1.0 - 0.5 * inside * stain.a) * mix(0.45, 1.0, facing);
+  emit = ember.rgb * ember.a * vent * (1.0 - 0.5 * inside * stain.a) * mix(0.45, 1.0, facing);
 `;
 
 export function bodyFragment(fluid: boolean): string {
@@ -517,6 +515,7 @@ uniform sampler2D grit;
 uniform vec2 hoop;
 uniform vec3 sunny;
 uniform vec4 ember;
+uniform float lent;
 ${fluid ? GAS_UNIFORMS : SOLID_UNIFORMS}
 uniform mat4 modelMatrix;
 varying vec3 vAt;
@@ -550,7 +549,7 @@ void main() {
   vec3 charted = albedo * hillshade(at, slope, depth);
 
   vec3 normal = normalize(pose * ((lean + tilted(at, slope, depth) - at) * bulge));
-  float day = smoothstep(-0.15, 0.25, dot(round, sun)) * step(0.5, dot(sun, sun));
+  float day = lent * smoothstep(-0.15, 0.25, dot(round, sun)) * step(0.5, dot(sun, sun));
   float direct = clamp(dot(normal, sun), 0.0, 1.0);
   vec3 orbited = albedo * (0.025 + 1.1 * direct * day * (1.0 - shaded) * shine);
   orbited += shine * wet * day * 0.3 * pow(max(dot(reflect(-sun, round), eye), 0.0), 40.0);

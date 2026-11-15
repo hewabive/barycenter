@@ -15,6 +15,7 @@ import {
   GIGAYEAR,
   innerHeat,
   JUPITER_MASS,
+  lentShare,
   moltenOf,
   type Physics,
   positionOf,
@@ -163,6 +164,7 @@ test("land is where the relief of the home body rises above its sea", () => {
     assert.equal(home.physics.life, 1);
     assert.ok(seaCover(home.physics) > 0, `seed ${seed}`);
     assert.ok(home.physics.heat > 278 && home.physics.heat < 300, `seed ${seed}`);
+    assert.ok(home.physics.light > 1280 && home.physics.light < 1480, `seed ${seed}`);
     assert.ok(shareOf(home.physics, "nitrogen") > 0.6, `seed ${seed}`);
     assert.ok(shareOf(home.physics, "oxygen") > 0.15, `seed ${seed}`);
     const sea = home.relief.sea;
@@ -245,6 +247,7 @@ test("the physics of every body holds together", () => {
         `${label}: ${density}`,
       );
       assert.equal(physics.glow > 0, wrapped(physics), label);
+      assert.equal(physics.light > 0, body.parent !== null, label);
       assert.equal(physics.age, system.bodies[0].physics.age, label);
       assert.equal(body.disks.length, physics.disks.length, label);
       for (const disk of physics.disks) {
@@ -501,6 +504,11 @@ test("a body in gas keeps heat of its own, more of it when heavy or young", () =
   assert.ok(innerHeat(20 * JUPITER_MASS, old, 0.5) < 0.7 * dwarf);
   const least = starHeat(starGlow(STAR_LEAST), starRadius(STAR_LEAST));
   assert.ok(Math.abs(innerHeat(0.999 * STAR_LEAST, old, 0.5) / least - 1) < 0.06);
+  assert.equal(lentShare({ heat: 124, light: 50 }), 1);
+  assert.ok(lentShare({ heat: 1436, light: 1.4e6 }) > 0.99);
+  const far = lentShare({ heat: 1013, light: 0.0226 });
+  assert.ok(far > 0.005 && far < 0.1, `far brown dwarf ${far}`);
+  assert.ok(lentShare({ heat: 2000, light: 0.0226 }) < far);
   const gas = { iron: 0.01, rock: 0.02, ice: 0.02, gas: 0.95 };
   const cool = radiusOf(JUPITER_MASS, gas, 500);
   assert.equal(radiusOf(JUPITER_MASS, gas), cool);
@@ -512,7 +520,8 @@ test("a body in gas keeps heat of its own, more of it when heavy or young", () =
 test("small bodies are loose and not round, and rock melts where it is hot", () => {
   const body = (mass: number, ice: number, heat = 200, air = 0): Physics => {
     const shares = { iron: 0.2 * (1 - ice), rock: 0.8 * (1 - ice), ice, gas: 0 };
-    const rest = { glow: 0, gases: [], life: 0, vigor: 0.5, age: GIGAYEAR, orbit: 1, year: 1 };
+    const dark = { glow: 0, light: 0 };
+    const rest = { gases: [], life: 0, vigor: 0.5, age: GIGAYEAR, orbit: 1, year: 1, ...dark };
     return {
       mass,
       radius: radiusOf(mass, shares),

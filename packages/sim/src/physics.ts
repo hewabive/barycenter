@@ -51,6 +51,9 @@ const COOLING_LIGHT = 0.25;
 const COOLING_HEAVY = 0.6;
 const BURNING_POWER = 8;
 const DUST_HEAT = [1300, 2200];
+const VISIBLE_WAVE = 0.7e-6;
+const VISIBLE_SHARE = 0.45;
+const SECOND_RADIATION = 0.014388;
 const STUFFY_HEAT = [600, 2000];
 const STUFFY_MOST = 0.8;
 const ESCAPE_MARGIN = 6;
@@ -162,6 +165,26 @@ export function starSpan(mass: number): number {
 
 export function glowOf(radius: number, heat: number): number {
   return 4 * Math.PI * radius ** 2 * RADIATION * heat ** 4;
+}
+
+export function lightAt(glow: number, distance: number): number {
+  return glow / (4 * Math.PI * distance ** 2);
+}
+
+export function seenGlow(heat: number): number {
+  const depth = SECOND_RADIATION / (VISIBLE_WAVE * heat);
+  if (depth > 500) {
+    return 0;
+  }
+  const share =
+    (15 / Math.PI ** 4) * Math.exp(-depth) * (depth ** 3 + 3 * depth ** 2 + 6 * depth + 6);
+  return RADIATION * heat ** 4 * Math.min(1, share);
+}
+
+export function lentShare(physics: Pick<Physics, "heat" | "light">): number {
+  const lent = BRIGHT_GAS * VISIBLE_SHARE * physics.light;
+  const own = seenGlow(physics.heat);
+  return own <= 0 ? 1 : lent / (lent + own);
 }
 
 export function innerHeat(mass: number, age: number, vigor: number): number {
