@@ -39,7 +39,8 @@ A body has a nature of its own, apart from how the game divides it.
 - A cell takes its nature from the relief at its place. Land is where the relief rises above the sea, and the highest land is mountain.
 - Two cells are joined by land where they meet on dry ground. Where only water lies between them, a strait may join them.
 - The relief is no secret. Every power sees the coasts and mountains of a whole body from the start.
-- A star system holds a star and bodies on orbits around it, some with moons of their own, and the place of each follows from the tick.
+- A star system holds a star, sometimes two, and bodies on orbits around them, some with moons of their own, and the place of each follows from the tick.
+- Two bodies of like mass circle the point between them. A second star may stand close to the first, and the planets then circle both, or far from it, with planets of its own. A planet with a moon of like mass is a double planet. The home body may see two suns, and is itself never one of a pair.
 - An orbit is an oval in a plane of its own. Most orbits are near circles close to one plane. A few systems were stirred long ago and kept a handful of bodies on long ovals. The moons of a body circle in the plane of its equator, where its ring lies, and a small body caught later may circle at any angle, even backward.
 - A body close to what it circles turns one face to it always: every moon, and a planet near its star. The home body is never held so.
 - A body is described by its physics in real units: its mass, what it is made of as shares of iron, rock, ice and gas, its radius, its temperature, the light it gives off and the light and heat that reach it, its age, the pressure of its air and the gases in it, its orbit and its spin. There are no kinds of body. A name such as gas giant or ice world is read off the physics for the player, and no rule depends on it.

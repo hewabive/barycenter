@@ -72,8 +72,10 @@ export { circumcenter, hullFaces } from "./sphere.ts";
 export { cloneState, issue, step } from "./step.ts";
 export {
   anomalyOf,
+  centreOf,
   courseOf,
   formed,
+  hubOf,
   kindled,
   type Lamp,
   lampsOf,
@@ -84,6 +86,7 @@ export {
   type Site,
   sketchSystem,
   spinOf,
+  swayOf,
 } from "./system.ts";
 export { retune } from "./tune.ts";
 export {

@@ -4,6 +4,7 @@ import {
   ASTRONOMICAL_UNIT,
   angleBetween,
   BROWN_LEAST,
+  centreOf,
   classOf,
   climateOf,
   columnOf,
@@ -15,6 +16,7 @@ import {
   elevationAt,
   GIGAYEAR,
   glowOf,
+  hubOf,
   innerHeat,
   JUPITER_MASS,
   LUMENS,
@@ -40,6 +42,7 @@ import {
   starHeat,
   stocked,
   strippedShare,
+  swayOf,
   type Vector,
   wrapped,
 } from "../src/index.ts";
@@ -218,20 +221,23 @@ test("a system has one star, a home body and others around them", () => {
     assert.equal(new Set(system.bodies.map((body) => body.name)).size, system.bodies.length);
     assert.ok(system.bodies.some((body) => body.parent === system.home));
     for (const body of system.bodies) {
-      const at = positionOf(system, body.id, 1234);
+      const at = hubOf(system, body.id, 1234);
       if (body.parent === null) {
         assert.deepEqual(at, { x: 0, y: 0, z: 0 });
         continue;
       }
-      const center = positionOf(system, body.parent, 1234);
-      const away = Math.hypot(at.x - center.x, at.y - center.y, at.z - center.z);
+      const around = system.bodies[body.parent];
+      const share = around.mate === body.id ? 1 - swayOf(system, around.id) : 1;
+      const center = centreOf(system, body.id, 1234);
+      const away = Math.hypot(at.x - center.x, at.y - center.y, at.z - center.z) / share;
       const oval = body.physics.stretch;
       assert.ok(away > body.orbit * (1 - oval) - 1e-9 && away < body.orbit * (1 + oval) + 1e-9);
-      assert.ok(body.orbit * (1 - oval) > body.radius + system.bodies[body.parent].radius);
-      const later = positionOf(system, body.id, 1234 + body.year);
-      const moved = positionOf(system, body.parent, 1234 + body.year);
+      assert.ok(body.orbit * (1 - oval) > body.radius + around.radius);
+      const later = hubOf(system, body.id, 1234 + body.year);
+      const moved = centreOf(system, body.id, 1234 + body.year);
       const drift = Math.hypot(
         later.x - moved.x - at.x + center.x,
+        later.y - moved.y - at.y + center.y,
         later.z - moved.z - at.z + center.z,
       );
       assert.ok(drift < 1e-6 * body.orbit);
@@ -276,14 +282,19 @@ test("the physics of every body holds together", () => {
         continue;
       }
       const around = system.bodies[body.parent].physics;
-      const year = yearOf(physics.orbit, around.mass);
+      const mate = system.bodies[body.parent].mate;
+      const pair = mate === null || mate === body.id ? null : system.bodies[mate].physics;
+      const both = pair !== null && physics.orbit > pair.orbit ? pair.mass : 0;
+      const own = physics.mass >= 0.03 * (physics.mass + around.mass + both) ? physics.mass : 0;
+      const year = yearOf(physics.orbit, around.mass + both + own);
       assert.ok(Math.abs(physics.year / year - 1) < 1e-3, label);
+      assert.equal(mate === body.id, physics.mass >= 0.03 * (physics.mass + around.mass), label);
       assert.ok(physics.stretch >= 0 && physics.stretch < 0.7, label);
       assert.ok(physics.orbit * (1 - physics.stretch) > around.radius + physics.radius, label);
       assert.ok(physics.mass < around.mass, label);
       const host = system.bodies[body.parent].parent;
       if (host !== null) {
-        assert.equal(physics.day, physics.year, label);
+        assert.equal(physics.day === physics.year || around.mass >= STAR_LEAST, true, label);
         if (body.parent !== system.home) {
           const pull = system.bodies[host].physics.mass;
           const nearest = around.orbit * (1 - around.stretch);
@@ -466,6 +477,9 @@ test("a moon has a moon of its own only where it holds one", () => {
       if (moon === null || planet === null || planet.parent === null) {
         continue;
       }
+      if (planet.physics.mass >= STAR_LEAST) {
+        continue;
+      }
       found += 1;
       const hold = hillOf(moon.physics.orbit, moon.physics.mass, planet.physics.mass);
       assert.ok(body.physics.orbit < 0.34 * hold, `seed ${seed}, ${body.name}`);
@@ -579,7 +593,11 @@ test("light is drawn on a scale that keeps what is brighter brighter", () => {
       const lamps = lampsOf(system, body.id);
       const label = `seed ${seed}, ${body.name}`;
       if (body.parent === null) {
-        assert.deepEqual(lamps, [], label);
+        assert.deepEqual(
+          lamps.map((lamp) => lamp.source),
+          body.mate === null ? [] : [body.mate],
+          label,
+        );
         continue;
       }
       const centre = system.bodies[0].physics;
@@ -587,7 +605,8 @@ test("light is drawn on a scale that keeps what is brighter brighter", () => {
       if (centre.mass >= STAR_LEAST) {
         assert.ok(sun, label);
       }
-      if (sun && body.parent === 0) {
+      const suns = system.bodies.filter((other) => other.physics.mass >= STAR_LEAST).length;
+      if (sun && body.parent === 0 && suns === 1) {
         const given = body.physics.light * seenShare(centre.heat);
         assert.ok(Math.abs(sun.seen / given - 1) < 0.01, `${label}: ${sun.seen} ${given}`);
       }
@@ -640,11 +659,15 @@ test("an orbit is an oval in a plane of its own, swept as the pull of its centre
         continue;
       }
       const around = system.bodies[body.parent];
-      const centre = (tick: number) => positionOf(system, around.id, tick);
+      const whole = around.mate === body.id ? 1 - swayOf(system, around.id) : 1;
       const from = (tick: number) => {
-        const at = positionOf(system, body.id, tick);
-        const middle = centre(tick);
-        return { x: at.x - middle.x, y: at.y - middle.y, z: at.z - middle.z };
+        const at = hubOf(system, body.id, tick);
+        const middle = centreOf(system, body.id, tick);
+        return {
+          x: (at.x - middle.x) / whole,
+          y: (at.y - middle.y) / whole,
+          z: (at.z - middle.z) / whole,
+        };
       };
       const oval = body.physics.stretch;
       const nearest = (-body.phase * body.year) / (2 * Math.PI);
@@ -694,6 +717,74 @@ test("an orbit is an oval in a plane of its own, swept as the pull of its centre
   assert.ok(tilted > 10 && tilted < 150, `tilted ${tilted}`);
   assert.ok(tied > 30, `tied ${tied}`);
   assert.ok(backward > 1, `backward ${backward}`);
+});
+
+test("two bodies of like mass circle the point between them", () => {
+  let near = 0;
+  let far = 0;
+  let double = 0;
+  let swayed = 0;
+  let owned = 0;
+  for (let seed = 1; seed <= 300; seed++) {
+    const system = sketchSystem(seed, { settled: seed % 4 === 0, star: null });
+    const stars = system.bodies.filter((body) => body.physics.mass >= STAR_LEAST);
+    assert.ok(stars.length <= 2, `seed ${seed}`);
+    for (const body of system.bodies) {
+      if (body.mate === null) {
+        continue;
+      }
+      const label = `seed ${seed}, ${body.name}`;
+      const mate = system.bodies[body.mate];
+      assert.equal(mate.parent, body.id, label);
+      for (const tick of [0, 777, 5000]) {
+        const hub = hubOf(system, body.id, tick);
+        const one = positionOf(system, body.id, tick);
+        const other = positionOf(system, mate.id, tick);
+        const pull = (axis: "x" | "y" | "z") =>
+          body.physics.mass * (one[axis] - hub[axis]) +
+          mate.physics.mass * (other[axis] - hub[axis]);
+        const lever = (body.physics.mass + mate.physics.mass) * mate.orbit;
+        assert.ok(Math.hypot(pull("x"), pull("y"), pull("z")) < 1e-9 * lever, label);
+      }
+      const apart = mate.physics.orbit * (1 - mate.physics.stretch);
+      for (const other of system.bodies.filter((kin) => kin.parent === body.id && kin !== mate)) {
+        const inside = other.physics.orbit < mate.physics.orbit;
+        const edge = inside
+          ? other.physics.orbit * (1 + other.physics.stretch) < 0.36 * apart
+          : other.physics.orbit * (1 - other.physics.stretch) >
+            2.5 * mate.physics.orbit * (1 + mate.physics.stretch);
+        assert.ok(edge || mate.physics.mass < 0.03 * body.physics.mass, `${label}, ${other.name}`);
+      }
+      if (mate.physics.mass >= STAR_LEAST) {
+        const wide = system.bodies.some(
+          (other) => other.parent === body.id && other.physics.orbit < mate.physics.orbit,
+        );
+        near += wide ? 0 : 1;
+        far += wide ? 1 : 0;
+        const planets = system.bodies.filter((other) => other.parent === mate.id);
+        owned += planets.length;
+        for (const planet of planets) {
+          assert.ok(
+            planet.physics.orbit * (1 + planet.physics.stretch) < 0.21 * apart,
+            `${label}, ${planet.name}`,
+          );
+          assert.equal(planet.slant, mate.tilt, label);
+        }
+      } else if (body.parent === null) {
+        swayed += 1;
+      } else {
+        double += 1;
+      }
+    }
+    if (system.home !== null) {
+      assert.equal(system.bodies[system.home].mate, null, `seed ${seed}`);
+    }
+  }
+  assert.ok(near > 5 && near < 60, `near pairs ${near}`);
+  assert.ok(far > 15 && far < 110, `far pairs ${far}`);
+  assert.ok(owned > 10, `planets of a second star ${owned}`);
+  assert.ok(double > 5, `double planets ${double}`);
+  assert.ok(swayed > 0, `stars swayed by a brown dwarf ${swayed}`);
 });
 
 test("small bodies are loose and not round, and rock melts where it is hot", () => {
@@ -754,7 +845,9 @@ test("rare bodies turn up among many systems", () => {
     systems.filter((system) => system.bodies.some((body) => test(body.physics, system))).length;
   const dark = systems.filter((system) => system.bodies[0].physics.mass < STAR_LEAST).length;
   assert.ok(dark > 5 && dark < 60, `brown centres ${dark}`);
-  const paired = having((physics) => physics.orbit > 0 && physics.mass >= BROWN_LEAST);
+  const paired = having(
+    (physics) => physics.orbit > 0 && physics.mass >= BROWN_LEAST && physics.mass < STAR_LEAST,
+  );
   assert.ok(paired > 3 && paired < 45, `companions ${paired}`);
   const molten = having((physics) => moltenOf(physics) > 0.02);
   assert.ok(molten > 8 && molten < 90, `lava ${molten}`);
@@ -766,7 +859,9 @@ test("rare bodies turn up among many systems", () => {
     const centre = system.bodies[0].physics;
     assert.ok(centre.age >= 0.09 * GIGAYEAR && centre.age <= 10 * GIGAYEAR);
     assert.ok(centre.age < starSpan(centre.mass));
-    const heavy = system.bodies.filter((body) => body.physics.mass >= BROWN_LEAST && body.id > 0);
+    const heavy = system.bodies.filter(
+      (body) => body.physics.mass >= BROWN_LEAST && body.physics.mass < STAR_LEAST && body.id > 0,
+    );
     assert.ok(heavy.every((body) => body.physics.mass < 0.081 * centre.mass));
     assert.ok(heavy.every((body) => classOf(body.physics).startsWith("brown dwarf")));
   }

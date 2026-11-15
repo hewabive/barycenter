@@ -1,4 +1,6 @@
 import {
+  type Body,
+  centreOf,
   courseOf,
   createRandom,
   positionOf,
@@ -6,6 +8,7 @@ import {
   seenGlow,
   shownLight,
   spinOf,
+  swayOf,
 } from "@barycenter/sim";
 import {
   BufferAttribute,
@@ -82,7 +85,7 @@ const CLICK_SLACK = 5;
 const TAP_SLACK = 12;
 const HANDHELD_FRAME = 30;
 const APPROACH = 1.3;
-const FARTHEST = 420;
+const FARTHEST = 1400;
 const HOME_VIEW = 3.3;
 const PORTRAIT = 4.5;
 const CHART_FULL = 5;
@@ -232,7 +235,9 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
     const { heat, radius } = star.body.physics;
     const seen = seenGlow(heat) * ((2 * radius) / (disk.inner + disk.outer)) ** 2;
     const shine = tintOf(star.body).multiplyScalar(shownLight([seen], 0).lamps[0]);
-    return createBelt(lane, disk, star.body.seed + index, shine, coarse.matches);
+    const mate = star.body.mate === null ? null : system.bodies[star.body.mate];
+    const held = mate !== null && disk.outer < mate.physics.orbit;
+    return { ...createBelt(lane, disk, star.body.seed + index, shine, coarse.matches), held };
   });
   for (const belt of belts) {
     world.add(belt.points);
@@ -250,19 +255,26 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
       : { PACKED: "" };
 
   const trackMaterial = new LineBasicMaterial({ color: ORBIT, transparent: true, opacity: 0 });
-  const tracks = looks.flatMap((look) => {
-    if (look.body.parent === null) {
-      return [];
-    }
+  const traced = (source: Body, share: number) => {
     const loop: Vector3[] = [];
     for (let step = 0; step < ORBIT_STEPS; step++) {
-      const at = courseOf(look.body, (2 * Math.PI * step) / ORBIT_STEPS);
-      loop.push(new Vector3(at.x, at.y, at.z));
+      const at = courseOf(source, (2 * Math.PI * step) / ORBIT_STEPS);
+      loop.push(new Vector3(share * at.x, share * at.y, share * at.z));
     }
     const line = new LineLoop(new BufferGeometry().setFromPoints(loop), trackMaterial);
     line.frustumCulled = false;
     world.add(line);
-    return [{ line, around: looks[look.body.parent] }];
+    return { line, about: source.id };
+  };
+  const tracks = looks.flatMap(({ body }) => {
+    const mate = body.mate === null ? null : system.bodies[body.mate];
+    const sway =
+      mate !== null && body.parent === null ? [traced(mate, -swayOf(system, body.id))] : [];
+    if (body.parent === null) {
+      return sway;
+    }
+    const host = system.bodies[body.parent];
+    return [traced(body, host.mate === body.id ? 1 - swayOf(system, host.id) : 1)];
   });
 
   const names = looks.map((look) => {
@@ -324,6 +336,7 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
   const still = new Quaternion();
   const rig = new Quaternion();
   const places = looks.map(() => new Vector3());
+  const origin = new Vector3();
   const rays = [new Vector3(), new Vector3()];
   const facing = new Vector3();
   const sunlit = new Vector3();
@@ -344,7 +357,11 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
       look.frame.quaternion.setFromEuler(turn).multiply(twirl);
     }
     for (const track of tracks) {
-      track.line.position.copy(track.around.frame.position);
+      const middle = centreOf(system, track.about, shown);
+      track.line.position.set(middle.x, middle.y, middle.z);
+    }
+    for (const belt of belts) {
+      belt.points.position.copy(belt.held ? star.frame.position : origin);
     }
 
     const from = looks[shift.from];
@@ -373,9 +390,10 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
       camera.lookAt(0, 0, 0);
     }
     if (glide?.start) {
-      sunlit.copy(star.frame.position).sub(to.frame.position).applyQuaternion(rig);
+      const sun = looks[sources[to.body.id][0] ?? star.body.id];
+      sunlit.copy(sun.frame.position).sub(to.frame.position).applyQuaternion(rig);
       const apart = sunlit.length();
-      const clear = STAR_CLEAR * star.body.radius;
+      const clear = STAR_CLEAR * sun.body.radius;
       const cosine = (apart ** 2 + glide.to ** 2 - clear ** 2) / (2 * apart * glide.to);
       const aside = cosine < 1 ? Math.acos(Math.max(-1, cosine)) : 0;
       sunlit.normalize().applyAxisAngle(upward, Math.max(SUNLIT_TURN, aside));

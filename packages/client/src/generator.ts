@@ -35,6 +35,7 @@ import {
   seenGlow,
   sketchSystem,
   starHeat,
+  swayOf,
   YEAR,
 } from "@barycenter/sim";
 import { button, el, required, write } from "./dom.ts";
@@ -101,24 +102,26 @@ const lengthOf = (meters: number) =>
     ? `${figure(meters / ASTRONOMICAL_UNIT)} AU`
     : `${figure(meters / 1000)} km`;
 
-const starOf = (body: Body): Body =>
-  body.parent === null ? body : starOf(system.bodies[body.parent]);
-const distanceOf = (body: Body): number =>
-  body.parent === null || system.bodies[body.parent].parent === null
-    ? body.physics.orbit
-    : distanceOf(system.bodies[body.parent]);
+const sunny = (body: Body) => body.parent === null || familyOf(body.physics) === "star";
+const sunOf = (body: Body): { sun: Body; reach: number } => {
+  const above = body.parent === null ? body : system.bodies[body.parent];
+  const reach = body.physics.orbit * (1 - body.physics.stretch ** 2) ** 0.25;
+  return sunny(above) ? { sun: above, reach } : sunOf(above);
+};
 
 function factsOf(body: Body): Fact[] {
   const { physics } = body;
   const parent = body.parent === null ? null : system.bodies[body.parent];
-  const lit = starOf(body).physics;
+  const { sun, reach } = sunOf(body);
   const density = densityOf(physics.mass, physics.radius);
   const family = familyOf(physics);
   const moons = system.bodies.filter((other) => other.parent === body.id).length;
   const rough = roughOf(physics);
   const molten = moltenOf(physics);
   const glow = (LUMENS * seenGlow(physics.heat)) / Math.PI;
-  const warmer = physics.light > 0 ? 1 - lightAt(lit.glow, distanceOf(body)) / physics.light : 0;
+  const warmer = physics.light > 0 ? 1 - lightAt(sun.physics.glow, reach) / physics.light : 0;
+  const mate = body.mate === null ? null : system.bodies[body.mate];
+  const sway = swayOf(system, body.id);
   const lamps = lampsOf(system, body.id).slice(0, 2);
   const shown = shownOf(
     physics,
@@ -127,6 +130,14 @@ function factsOf(body: Body): Fact[] {
   const facts: Fact[] = [
     "Body",
     ["Class", classOf(physics)],
+    ...(mate === null
+      ? []
+      : [
+          [
+            "Paired with",
+            `${mate.name}, which has ${share(sway)} of the mass of the two · both circle the point between them`,
+          ] satisfies Fact,
+        ]),
     ["Mass", `${massOf(physics.mass)} · ${figure(physics.mass)} kg`],
     [
       "Radius",
@@ -178,7 +189,7 @@ function factsOf(body: Body): Fact[] {
         parent === null
           ? "none"
           : `${figure(physics.light)} W/m² · ${figure(physics.light / EARTH_LIGHT)} of the Earth's${
-              warmer > 0.01 ? ` · ${share(warmer)} of it from what it circles` : ""
+              warmer > 0.01 ? ` · ${share(warmer)} of it not from ${sun.name}` : ""
             }`,
       ],
       ["Glow an eye sees", glow >= 1e-6 ? `${figure(glow)} candela on a square meter` : "none"],
@@ -210,7 +221,14 @@ function factsOf(body: Body): Fact[] {
     const hill = hillOf(physics.orbit, physics.mass, parent.physics.mass);
     facts.push(
       "Orbit",
-      ["Around", parent.name],
+      [
+        "Around",
+        parent.mate === body.id
+          ? `the point it shares with ${parent.name}, ${share(swayOf(system, parent.id))} of the way from ${parent.name}`
+          : parent.mate !== null && physics.orbit > system.bodies[parent.mate].physics.orbit
+            ? `${parent.name} and ${system.bodies[parent.mate].name} together`
+            : parent.name,
+      ],
       [
         "Distance",
         `${lengthOf(physics.orbit)} · ${figure(physics.orbit / parent.physics.radius)} radii of ${parent.name}`,
@@ -240,7 +258,7 @@ function factsOf(body: Body): Fact[] {
   }
   facts.push(
     "Around it",
-    [parent === null ? "Planets" : "Moons", String(moons)],
+    [sunny(body) ? "Planets" : "Moons", String(moons)],
     [
       "Tears apart within",
       `${figure(rocheOf(physics.radius, density, ROCK_GRAIN) / physics.radius)} radii for rock · ${figure(rocheOf(physics.radius, density, ICE_GRAIN) / physics.radius)} for ice`,
@@ -366,7 +384,10 @@ required<HTMLElement>("#topbar").append(
   el("a", { href: "atlas.html" }, "Atlas"),
 );
 
-const planets = system.bodies.filter((body) => body.parent === star.id).length;
+const suns = system.bodies.filter((body) => sunny(body));
+const planets = system.bodies.filter(
+  (body) => !sunny(body) && sunny(system.bodies[body.parent ?? 0]),
+).length;
 const summary = el(
   "section",
   {},
@@ -374,12 +395,17 @@ const summary = el(
   el(
     "div",
     {},
-    `${star.name}, ${classOf(star.physics)} of ${massOf(star.physics.mass)} and ${figure(star.physics.heat, 4)} K, ${figure(star.physics.age / GIGAYEAR)} billion years old`,
+    `${suns
+      .map(
+        (body) =>
+          `${body.name}, ${classOf(body.physics)} of ${massOf(body.physics.mass)} and ${figure(body.physics.heat, 4)} K`,
+      )
+      .join(" with ")}, ${figure(star.physics.age / GIGAYEAR)} billion years old`,
   ),
   el(
     "div",
     { class: "hint" },
-    `${planets} around it, ${system.bodies.length - 1 - planets} moons and ${star.physics.disks.length} belts · ${
+    `${planets} planets, ${system.bodies.length - suns.length - planets} moons and ${star.physics.disks.length} belts · ${
       system.home === null
         ? "no home"
         : `home ${system.bodies[system.home].name}, the system of world seed ${seed}`
