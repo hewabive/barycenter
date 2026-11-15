@@ -96,7 +96,8 @@ const written = (value: number) =>
   value >= 100 ? value.toFixed(0) : value >= 1 ? value.toPrecision(3) : value.toPrecision(2);
 
 const paint = (body: Body, column: number, row: number) => {
-  const look = studio.shape(body, shine, detail);
+  const look = studio.shape(body, shine);
+  look.refine(detail);
   const scene = new Scene();
   look.frame.rotation.x = LEAN;
   scene.add(look.frame);

@@ -1,4 +1,4 @@
-import { type Body, createRandom } from "@barycenter/sim";
+import { type Body, createRandom, seaCover } from "@barycenter/sim";
 import {
   AdditiveBlending,
   BackSide,
@@ -66,6 +66,8 @@ export interface Look {
   body: Body;
   frame: Group;
   girth: number;
+  tone: Color;
+  detail(): number;
   relief(): CubeTexture;
   light(sun: Vector3, chart: number, tick: number): void;
   refine(size: number): void;
@@ -75,7 +77,7 @@ export interface Look {
 
 export interface Studio {
   shineOf(star: Body | undefined): Color;
-  shape(body: Body, shine: Color, detail: number): Look;
+  shape(body: Body, shine: Color): Look;
 }
 
 interface Region {
@@ -325,10 +327,13 @@ function stormsOf(body: Body, giant: Giant, bands: Band[]): Storm[] {
     .slice(0, STORM_ROOM);
 }
 
-export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: number): Look[] {
+export function createLooks(
+  renderer: WebGLRenderer,
+  bodies: Body[],
+): { looks: Look[]; shine: Color } {
   const studio = createStudio(renderer);
   const shine = studio.shineOf(bodies.find((body) => familyOf(body.physics) === "star"));
-  return bodies.map((body) => studio.shape(body, shine, detail));
+  return { looks: bodies.map((body) => studio.shape(body, shine)), shine };
 }
 
 export function createStudio(renderer: WebGLRenderer): Studio {
@@ -444,31 +449,36 @@ export function createStudio(renderer: WebGLRenderer): Studio {
     fill(target, body);
     return target;
   };
-  const baked = (
-    body: Body,
-    detail: number,
-    settle: (relief: CubeTexture, size: number) => void,
-  ) => {
-    let size = detail;
-    let target = bake(body, size);
-    settle(target.texture, size);
+  const baked = (body: Body, settle: (relief: CubeTexture | null) => void) => {
+    let size = 0;
+    let target: WebGLCubeRenderTarget | null = null;
     return {
-      relief: () => target.texture,
+      detail: () => size,
+      relief() {
+        if (target === null) {
+          throw new Error(`${body.name} has no map yet`);
+        }
+        return target.texture;
+      },
       refine(wanted: number) {
         if (wanted === size) {
           return;
         }
         const old = target;
         size = wanted;
-        target = bake(body, size);
-        settle(target.texture, size);
-        old.dispose();
+        target = wanted === 0 ? null : bake(body, wanted);
+        settle(target?.texture ?? null);
+        old?.dispose();
       },
       restore() {
-        fill(target, body);
+        if (target !== null) {
+          fill(target, body);
+        }
       },
       release() {
-        target.dispose();
+        target?.dispose();
+        target = null;
+        size = 0;
       },
     };
   };
@@ -478,7 +488,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       ? new Color(0xffffff)
       : new Color(flameOf(star).tint).lerp(new Color(0xffffff), SHINE_PALE);
 
-  const ignite = (body: Body, detail: number): Look => {
+  const ignite = (body: Body): Look => {
     const flame = flameOf(body);
     const regions = regionsOf(body, flame);
     const spots = Array.from({ length: SPOT_ROOM }, () => new Vector4(0, 0, 0, 0));
@@ -498,15 +508,16 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       steep: { value: steep },
       traits: { value: new Vector3(flame.grain, flame.chill, flame.poles) },
     };
-    const { release, ...surface } = baked(body, detail, (relief) => {
-      uniforms.relief.value = relief;
-    });
-
     const frame = new Group();
     const globe = new Mesh(
       ball,
       new ShaderMaterial({ vertexShader: BODY_VERTEX, fragmentShader: STAR_FRAGMENT, uniforms }),
     );
+    globe.visible = false;
+    const { release, ...surface } = baked(body, (relief) => {
+      uniforms.relief.value = relief;
+      globe.visible = relief !== null;
+    });
     globe.scale.setScalar(body.radius);
     frame.add(globe);
     const flare = new Mesh(
@@ -546,6 +557,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       body,
       frame,
       girth: body.radius,
+      tone: tint,
       ...surface,
       light(_toward, _chart, tick) {
         const one = beat(tick / GRANULE_LIFE);
@@ -587,10 +599,10 @@ export function createStudio(renderer: WebGLRenderer): Studio {
     };
   };
 
-  const shape = (body: Body, shine: Color, detail: number): Look => {
+  const shape = (body: Body, shine: Color): Look => {
     const family = familyOf(body.physics);
     if (family === "star") {
-      return ignite(body, detail);
+      return ignite(body);
     }
     const giant = family === "fluid" ? giantOf(body) : null;
     const skin = giant === null ? skinOf(body) : null;
@@ -669,8 +681,12 @@ export function createStudio(renderer: WebGLRenderer): Studio {
             },
           }),
     };
-    const { release, ...surface } = baked(body, detail, (relief) => {
+    const shown: Mesh[] = [];
+    const { release, ...surface } = baked(body, (relief) => {
       uniforms.relief.value = relief;
+      for (const mesh of shown) {
+        mesh.visible = relief !== null;
+      }
     });
 
     const frame = new Group();
@@ -684,6 +700,8 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       }),
     );
     globe.scale.set(body.radius, body.radius * flat, body.radius);
+    globe.visible = false;
+    shown.push(globe);
     frame.add(globe);
 
     const parts: Mesh<IcosahedronGeometry | RingGeometry, ShaderMaterial>[] = [globe];
@@ -707,6 +725,8 @@ export function createStudio(renderer: WebGLRenderer): Studio {
         }),
       );
       shell.scale.copy(globe.scale).multiplyScalar(SHELL_SCALE);
+      shell.visible = false;
+      shown.push(shell);
       frame.add(shell);
       parts.push(shell);
     }
@@ -735,10 +755,23 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       parts.push(ring);
     }
 
+    const tone = new Color(0, 0, 0);
+    if (giant !== null) {
+      const shades = [...giant.zones, ...giant.belts];
+      for (const shade of shades) {
+        tone.add(new Color(shade).multiplyScalar(1 / shades.length));
+      }
+    } else if (skin !== null) {
+      tone.copy(palette[3]).lerp(palette[4], 0.5);
+      tone.lerp(palette[1], 0.8 * seaCover(body.physics));
+      tone.lerp(new Color(skin.fog), Math.max(skin.shroud, 0.3 * skin.clouds));
+    }
+
     return {
       body,
       frame,
       girth: body.radius * Math.max(1, RING_VIEW * reach.y),
+      tone,
       ...surface,
       light(toward, chart, tick) {
         sun.copy(toward);

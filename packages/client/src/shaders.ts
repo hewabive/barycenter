@@ -697,6 +697,45 @@ void main() {
 }
 `;
 
+export const SPECK_VERTEX = `
+attribute vec3 tone;
+attribute float girth;
+uniform float scale;
+uniform float least;
+varying vec3 vTone;
+varying vec3 vSun;
+varying float vAid;
+
+void main() {
+  vec4 placed = modelViewMatrix * vec4(position, 1.0);
+  vSun = normalize(mat3(modelViewMatrix) * -position + vec3(0.0, 0.0, 1e-6));
+  vTone = tone;
+  float wide = 2.0 * girth * scale / max(-placed.z, 1e-3);
+  vAid = 1.0 - smoothstep(least, 2.0 * least, wide);
+  gl_PointSize = max(wide, least);
+  gl_Position = girth > 0.0 ? projectionMatrix * placed : vec4(2.0, 2.0, 2.0, 1.0);
+}
+`;
+
+export const SPECK_FRAGMENT = `
+uniform vec3 shine;
+varying vec3 vTone;
+varying vec3 vSun;
+varying float vAid;
+
+void main() {
+  vec2 spot = vec2(gl_PointCoord.x, 1.0 - gl_PointCoord.y) * 2.0 - 1.0;
+  float reach = dot(spot, spot);
+  if (reach > 1.0) discard;
+  vec3 normal = vec3(spot, sqrt(1.0 - reach));
+  float facing = dot(normal, vSun);
+  float lit = smoothstep(-0.15, 0.25, facing) * clamp(facing, 0.0, 1.0);
+  vec3 shaded = vTone * (0.025 + 1.1 * lit * shine);
+  gl_FragColor = vec4(mix(shaded, 0.7 * vTone * shine, vAid), 1.0);
+  #include <colorspace_fragment>
+}
+`;
+
 export const VEIL_VERTEX = `
 attribute vec4 tint;
 varying vec4 vTint;

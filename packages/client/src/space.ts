@@ -1,5 +1,6 @@
 import { createRandom, positionOf, type Sketch, spinOf } from "@barycenter/sim";
 import {
+  BufferAttribute,
   BufferGeometry,
   Color,
   type CubeTexture,
@@ -14,6 +15,7 @@ import {
   Quaternion,
   Raycaster,
   Scene,
+  ShaderMaterial,
   Sphere,
   Vector2,
   Vector3,
@@ -23,6 +25,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { createLooks, type Look } from "./bodies.ts";
 import { el } from "./dom.ts";
 import { ORBIT, SKY } from "./palette.ts";
+import { SPECK_FRAGMENT, SPECK_VERTEX } from "./shaders.ts";
 
 export interface Space {
   camera: PerspectiveCamera;
@@ -87,6 +90,9 @@ const LABEL_GAP = 12;
 const MOON_CLEARANCE = 70;
 const SUNLIT_TURN = 0.6;
 const SUNLIT_LIFT = 0.3;
+const WAKE_PIXELS = 7;
+const SLEEP_PIXELS = 3.5;
+const SPECK_PIXELS = 3;
 
 function eased(share: number): number {
   return share * share * (3 - 2 * share);
@@ -162,7 +168,7 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
   const sky = createSky(system.bodies[0].seed);
   scene.add(sky);
 
-  const looks = createLooks(renderer, system.bodies, rough);
+  const { looks, shine } = createLooks(renderer, system.bodies);
   const home = system.home === null ? null : looks[system.home];
   home?.refine(fine);
   const star = looks.find((look) => look.body.parent === null) ?? looks[0];
@@ -174,6 +180,26 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
   for (const look of looks) {
     world.add(look.frame);
   }
+  const spots = new BufferAttribute(new Float32Array(3 * looks.length), 3);
+  const girths = new BufferAttribute(new Float32Array(looks.length), 1);
+  const specks = new BufferGeometry();
+  specks.setAttribute("position", spots);
+  specks.setAttribute("girth", girths);
+  specks.setAttribute(
+    "tone",
+    new BufferAttribute(
+      new Float32Array(looks.flatMap((look) => [look.tone.r, look.tone.g, look.tone.b])),
+      3,
+    ),
+  );
+  const speckMaterial = new ShaderMaterial({
+    vertexShader: SPECK_VERTEX,
+    fragmentShader: SPECK_FRAGMENT,
+    uniforms: { shine: { value: shine }, scale: { value: 1 }, least: { value: SPECK_PIXELS } },
+  });
+  const dust = new Points(specks, speckMaterial);
+  dust.frustumCulled = false;
+  world.add(dust);
   renderer.domElement.addEventListener("webglcontextrestored", () => {
     for (const look of looks) {
       look.restore();
@@ -325,8 +351,11 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
 
     scene.updateMatrixWorld(true);
     star.frame.getWorldPosition(starAt);
+    const pixels = stage.clientHeight / 2 / Math.tan((camera.fov * Math.PI) / 360);
     let closest = Number.POSITIVE_INFINITY;
     let farthest = 0;
+    let waking: Look | null = null;
+    let widest = WAKE_PIXELS;
     for (const look of looks) {
       look.frame.getWorldPosition(place);
       const gap = place.distanceTo(camera.position);
@@ -334,7 +363,30 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
       farthest = Math.max(farthest, gap + look.body.radius);
       sunward.copy(starAt).sub(place).normalize();
       look.light(sunward, look === home ? chart : 0, shown);
+      const wide = (look.body.radius * pixels) / Math.max(gap, 1e-6);
+      if (look === home || look === star || look === to) {
+        continue;
+      }
+      if (look.detail() === 0 && wide > widest) {
+        stale = waking !== null || stale;
+        widest = wide;
+        waking = look;
+      } else if (look.detail() === 0 && wide > WAKE_PIXELS) {
+        stale = true;
+      } else if (look.detail() > 0 && wide < SLEEP_PIXELS) {
+        look.refine(0);
+      }
     }
+    waking?.refine(rough);
+    looks.forEach((look, index) => {
+      spots.setXYZ(index, look.frame.position.x, look.frame.position.y, look.frame.position.z);
+      girths.setX(index, look.detail() === 0 ? look.body.radius : 0);
+    });
+    spots.needsUpdate = true;
+    girths.needsUpdate = true;
+    const dense = renderer.getPixelRatio();
+    speckMaterial.uniforms.scale.value = pixels * dense;
+    speckMaterial.uniforms.least.value = SPECK_PIXELS * dense;
     camera.near = Math.max(0.02, Math.min(20, closest * 0.25));
     camera.far = farthest * 1.2 + 50;
     camera.updateProjectionMatrix();
