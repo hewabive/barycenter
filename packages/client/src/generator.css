@@ -39,10 +39,6 @@ body {
   background: var(--raised);
 }
 
-.bodies td.moon {
-  padding-left: 16px;
-}
-
 .bodies td:nth-child(n + 3),
 .facts td:last-child {
   text-align: right;

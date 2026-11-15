@@ -62,6 +62,11 @@ interface Draft {
   tilt: number;
 }
 
+interface Kin {
+  physics: Physics;
+  moons: Kin[];
+}
+
 interface Anchor {
   radius: number;
   orbit: number;
@@ -88,7 +93,10 @@ const RING_SHARE_SOLID = 0.05;
 const ROCK_GRAIN = 3000;
 const ICE_GRAIN = 900;
 const MOON_GRAIN = 2000;
-const MOON_REST = 0.35;
+const MOON_REST = 0.4;
+const SUBMOON_REST = 0.33;
+const SUBMOON_SHARE = 0.02;
+const MOON_DEPTH = 3;
 
 const SIZE_POWER = 0.45;
 const ORBIT_POWER = 0.37;
@@ -318,38 +326,65 @@ function massAt(distance: number, star: Physics, random: Random): number {
   );
 }
 
-function moonsOf(planet: Physics, star: Physics, random: Random): Physics[] {
-  const fluid = planet.gas >= FLUID_SHARE;
-  const earths = planet.mass / EARTH_MASS;
-  const settledHere = planet.life > 0;
-  const count = settledHere
-    ? 1 + (random.next() < 0.15 ? 1 : 0)
-    : fluid
-      ? (earths > 50 ? 1 : 0) + Math.floor(3 * random.next())
-      : random.next() < (earths > 0.2 ? 0.3 : 0.05)
-        ? 1
-        : 0;
+function moonsOf(
+  host: Physics,
+  around: Physics,
+  star: Physics,
+  distance: number,
+  depth: number,
+  random: Random,
+): Kin[] {
+  const fluid = host.gas >= FLUID_SHARE;
+  const earths = host.mass / EARTH_MASS;
+  const settledHere = host.life > 0;
   const low = Math.max(
-    3 * planet.radius,
-    1.3 * (planet.ring?.outer ?? 0),
-    1.2 * rocheOf(planet.radius, densityOf(planet.mass, planet.radius), MOON_GRAIN),
+    3 * host.radius,
+    1.3 * (host.ring?.outer ?? 0),
+    1.2 * rocheOf(host.radius, densityOf(host.mass, host.radius), MOON_GRAIN),
   );
-  const high = MOON_REST * hillOf(planet.orbit, planet.mass, star.mass);
-  let orbit = fluid
-    ? low * decades(random, 0.1, 0.5)
-    : Math.max(low, Math.min(high, planet.radius * between(random, 25, 65)));
-  const moons: Physics[] = [];
+  const rest = depth === 0 ? MOON_REST : SUBMOON_REST;
+  const high = rest * hillOf(host.orbit, host.mass, around.mass);
+  if (depth >= MOON_DEPTH || (high <= low && !settledHere)) {
+    return [];
+  }
+  const count =
+    depth > 0
+      ? random.next() < SUBMOON_SHARE
+        ? 1
+        : 0
+      : settledHere
+        ? 1 + (random.next() < 0.15 ? 1 : 0)
+        : fluid
+          ? (earths > 50 ? 2 : 0) + Math.floor(4 * random.next())
+          : random.next() < (earths > 0.2 ? 0.3 : 0.05)
+            ? 1
+            : 0;
+  let orbit =
+    depth > 0
+      ? low * (high / low) ** between(random, 0.1, 0.8)
+      : fluid
+        ? low * decades(random, 0.1, 0.5)
+        : Math.max(low, Math.min(high, host.radius * between(random, 25, 65)));
+  const moons: Kin[] = [];
   for (let index = 0; index < count; index++) {
     if (orbit > high && !(settledHere && index === 0)) {
       break;
     }
-    const share = settledHere
-      ? decades(random, -2.3, -1.7)
-      : fluid
-        ? decades(random, -5, -3.7)
-        : decades(random, -3.2, -1.8);
-    const site = { star, distance: planet.orbit, around: planet, orbit };
-    moons.push(formed(planet.mass * share, site, random, true));
+    const share =
+      depth > 0
+        ? decades(random, -4.5, -2.5)
+        : settledHere
+          ? decades(random, -2.3, -1.7)
+          : fluid
+            ? decades(random, -5, -3.7)
+            : decades(random, -3.2, -1.8);
+    const physics = formed(
+      host.mass * share,
+      { star, distance, around: host, orbit },
+      random,
+      true,
+    );
+    moons.push({ physics, moons: moonsOf(physics, host, star, distance, depth + 1, random) });
     orbit *= between(random, 1.5, 2.3);
   }
   return moons;
@@ -527,8 +562,15 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
     if (settledHere) {
       home = id;
     }
-    for (const moon of moonsOf(planet, star, random)) {
-      drafts.push({ physics: moon, parent: id, tilt: 0 });
+    const adopt = (kin: Kin, parent: number) => {
+      const own = drafts.length;
+      drafts.push({ physics: kin.physics, parent, tilt: 0 });
+      for (const moon of kin.moons) {
+        adopt(moon, own);
+      }
+    };
+    for (const kin of moonsOf(planet, star, star, orbit, 0, random)) {
+      adopt(kin, id);
     }
   }
 

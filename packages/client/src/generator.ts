@@ -307,7 +307,7 @@ const rows = system.bodies.map((body) => {
   const row = el(
     "tr",
     {},
-    el("td", depthOf(body) > 1 ? { class: "moon" } : {}, body.name),
+    el("td", { style: `padding-left: ${4 + 12 * Math.max(0, depthOf(body) - 1)}px` }, body.name),
     el("td", {}, classOf(body.physics)),
     el("td", {}, massOf(body.physics.mass).split(" · ")[0]),
     el("td", {}, `${figure(body.physics.heat)} K`),

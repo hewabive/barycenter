@@ -212,7 +212,6 @@ test("a system has one star, a home body and others around them", () => {
 
 test("the physics of every body holds together", () => {
   for (const { label: world, system } of sketches()) {
-    const star = system.bodies[0].physics;
     for (const body of system.bodies) {
       const { physics } = body;
       const label = `${world}, ${body.name}`;
@@ -241,10 +240,12 @@ test("the physics of every body holds together", () => {
       assert.ok(Math.abs(physics.year / year - 1) < 1e-3, label);
       assert.ok(physics.orbit > around.radius + physics.radius, label);
       assert.ok(physics.mass < around.mass, label);
-      if (body.parent !== 0) {
+      const host = system.bodies[body.parent].parent;
+      if (host !== null) {
         assert.equal(physics.day, physics.year, label);
         if (body.parent !== system.home) {
-          assert.ok(physics.orbit < hillOf(around.orbit, around.mass, star.mass), label);
+          const pull = system.bodies[host].physics.mass;
+          assert.ok(physics.orbit < hillOf(around.orbit, around.mass, pull), label);
         }
       }
     }
@@ -391,6 +392,26 @@ test("the light of the star takes a thin wrap of gas from a body near it", () =>
       assert.equal(hot, false, `seed ${seed}, ${body.name}`);
     }
   }
+});
+
+test("a moon has a moon of its own only where it holds one", () => {
+  let found = 0;
+  for (let seed = 1; seed <= 400; seed++) {
+    const { bodies } = sketchSystem(seed, { settled: false, star: null });
+    for (const body of bodies) {
+      const moon = body.parent === null ? null : bodies[body.parent];
+      const planet = moon === null || moon.parent === null ? null : bodies[moon.parent];
+      if (moon === null || planet === null || planet.parent === null) {
+        continue;
+      }
+      found += 1;
+      const hold = hillOf(moon.physics.orbit, moon.physics.mass, planet.physics.mass);
+      assert.ok(body.physics.orbit < 0.34 * hold, `seed ${seed}, ${body.name}`);
+      assert.ok(body.physics.orbit >= 3 * moon.physics.radius, `seed ${seed}, ${body.name}`);
+      assert.ok(hold > 9 * moon.physics.radius, `seed ${seed}, ${body.name}`);
+    }
+  }
+  assert.ok(found > 3 && found < 80, `found ${found}`);
 });
 
 test("a system sketched without a home has no life and can be given its star", () => {
