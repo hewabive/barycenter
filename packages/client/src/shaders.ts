@@ -109,6 +109,7 @@ const RAGGED = 0.3;
 const FACULAE = 1.2;
 const ARCH_SPAN = 3;
 const ARCH_RISE = 1.8;
+const ARCH_CAP = 0.04;
 
 export const STORM_ROOM = 4;
 export const SPOT_ROOM = 16;
@@ -504,47 +505,55 @@ void main() {
 
 export const FLARE_VERTEX = `
 uniform float reach;
+uniform float girth;
 varying vec2 vSpot;
-varying vec3 vRay;
-varying vec3 vEye;
+varying vec3 vSight;
+varying vec3 vMiddle;
 
 void main() {
   vSpot = position.xy;
-  vRay = vec3(position.xy, 0.0) * mat3(modelViewMatrix);
-  vec4 center = modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0);
-  vEye = normalize(-center.xyz) * mat3(modelViewMatrix);
-  center.xy += position.xy * reach;
-  gl_Position = projectionMatrix * center;
+  vec4 placed = modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+  vMiddle = placed.xyz;
+  placed.xy += position.xy * reach;
+  vSight = placed.xyz;
+  placed.xyz *= 1.0 + girth / max(-vMiddle.z, girth);
+  gl_Position = projectionMatrix * placed;
 }
 `;
 
 export const FLARE_FRAGMENT = `
+uniform mat4 modelViewMatrix;
 uniform vec4 spots[${SPOT_ROOM}];
 uniform vec3 rim;
-uniform float core;
+uniform float girth;
 varying vec2 vSpot;
-varying vec3 vRay;
-varying vec3 vEye;
+varying vec3 vSight;
+varying vec3 vMiddle;
 
 void main() {
-  float away = length(vSpot);
-  float rise = max(away - core, 0.0) / core;
-  float glare = 0.85 * exp(-rise / 0.04) + 0.15 / (1.0 + 12.0 * rise * rise);
-  vec3 limb = normalize(vRay);
-  vec3 eye = normalize(vEye);
+  vec3 ray = normalize(vSight);
+  vec3 aside = ray * dot(vMiddle, ray) - vMiddle;
+  float rise = max(length(aside) / girth - 1.0, 0.0);
+  float glare = 0.5 * exp(-rise / 0.04) + 0.12 / (1.0 + 12.0 * rise * rise);
+  mat3 turn = mat3(modelViewMatrix);
+  vec3 eye = normalize(-vMiddle) * turn;
+  vec3 outward = aside * turn;
+  vec3 limb = normalize(outward - dot(outward, eye) * eye);
   float arch = 0.0;
-  for (int index = 0; index < ${SPOT_ROOM}; index++) {
+  for (int index = 0; index < ${SPOT_ROOM}; index += 2) {
     vec4 spot = spots[index];
+    float size = min(spot.w, ${real(ARCH_CAP)});
     float depth = dot(spot.xyz, eye);
-    float lift = (1.0 + ${real(ARCH_RISE)} * spot.w) * sqrt(max(1.0 - depth * depth, 0.0)) - 1.0;
+    float lift = (1.0 + ${real(ARCH_RISE)} * size) * sqrt(max(1.0 - depth * depth, 0.0)) - 1.0;
     vec3 foot = spot.xyz - depth * eye;
     vec3 from = limb - foot / max(length(foot), 1e-4);
-    float span = ${real(ARCH_SPAN)} * spot.w + 1e-5;
+    float span = ${real(ARCH_SPAN)} * size + 1e-5;
     float ring = length(vec2(length(from) / span, rise / max(lift, 1e-5)));
     float band = (ring - 1.0) / 0.2;
     arch += step(1e-5, lift) * (exp(-band * band) + 0.25 * exp(-1.5 * ring * ring));
   }
-  vec3 lit = rim * glare * (1.0 - smoothstep(0.6, 1.0, away)) + vec3(1.0, 0.25, 0.2) * min(arch, 1.0) * 0.45;
+  float fade = 1.0 - smoothstep(0.6, 1.0, length(vSpot));
+  vec3 lit = rim * glare * fade + vec3(1.0, 0.25, 0.2) * min(arch, 1.0) * (0.15 + 0.5 * rim.r);
   gl_FragColor = vec4(lit, 1.0);
   #include <colorspace_fragment>
 }

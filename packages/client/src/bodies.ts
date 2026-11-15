@@ -320,7 +320,7 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
           spots: uniforms.spots,
           rim: { value: rim },
           reach: { value: body.radius * FLARE_REACH },
-          core: { value: 1 / FLARE_REACH },
+          girth: { value: body.radius },
         },
       }),
     );
