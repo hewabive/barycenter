@@ -22,6 +22,7 @@ import {
   WebGLRenderer,
 } from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { createBelt } from "./belts.ts";
 import { createLooks, type Look } from "./bodies.ts";
 import { el } from "./dom.ts";
 import { ORBIT, SKY } from "./palette.ts";
@@ -200,6 +201,12 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
   const dust = new Points(specks, speckMaterial);
   dust.frustumCulled = false;
   world.add(dust);
+  const belts = star.body.disks.map((lane, index) =>
+    createBelt(lane, star.body.physics.disks[index], star.body.seed + index, shine, coarse.matches),
+  );
+  for (const belt of belts) {
+    world.add(belt.points);
+  }
   renderer.domElement.addEventListener("webglcontextrestored", () => {
     for (const look of looks) {
       look.restore();
@@ -387,6 +394,9 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
     const dense = renderer.getPixelRatio();
     speckMaterial.uniforms.scale.value = pixels * dense;
     speckMaterial.uniforms.least.value = SPECK_PIXELS * dense;
+    for (const belt of belts) {
+      belt.turn(shown, dense);
+    }
     camera.near = Math.max(0.02, Math.min(20, closest * 0.25));
     camera.far = farthest * 1.2 + 50;
     camera.updateProjectionMatrix();

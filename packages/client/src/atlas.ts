@@ -57,6 +57,11 @@ const bodyOf = (physics: Physics, own: number): Body => ({
   phase: 0,
   tilt: 0,
   day: 1200,
+  disks: physics.disks.map((disk) => ({
+    inner: disk.inner / physics.radius,
+    outer: disk.outer / physics.radius,
+    year: 1,
+  })),
   relief: reliefOf(physics, own),
 });
 
@@ -117,7 +122,7 @@ const paint = (body: Body, column: number, row: number) => {
     physics.glow > 0 ? `${written(physics.mass / SUN_MASS)} suns` : `${written(earths)} earths`;
   const extras = [
     physics.air > 0 ? `${written(physics.air / 1e5)} bar` : "",
-    physics.ring === null ? "" : "ring",
+    physics.disks.length === 0 ? "" : "ring",
   ].filter((extra) => extra !== "");
   pen.fillStyle = "#c8d0dc";
   pen.font = "12px system-ui, sans-serif";

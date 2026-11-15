@@ -452,10 +452,11 @@ const DUST = 0x6b6258;
 const FROST = 0xe9e1d0;
 
 export function hoopOf(body: Body): Hoop | null {
-  const { ring, radius } = body.physics;
-  if (ring === null) {
+  const { disks, radius } = body.physics;
+  if (familyOf(body.physics) === "star" || disks.length === 0) {
     return null;
   }
+  const ring = disks[0];
   const random = createRandom(body.seed + 97);
   const from = ring.inner / radius;
   const to = ring.outer / radius;

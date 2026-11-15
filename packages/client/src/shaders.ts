@@ -736,6 +736,34 @@ void main() {
 }
 `;
 
+export const BELT_VERTEX = `
+attribute float grain;
+uniform float tick;
+uniform float year;
+uniform float middle;
+uniform float dense;
+varying float vGlint;
+
+void main() {
+  float turn = position.y + 6.2831853 * tick / (year * pow(position.x / middle, 1.5));
+  vec3 at = position.x * vec3(cos(turn), position.z * sin(turn + 40.0 * grain), sin(turn));
+  vGlint = 0.22 + 0.45 * grain;
+  gl_PointSize = dense * (1.0 + grain * grain);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(at, 1.0);
+}
+`;
+
+export const BELT_FRAGMENT = `
+uniform vec3 tint;
+uniform vec3 shine;
+varying float vGlint;
+
+void main() {
+  gl_FragColor = vec4(tint * shine * vGlint, 1.0);
+  #include <colorspace_fragment>
+}
+`;
+
 export const VEIL_VERTEX = `
 attribute vec4 tint;
 varying vec4 vTint;

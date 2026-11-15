@@ -178,17 +178,25 @@ function factsOf(body: Body): Fact[] {
   }
   facts.push(
     "Around it",
-    ["Moons", String(moons)],
+    [parent === null ? "Planets" : "Moons", String(moons)],
     [
       "Tears apart within",
       `${figure(rocheOf(physics.radius, density, ROCK_GRAIN) / physics.radius)} radii for rock · ${figure(rocheOf(physics.radius, density, ICE_GRAIN) / physics.radius)} for ice`,
     ],
-    [
-      "Ring",
-      physics.ring === null
-        ? "none"
-        : `${figure(physics.ring.inner / physics.radius)} to ${figure(physics.ring.outer / physics.radius)} radii · density ${figure(physics.ring.depth)} · ice ${share(physics.ring.ice)}`,
-    ],
+    ...(physics.disks.length === 0
+      ? [[parent === null ? "Belts" : "Ring", "none"] satisfies Fact]
+      : physics.disks.map(
+          (disk): Fact =>
+            parent === null
+              ? [
+                  "Belt",
+                  `${lengthOf(disk.inner)} to ${lengthOf(disk.outer)} · ${massOf(disk.mass)} · ice ${share(disk.ice)} · density ${figure(disk.depth)}`,
+                ]
+              : [
+                  "Ring",
+                  `${figure(disk.inner / physics.radius)} to ${figure(disk.outer / physics.radius)} radii · density ${figure(disk.depth)} · ice ${share(disk.ice)} · ${figure(disk.mass)} kg`,
+                ],
+        )),
     "On screen",
     [
       "Drawn as",
@@ -293,7 +301,7 @@ const summary = el(
   el(
     "div",
     { class: "hint" },
-    `${planets} around the star and ${system.bodies.length - 1 - planets} moons · ${
+    `${planets} around the star, ${system.bodies.length - 1 - planets} moons and ${star.physics.disks.length} belts · ${
       system.home === null
         ? "no home"
         : `home ${system.bodies[system.home].name}, the system of world seed ${seed}`

@@ -34,11 +34,12 @@ import { elevationAt } from "./relief.ts";
 import { scatter } from "./sphere.ts";
 import {
   type Body,
+  type Disk,
   GASES,
   type Gas,
+  type Lane,
   type Physics,
   type Relief,
-  type Ring,
   type Sketch,
   type StarSystem,
   type Vector,
@@ -93,6 +94,9 @@ const RING_SHARE_SOLID = 0.05;
 const ROCK_GRAIN = 3000;
 const ICE_GRAIN = 900;
 const MOON_GRAIN = 2000;
+const RING_ROCK = 1;
+const BELT_ROCK = 1000;
+const BELT_SHARE = 0.6;
 const MOON_REST = 0.4;
 const SUBMOON_REST = 0.33;
 const SUBMOON_SHARE = 0.02;
@@ -147,8 +151,17 @@ export function kindled(mass: number, random: Random): Physics {
     orbit: 0,
     year: 0,
     day: DAY * between(random, 12, 40),
-    ring: null,
+    disks: [],
   };
+}
+
+function diskOf(inner: number, outer: number, ice: number, given: Partial<Disk>): Disk {
+  const area = Math.PI * (outer ** 2 - inner ** 2);
+  const grain = ROCK_GRAIN - (ROCK_GRAIN - ICE_GRAIN) * ice;
+  const size = given.depth === undefined ? BELT_ROCK : RING_ROCK;
+  const laden = (4 * grain * size) / 3;
+  const mass = given.mass ?? (given.depth ?? 0) * area * laden;
+  return { inner, outer, mass, depth: given.depth ?? mass / (area * laden), ice };
 }
 
 function ringOf(
@@ -157,9 +170,9 @@ function ringOf(
   fluid: boolean,
   bare: number,
   random: Random,
-): Ring | null {
+): Disk[] {
   if (random.next() >= (fluid ? RING_SHARE_FLUID : RING_SHARE_SOLID)) {
-    return null;
+    return [];
   }
   const ice = bare < ICE_HEAT ? between(random, 0.6, 1) : between(random, 0, 0.1);
   const grain = ROCK_GRAIN - (ROCK_GRAIN - ICE_GRAIN) * ice;
@@ -168,14 +181,18 @@ function ringOf(
   const inner = radius * between(random, 1.15, 1.5);
   const outer = Math.min(limit, radius * between(random, 1.8, 2.4));
   if (outer < inner * 1.15) {
-    return null;
+    return [];
   }
-  return {
-    inner,
-    outer,
-    depth: dense ? between(random, 0.55, 0.95) : between(random, 0.2, 0.5),
-    ice,
-  };
+  const depth = dense ? between(random, 0.55, 0.95) : between(random, 0.2, 0.5);
+  return [diskOf(inner, outer, ice, { depth })];
+}
+
+function beltOf(orbit: number, star: Physics, random: Random): Disk {
+  const beyond = orbit > frostOf(star.glow);
+  const mass = EARTH_MASS * (beyond ? decades(random, -2.5, -0.5) : decades(random, -4.5, -2.5));
+  const ice = beyond ? between(random, 0.4, 0.8) : between(random, 0, 0.1);
+  const inner = orbit * between(random, 0.8, 0.92);
+  return diskOf(inner, orbit * between(random, 1.08, 1.25), ice, { mass });
 }
 
 export function formed(mass: number, site: Site, random: Random, locked = false): Physics {
@@ -258,7 +275,7 @@ export function formed(mass: number, site: Site, random: Random, locked = false)
     orbit: site.orbit,
     year,
     day,
-    ring: ringOf(mass, radius, fluid, bare, random),
+    disks: ringOf(mass, radius, fluid, bare, random),
   };
 }
 
@@ -296,7 +313,7 @@ function settled(star: Physics, orbit: number, random: Random): Physics {
     orbit,
     year: yearOf(orbit, star.mass),
     day: HOUR * between(random, 18, 30),
-    ring: null,
+    disks: [],
   };
 }
 
@@ -339,7 +356,7 @@ function moonsOf(
   const settledHere = host.life > 0;
   const low = Math.max(
     3 * host.radius,
-    1.3 * (host.ring?.outer ?? 0),
+    1.3 * Math.max(0, ...host.disks.map((disk) => disk.outer)),
     1.2 * rocheOf(host.radius, densityOf(host.mass, host.radius), MOON_GRAIN),
   );
   const rest = depth === 0 ? MOON_REST : SUBMOON_REST;
@@ -419,22 +436,44 @@ export function reliefOf(physics: Physics, seed: number): Relief {
 function arranged(bodies: Body[], anchor: Anchor): Body[] {
   const radius = bodies.map((body) => (body.physics.radius / anchor.radius) ** SIZE_POWER);
   const orbit = bodies.map(() => 0);
+  const lanes: Lane[][] = bodies.map(() => []);
+  const pace = (span: number, unit: number, ticks: number) =>
+    Math.max(1, Math.round(ticks * (span / unit) ** TIME_POWER));
+  const turn = (disk: Disk, around: number) =>
+    pace(yearOf((disk.inner + disk.outer) / 2, around), anchor.year, HOME_YEAR);
   const reach = (id: number): number => {
     const { physics, parent } = bodies[id];
-    const own = radius[id] * Math.max(1, (physics.ring?.outer ?? 0) / physics.radius);
+    const drawn = (span: number) =>
+      parent === null
+        ? HOME_ORBIT * (span / anchor.orbit) ** ORBIT_POWER
+        : MOON_REACH * radius[id] * Math.sqrt(span / physics.radius);
+    const rings = parent === null ? [] : physics.disks;
+    lanes[id] = rings.map((disk) => ({
+      inner: (radius[id] * disk.inner) / physics.radius,
+      outer: (radius[id] * disk.outer) / physics.radius,
+      year: turn(disk, physics.mass),
+    }));
+    const own = Math.max(radius[id], ...lanes[id].map((lane) => lane.outer));
     const gap = parent === null ? PLANET_GAP : MOON_GAP;
     let edge = own * CLEARANCE;
-    const around = bodies
-      .filter((child) => child.parent === id)
-      .sort((left, right) => left.physics.orbit - right.physics.orbit);
-    for (const child of around) {
-      const span = reach(child.id);
-      const drawn =
-        parent === null
-          ? HOME_ORBIT * (child.physics.orbit / anchor.orbit) ** ORBIT_POWER
-          : MOON_REACH * radius[id] * Math.sqrt(child.physics.orbit / physics.radius);
-      orbit[child.id] = Math.max(drawn, edge + span);
-      edge = orbit[child.id] + span + gap;
+    const belts = parent === null ? physics.disks : [];
+    const around = [
+      ...bodies
+        .filter((child) => child.parent === id)
+        .map((child) => ({ at: child.physics.orbit, child, belt: null })),
+      ...belts.map((belt) => ({ at: belt.inner, child: null, belt })),
+    ].sort((left, right) => left.at - right.at);
+    for (const { child, belt } of around) {
+      if (child !== null) {
+        const span = reach(child.id);
+        orbit[child.id] = Math.max(drawn(child.physics.orbit), edge + span);
+        edge = orbit[child.id] + span + gap;
+      } else if (belt !== null) {
+        const inner = Math.max(drawn(belt.inner), edge);
+        const outer = inner + drawn(belt.outer) - drawn(belt.inner);
+        lanes[id].push({ inner, outer, year: turn(belt, physics.mass) });
+        edge = outer + gap;
+      }
     }
     return around.length === 0 ? own : edge - gap;
   };
@@ -443,8 +482,6 @@ function arranged(bodies: Body[], anchor: Anchor): Body[] {
       reach(body.id);
     }
   }
-  const pace = (span: number, unit: number, ticks: number) =>
-    Math.max(1, Math.round(ticks * (span / unit) ** TIME_POWER));
   return bodies.map((body) => {
     const year = body.parent === null ? 0 : pace(body.physics.year, anchor.year, HOME_YEAR);
     const locked = body.physics.day === body.physics.year;
@@ -454,12 +491,16 @@ function arranged(bodies: Body[], anchor: Anchor): Body[] {
       orbit: trim(orbit[body.id]),
       year,
       day: locked ? year : pace(body.physics.day, anchor.day, HOME_DAY),
+      disks: lanes[body.id].map((lane) => ({
+        inner: trim(lane.inner),
+        outer: trim(lane.outer),
+        year: lane.year,
+      })),
     };
   });
 }
 
 function trimmed(physics: Physics): Physics {
-  const ring = physics.ring;
   return {
     mass: trim(physics.mass),
     radius: trim(physics.radius),
@@ -476,15 +517,13 @@ function trimmed(physics: Physics): Physics {
     orbit: trim(physics.orbit),
     year: trim(physics.year),
     day: trim(physics.day),
-    ring:
-      ring === null
-        ? null
-        : {
-            inner: trim(ring.inner),
-            outer: trim(ring.outer),
-            depth: trim(ring.depth),
-            ice: trim(ring.ice),
-          },
+    disks: physics.disks.map((disk) => ({
+      inner: trim(disk.inner),
+      outer: trim(disk.outer),
+      mass: trim(disk.mass),
+      depth: trim(disk.depth),
+      ice: trim(disk.ice),
+    })),
   };
 }
 
@@ -517,6 +556,12 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
   const lit = Math.sqrt(star.glow / SUN_GLOW);
   const nearest = Math.max(INNER_EDGE * lit, 6 * star.radius);
   const orbits: number[] = [];
+  const belts: Disk[] = [];
+  const empty = (orbit: number) => {
+    if (random.next() < BELT_SHARE) {
+      belts.push(beltOf(orbit, star, random));
+    }
+  };
   let homeOrbit: number | null = null;
   if (plan.settled) {
     const settledAt = (ASTRONOMICAL_UNIT * lit) / Math.sqrt(between(random, 0.95, 1.08));
@@ -530,6 +575,8 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
       }
       if (random.next() < PLANET_SHARE) {
         orbits.unshift(inward);
+      } else {
+        empty(inward);
       }
     }
   }
@@ -541,10 +588,16 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
     }
     if (random.next() < PLANET_SHARE) {
       orbits.push(outward);
+    } else {
+      empty(outward);
     }
   }
+  if (outward * 1.6 < 1.5 * OUTER_EDGE * lit) {
+    empty(outward * between(random, 1.4, 1.8));
+  }
+  belts.sort((left, right) => left.inner - right.inner);
 
-  const drafts: Draft[] = [{ physics: star, parent: null, tilt: 0 }];
+  const drafts: Draft[] = [{ physics: { ...star, disks: belts }, parent: null, tilt: 0 }];
   let home: number | null = null;
   for (const orbit of orbits) {
     const settledHere = orbit === homeOrbit;
@@ -589,6 +642,7 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
       phase: draft.parent === null ? 0 : trim(2 * Math.PI * random.next()),
       tilt: trim(draft.tilt),
       day: 0,
+      disks: [],
       relief: id === home ? { ...HOME_SHAPE, sea: null, peak: 0.5 } : reliefOf(physics, own),
     };
   });

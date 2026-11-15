@@ -52,7 +52,7 @@ function encode(message: ServerMessage): string {
   let exact: unknown[] = [];
   return JSON.stringify(message, function (this: unknown, key, value) {
     if (key === "physics") {
-      exact = [value, value?.ring, value?.gases];
+      exact = [value, value?.gases, ...(value?.disks ?? [])];
     }
     const rounded = typeof value === "number" && !exact.includes(this);
     return rounded ? Math.round(value * WIRE_PRECISION) / WIRE_PRECISION : value;

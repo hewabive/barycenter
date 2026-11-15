@@ -32,11 +32,18 @@ export const GASES = [
 
 export type Gas = (typeof GASES)[number];
 
-export interface Ring {
+export interface Disk {
   inner: number;
   outer: number;
+  mass: number;
   depth: number;
   ice: number;
+}
+
+export interface Lane {
+  inner: number;
+  outer: number;
+  year: number;
 }
 
 export interface Physics {
@@ -55,7 +62,7 @@ export interface Physics {
   orbit: number;
   year: number;
   day: number;
-  ring: Ring | null;
+  disks: Disk[];
 }
 
 export interface Body {
@@ -70,6 +77,7 @@ export interface Body {
   phase: number;
   tilt: number;
   day: number;
+  disks: Lane[];
   relief: Relief;
 }
 

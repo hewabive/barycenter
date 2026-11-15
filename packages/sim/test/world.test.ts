@@ -226,10 +226,16 @@ test("the physics of every body holds together", () => {
         density > 200 && density < (physics.glow > 0 ? 200000 : 20000),
         `${label}: ${density}`,
       );
-      if (physics.ring !== null) {
-        assert.ok(physics.ring.inner > physics.radius, label);
-        assert.ok(physics.ring.outer > physics.ring.inner, label);
-        assert.ok(physics.ring.outer < rocheOf(physics.radius, density, 900), label);
+      assert.equal(body.disks.length, physics.disks.length, label);
+      for (const disk of physics.disks) {
+        assert.ok(disk.inner > physics.radius && disk.outer > disk.inner, label);
+        assert.ok(disk.mass > 0 && disk.depth > 0 && disk.depth < 1, label);
+        if (body.parent !== null) {
+          assert.ok(disk.outer < rocheOf(physics.radius, density, 900), label);
+          assert.ok(disk.depth > 0.1, label);
+        } else {
+          assert.ok(disk.depth < 1e-3, label);
+        }
       }
       if (body.parent === null) {
         assert.ok(physics.glow > 0, label);
@@ -260,15 +266,28 @@ test("the drawn scale keeps the order and the nesting of the real one", () => {
       assert.equal(home.year, 9600);
       assert.equal(home.day, 1200);
     }
-    const reach = (id: number): number => {
+    const own = (id: number): number => {
       const body = system.bodies[id];
-      const ring = (body.physics.ring?.outer ?? 0) / body.physics.radius;
-      const moons = system.bodies.filter((moon) => moon.parent === id);
-      return Math.max(
-        body.radius * Math.max(1, ring),
-        ...moons.map((moon) => moon.orbit + reach(moon.id)),
-      );
+      const rings = body.parent === null ? [] : body.disks;
+      return Math.max(body.radius, ...rings.map((lane) => lane.outer));
     };
+    const reach = (id: number): number => {
+      const moons = system.bodies.filter((moon) => moon.parent === id);
+      return Math.max(own(id), ...moons.map((moon) => moon.orbit + reach(moon.id)));
+    };
+    const root = system.bodies[0];
+    root.disks.forEach((lane, index) => {
+      const belt = root.physics.disks[index];
+      assert.ok(lane.outer > lane.inner && lane.inner > root.radius, world);
+      for (const planet of system.bodies.filter((body) => body.parent === 0)) {
+        const span = reach(planet.id);
+        const inside = planet.physics.orbit < belt.inner;
+        assert.ok(
+          inside ? planet.orbit + span < lane.inner : planet.orbit - span > lane.outer,
+          `${world}, ${planet.name} and a belt`,
+        );
+      }
+    });
     for (const body of system.bodies) {
       const label = `${world}, ${body.name}`;
       const around = system.bodies
@@ -276,10 +295,7 @@ test("the drawn scale keeps the order and the nesting of the real one", () => {
         .sort((left, right) => left.physics.orbit - right.physics.orbit);
       around.forEach((child, index) => {
         const before = index === 0 ? null : around[index - 1];
-        const edge =
-          before === null
-            ? body.radius * Math.max(1, (body.physics.ring?.outer ?? 0) / body.physics.radius)
-            : before.orbit + reach(before.id);
+        const edge = before === null ? own(body.id) : before.orbit + reach(before.id);
         assert.ok(child.orbit - reach(child.id) > edge, label);
         assert.equal(child.day === child.year, child.physics.day === child.physics.year, label);
       });
@@ -441,8 +457,13 @@ test("systems differ in their stars and in what circles them", () => {
   const fluid = systems.filter((system) =>
     system.bodies.some((body) => body.parent === 0 && body.physics.gas >= FLUID_SHARE),
   );
-  assert.ok(fluid.length > 30 && fluid.length < 60);
-  assert.ok(systems.some((system) => system.bodies.some((body) => body.physics.ring !== null)));
+  assert.ok(fluid.length > 30);
+  const ringed = systems.filter((system) =>
+    system.bodies.some((body) => body.parent !== null && body.physics.disks.length > 0),
+  );
+  const belted = systems.filter((system) => system.bodies[0].physics.disks.length > 0);
+  assert.ok(ringed.length > 10);
+  assert.ok(belted.length > 15 && belted.length < 58);
 });
 
 test("relief is the same at the same place and smooth between places", () => {
