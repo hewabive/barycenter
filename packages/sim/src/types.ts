@@ -11,8 +11,6 @@ export interface Vector {
   z: number;
 }
 
-export type BodyKind = "star" | "terran" | "desert" | "barren" | "ice" | "gas";
-
 export interface Relief {
   frequency: number;
   warp: number;
@@ -21,13 +19,38 @@ export interface Relief {
   peak: number;
 }
 
+export interface Ring {
+  inner: number;
+  outer: number;
+  depth: number;
+  ice: number;
+}
+
+export interface Physics {
+  mass: number;
+  radius: number;
+  iron: number;
+  rock: number;
+  ice: number;
+  gas: number;
+  heat: number;
+  glow: number;
+  air: number;
+  life: number;
+  vigor: number;
+  orbit: number;
+  year: number;
+  day: number;
+  ring: Ring | null;
+}
+
 export interface Body {
   id: number;
   name: string;
-  kind: BodyKind;
   seed: number;
-  radius: number;
   parent: number | null;
+  physics: Physics;
+  radius: number;
   orbit: number;
   year: number;
   phase: number;

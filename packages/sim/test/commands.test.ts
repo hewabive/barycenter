@@ -123,7 +123,7 @@ test("an attack on a holding is announced and waits", () => {
 });
 
 test("a captured cell changes owner and loses part of its level", () => {
-  const { state } = fresh();
+  const { state } = fresh(4);
   const { from, to, region } = rivalNextDoor(state);
   state.cells[to].level = 3;
   state.cells[to].branches = [3, 0, 0];

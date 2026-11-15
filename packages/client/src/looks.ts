@@ -1,0 +1,641 @@
+import {
+  type Body,
+  createRandom,
+  EARTH_MASS,
+  FLUID_SHARE,
+  flatOf,
+  HOUR,
+  type Physics,
+  STAR_LEAST,
+  seaCover,
+} from "@barycenter/sim";
+import { Color } from "three";
+
+export type Family = "star" | "fluid" | "solid";
+
+export interface Flame {
+  kelvin: number;
+  tint: number;
+  grain: number;
+  chill: number;
+  poles: number;
+  regions: number;
+  girth: number;
+  belt: number;
+}
+
+export interface Brew {
+  side: -1 | 0 | 1;
+  band: number;
+  seat: number;
+  count: number;
+  size: number;
+  stretch: number;
+  tint: number;
+  cover: number;
+  wake: number;
+  crest: number;
+}
+
+export interface Hoop {
+  tint: number;
+  parts: [from: number, to: number, density: number][];
+}
+
+export interface Giant {
+  zones: number[];
+  belts: number[];
+  pole: number;
+  wisp: number;
+  wispy: number;
+  first: number;
+  width: number;
+  narrowing: number;
+  cap: number;
+  edge: number;
+  veins: number;
+  stir: number;
+  streak: number;
+  puff: number;
+  eastward: boolean;
+  jets: number;
+  haze: number;
+  air: number;
+  brews: Brew[];
+}
+
+export interface Skin {
+  palette: number[];
+  low: number;
+  span: number;
+  frost: number;
+  lift: number;
+  snowy: number;
+  patch: number;
+  belted: number;
+  cracks: number;
+  bump: number;
+  clouds: number;
+  shroud: number;
+  fog: number;
+  haze: number;
+  air: number;
+}
+
+const FLAT_LEAST = 0.008;
+const NO_FROST = 2;
+
+function smooth(from: number, to: number, value: number): number {
+  const share = Math.max(0, Math.min(1, (value - from) / (to - from)));
+  return share * share * (3 - 2 * share);
+}
+
+function tone(from: number, to: number, share: number): number {
+  return new Color(from).lerp(new Color(to), share).getHex();
+}
+
+function varied(shade: number, turn: number, vivid: number, bright: number): number {
+  const color = new Color(shade);
+  const parts = { h: 0, s: 0, l: 0 };
+  color.getHSL(parts);
+  const hue = (((parts.h + turn) % 1) + 1) % 1;
+  return color.setHSL(hue, Math.min(1, parts.s * vivid), Math.min(1, parts.l * bright)).getHex();
+}
+
+export function familyOf(physics: Physics): Family {
+  return physics.mass >= STAR_LEAST ? "star" : physics.gas >= FLUID_SHARE ? "fluid" : "solid";
+}
+
+export function flatnessOf(physics: Physics): number {
+  const flat = flatOf(physics);
+  return familyOf(physics) === "fluid" || flat >= FLAT_LEAST ? flat : 0;
+}
+
+const FLAMES: Flame[] = [
+  {
+    kelvin: 2600,
+    tint: 0xff5a1e,
+    grain: 0.02,
+    chill: 0.85,
+    poles: 0,
+    regions: 8,
+    girth: 0.055,
+    belt: 1.2,
+  },
+  {
+    kelvin: 3400,
+    tint: 0xff6f2c,
+    grain: 0.03,
+    chill: 0.8,
+    poles: 0,
+    regions: 8,
+    girth: 0.05,
+    belt: 1.1,
+  },
+  {
+    kelvin: 4700,
+    tint: 0xff9545,
+    grain: 0.055,
+    chill: 0.62,
+    poles: 0,
+    regions: 8,
+    girth: 0.036,
+    belt: 0.7,
+  },
+  {
+    kelvin: 5800,
+    tint: 0xffb663,
+    grain: 0.07,
+    chill: 0.58,
+    poles: 0,
+    regions: 7,
+    girth: 0.03,
+    belt: 0.55,
+  },
+  { kelvin: 8200, tint: 0xccdeff, grain: 0, chill: 1, poles: 0.2, regions: 0, girth: 0, belt: 0 },
+  { kelvin: 11000, tint: 0xb4c8ff, grain: 0, chill: 1, poles: 0.25, regions: 0, girth: 0, belt: 0 },
+];
+
+export function flameOf(star: Body): Flame {
+  const kelvin = Math.max(
+    FLAMES[0].kelvin,
+    Math.min(FLAMES[FLAMES.length - 1].kelvin, star.physics.heat),
+  );
+  const next = Math.max(
+    1,
+    FLAMES.findIndex((flame) => flame.kelvin >= kelvin),
+  );
+  const cool = FLAMES[next - 1];
+  const hot = FLAMES[next];
+  const share = (kelvin - cool.kelvin) / (hot.kelvin - cool.kelvin);
+  const mix = (from: number, to: number) => from + (to - from) * share;
+  return {
+    kelvin,
+    tint: tone(cool.tint, hot.tint, share),
+    grain: mix(cool.grain, hot.grain),
+    chill: mix(cool.chill, hot.chill),
+    poles: mix(cool.poles, hot.poles),
+    regions: Math.min(
+      8,
+      Math.round(mix(cool.regions, hot.regions) * (0.6 + 0.6 * star.physics.vigor)),
+    ),
+    girth: mix(cool.girth, hot.girth),
+    belt: mix(cool.belt, hot.belt),
+  };
+}
+
+function brew(given: Partial<Brew> & Pick<Brew, "band" | "size" | "tint">): Brew {
+  return { side: -1, seat: 0, count: 1, stretch: 1.3, cover: 0.9, wake: 0, crest: 0, ...given };
+}
+
+const JOVIAN: Giant = {
+  zones: [0xefe6d2, 0xe3d2b0, 0xd9c8a8, 0xe8dcc0],
+  belts: [0x9a6a4a, 0x7a4b35, 0xa87a52, 0x86705e],
+  pole: 0x7f7669,
+  wisp: 0x6b7480,
+  wispy: 0.75,
+  first: 0.13,
+  width: 0.15,
+  narrowing: 0.82,
+  cap: 0.95,
+  edge: 0.008,
+  veins: 0.13,
+  stir: 0.8,
+  streak: 0.5,
+  puff: 0.35,
+  eastward: true,
+  jets: 1,
+  haze: 0xbfae95,
+  air: 0.07,
+  brews: [
+    brew({ band: 2, seat: -0.75, size: 0.6, stretch: 1.6, tint: 0xb5694e, cover: 0.95, wake: 1 }),
+    brew({ band: 4, count: 4, size: 0.3, stretch: 1.2, tint: 0xf3ead8 }),
+    brew({ band: 3, seat: 0.2, size: 0.34, stretch: 1.4, tint: 0xe2b99a }),
+    brew({
+      side: 1,
+      band: 1,
+      seat: 0.45,
+      count: 2,
+      size: 0.14,
+      stretch: 2.6,
+      tint: 0x5a3524,
+      cover: 0.85,
+    }),
+  ],
+};
+
+const SATURNIAN: Giant = {
+  zones: [0xf5e0a8, 0xf0d590, 0xf7e7ba],
+  belts: [0xdcb872, 0xcfa35c, 0xe3c483, 0xc9a868],
+  pole: 0x8f9c9e,
+  wisp: 0x6b7480,
+  wispy: 0,
+  first: 0.16,
+  width: 0.12,
+  narrowing: 0.92,
+  cap: 1.15,
+  edge: 0.02,
+  veins: 0.09,
+  stir: 0.3,
+  streak: 0.2,
+  puff: 0.1,
+  eastward: true,
+  jets: 0.8,
+  haze: 0xd9c79a,
+  air: 0.1,
+  brews: [
+    brew({ side: 1, band: 3, size: 0.3, stretch: 1.5, tint: 0xf4ecd6, cover: 0.7, wake: 0.6 }),
+    brew({ band: 4, count: 2, size: 0.25, tint: 0xefe2bd, cover: 0.6 }),
+  ],
+};
+
+const NEPTUNIAN: Giant = {
+  zones: [0x3f6fd0, 0x4a7bd8, 0x3a66c4],
+  belts: [0x2f58b8, 0x2a4fa8, 0x3560bc],
+  pole: 0x2c4f9c,
+  wisp: 0x6b7480,
+  wispy: 0,
+  first: 0.3,
+  width: 0.24,
+  narrowing: 0.95,
+  cap: 1.2,
+  edge: 0.05,
+  veins: 0.05,
+  stir: 0.2,
+  streak: 0.2,
+  puff: 0.12,
+  eastward: false,
+  jets: 0,
+  haze: 0x5a8cf0,
+  air: 0.25,
+  brews: [
+    brew({ band: 1, seat: 0.2, size: 0.42, stretch: 1.8, tint: 0x1c3476, cover: 0.85, crest: 1 }),
+    brew({ side: 1, band: 2, size: 0.16, stretch: 1.5, tint: 0x1f3a80, cover: 0.8, crest: 0.8 }),
+    brew({ side: 0, band: 1, seat: -0.4, count: 3, size: 0.045, stretch: 6, tint: 0xe8f1ff }),
+  ],
+};
+
+const URANIAN: Giant = {
+  zones: [0xa0dbe8, 0xaae2ea, 0x9cd6e6],
+  belts: [0x93cfe0, 0x98d3e2, 0x8fcbdc],
+  pole: 0xc2eef0,
+  wisp: 0x6b7480,
+  wispy: 0,
+  first: 0.35,
+  width: 0.25,
+  narrowing: 0.95,
+  cap: 0.85,
+  edge: 0.08,
+  veins: 0.02,
+  stir: 0.15,
+  streak: 0.08,
+  puff: 0.1,
+  eastward: false,
+  jets: 0,
+  haze: 0xb9ecec,
+  air: 0.25,
+  brews: [brew({ side: 1, band: 2, count: 2, size: 0.05, stretch: 4, tint: 0xf2ffff, cover: 0.6 })],
+};
+
+const WATERY: Giant = {
+  zones: [0xf2f4f6, 0xe6ecf2, 0xf7f3ea],
+  belts: [0xb9c4d2, 0xa6b6c8, 0xcfc8ba, 0x9fb0c4],
+  pole: 0x9fb2c8,
+  wisp: 0x6b7480,
+  wispy: 0,
+  first: 0.15,
+  width: 0.16,
+  narrowing: 0.88,
+  cap: 1,
+  edge: 0.015,
+  veins: 0.08,
+  stir: 0.6,
+  streak: 0.35,
+  puff: 0.5,
+  eastward: true,
+  jets: 0.9,
+  haze: 0xcfe0ff,
+  air: 0.14,
+  brews: [
+    brew({ band: 3, count: 3, size: 0.3, tint: 0xffffff, cover: 0.8 }),
+    brew({ side: 1, band: 2, size: 0.4, stretch: 1.5, tint: 0x8fa3ba, cover: 0.8, wake: 0.7 }),
+  ],
+};
+
+const CLEAR: Giant = {
+  zones: [0x3d6fb8, 0x4478c0, 0x3a68ae],
+  belts: [0x335fa6, 0x2f589c, 0x3964aa],
+  pole: 0x2b4f90,
+  wisp: 0x6b7480,
+  wispy: 0,
+  first: 0.3,
+  width: 0.26,
+  narrowing: 0.95,
+  cap: 1.2,
+  edge: 0.07,
+  veins: 0.03,
+  stir: 0.12,
+  streak: 0.1,
+  puff: 0.03,
+  eastward: true,
+  jets: 0,
+  haze: 0x6f9cf0,
+  air: 0.3,
+  brews: [],
+};
+
+const SCORCHED: Giant = {
+  zones: [0x2a2f3c, 0x343846, 0x262b38],
+  belts: [0x1c1f2a, 0x221f24, 0x1a1d28],
+  pole: 0x15171f,
+  wisp: 0x6b7480,
+  wispy: 0,
+  first: 0.25,
+  width: 0.22,
+  narrowing: 0.92,
+  cap: 1.2,
+  edge: 0.04,
+  veins: 0.06,
+  stir: 0.5,
+  streak: 0.4,
+  puff: 0.1,
+  eastward: true,
+  jets: 0.6,
+  haze: 0x4a5a80,
+  air: 0.15,
+  brews: [],
+};
+
+function blended(from: Giant, to: Giant, share: number): Giant {
+  if (share <= 0) {
+    return from;
+  }
+  if (share >= 1) {
+    return to;
+  }
+  const mix = (left: number, right: number) => left + (right - left) * share;
+  const tones = (left: number[], right: number[]) =>
+    Array.from({ length: Math.max(left.length, right.length) }, (_, index) =>
+      tone(left[index % left.length], right[index % right.length], share),
+    );
+  const lead = share < 0.5 ? from : to;
+  const fade = Math.abs(1 - 2 * share);
+  return {
+    zones: tones(from.zones, to.zones),
+    belts: tones(from.belts, to.belts),
+    pole: tone(from.pole, to.pole, share),
+    wisp: lead.wisp,
+    wispy: mix(from.wispy, to.wispy),
+    first: mix(from.first, to.first),
+    width: mix(from.width, to.width),
+    narrowing: mix(from.narrowing, to.narrowing),
+    cap: mix(from.cap, to.cap),
+    edge: mix(from.edge, to.edge),
+    veins: mix(from.veins, to.veins),
+    stir: mix(from.stir, to.stir),
+    streak: mix(from.streak, to.streak),
+    puff: mix(from.puff, to.puff),
+    eastward: lead.eastward,
+    jets: mix(from.jets, to.jets),
+    haze: tone(from.haze, to.haze, share),
+    air: mix(from.air, to.air),
+    brews: lead.brews.map((given) => ({
+      ...given,
+      cover: given.cover * fade,
+      size: given.size * (0.5 + 0.5 * fade),
+    })),
+  };
+}
+
+export function giantOf(body: Body): Giant {
+  const { physics } = body;
+  const weight = Math.log(physics.mass / EARTH_MASS);
+  const heavy = blended(SATURNIAN, JOVIAN, smooth(Math.log(110), Math.log(280), weight));
+  const light = Math.max(
+    1 - smooth(Math.log(25), Math.log(80), weight),
+    0.8 * (1 - smooth(45, 70, physics.heat)),
+  );
+  const cold = blended(heavy, blended(URANIAN, NEPTUNIAN, physics.vigor), light);
+  const mild = blended(cold, WATERY, smooth(140, 200, physics.heat));
+  const warm = blended(mild, CLEAR, smooth(330, 450, physics.heat));
+  const giant = blended(warm, SCORCHED, smooth(800, 1100, physics.heat));
+  const random = createRandom(body.seed + 83);
+  const turn = 0.03 * (2 * random.next() - 1);
+  const vivid = 0.8 + 0.4 * random.next();
+  const shift = (shade: number) => varied(shade, turn, vivid, 1);
+  const pace = Math.max(0.75, Math.min(1.35, Math.sqrt(physics.day / (12 * HOUR))));
+  return {
+    ...giant,
+    zones: giant.zones.map(shift),
+    belts: giant.belts.map(shift),
+    pole: shift(giant.pole),
+    width: giant.width * pace,
+    stir: giant.stir * (0.6 + 0.8 * physics.vigor),
+    streak: giant.streak * (0.7 + 0.6 * physics.vigor),
+  };
+}
+
+const DUST = 0x6b6258;
+const FROST = 0xe9e1d0;
+
+export function hoopOf(body: Body): Hoop | null {
+  const { ring, radius } = body.physics;
+  if (ring === null) {
+    return null;
+  }
+  const random = createRandom(body.seed + 97);
+  const from = ring.inner / radius;
+  const to = ring.outer / radius;
+  const span = to - from;
+  const parts: Hoop["parts"] = [];
+  if (ring.depth >= 0.5) {
+    const count = 3 + Math.floor(3 * random.next());
+    const shares = Array.from({ length: count }, () => 0.4 + random.next());
+    const whole = shares.reduce((sum, share) => sum + share, 0);
+    const chief = 1 + Math.floor((count - 1) * random.next());
+    let at = from;
+    shares.forEach((share, index) => {
+      const width = (span * share) / whole;
+      const gap = index === count - 1 ? 0 : width * 0.12 * random.next() ** 2;
+      const dense =
+        index === chief ? 1 : index === 0 ? 0.15 + 0.2 * random.next() : 0.3 + 0.5 * random.next();
+      parts.push([at, at + width - gap, ring.depth * dense]);
+      at += width;
+    });
+  } else {
+    const count = 3 + Math.floor(4 * random.next());
+    for (let index = 0; index < count; index++) {
+      const at = from + (span * (index + 0.2 + 0.6 * random.next())) / count;
+      const width = span * (0.02 + 0.03 * random.next());
+      parts.push([
+        at,
+        Math.min(to, at + width),
+        Math.min(1, 2 * ring.depth * (0.6 + 0.4 * random.next())),
+      ]);
+    }
+  }
+  return { tint: tone(DUST, FROST, ring.ice), parts };
+}
+
+const BARREN: Skin = {
+  palette: [0, 0, 0x3c3a39, 0x565351, 0x77736e, 0xa9a49c, 0xe6e2da, 0x4a4846, 0],
+  low: -0.5,
+  span: 1,
+  frost: NO_FROST,
+  lift: 0,
+  snowy: 0,
+  patch: 0.45,
+  belted: 0,
+  cracks: 0,
+  bump: 0.1,
+  clouds: 0,
+  shroud: 0,
+  fog: 0xffffff,
+  haze: 0x8a8a8a,
+  air: 0,
+};
+
+const CHARRED: Skin = {
+  ...BARREN,
+  palette: [0, 0, 0x1c1a19, 0x2b2625, 0x3a322e, 0x54453c, 0xe6e2da, 0x141211, 0],
+};
+
+const DESERT: Skin = {
+  palette: [0, 0, 0x4a2f24, 0x9a5230, 0xc48a55, 0xdcb98a, 0xe6e2da, 0x6a3f2c, 0],
+  low: -0.417,
+  span: 0.83,
+  frost: 0.905,
+  lift: 0,
+  snowy: 0,
+  patch: 0.3,
+  belted: 0,
+  cracks: 0,
+  bump: 0.08,
+  clouds: 0,
+  shroud: 0,
+  fog: 0xffffff,
+  haze: 0xd89a70,
+  air: 0.4,
+};
+
+const SEA: Skin = {
+  palette: [0x081a2c, 0x173d58, 0x6b5a48, 0x8a7458, 0x9a8468, 0x7d6a5a, 0xdfe3e6, 0xb09a70, 0],
+  low: 0,
+  span: 0.5,
+  frost: 0.925,
+  lift: 0.06,
+  snowy: 1,
+  patch: 0.5,
+  belted: 1,
+  cracks: 0,
+  bump: 0.07,
+  clouds: 0.9,
+  shroud: 0,
+  fog: 0xffffff,
+  haze: 0x6fa8ff,
+  air: 1,
+};
+
+const LIVING: Skin = {
+  ...SEA,
+  palette: [0x081a2c, 0x173d58, 0x4f6b45, 0x72804f, 0x97855f, 0x7d6a5a, 0xdfe3e6, 0xa59a66, 0],
+  patch: 0.75,
+};
+
+const ICE: Skin = {
+  palette: [0, 0, 0xa4bdcd, 0xccdce5, 0xe8f1f5, 0xe8f1f5, 0xf4f8fa, 0x8a5a44, 0x3f6a8c],
+  low: -0.5,
+  span: 1,
+  frost: NO_FROST,
+  lift: 0,
+  snowy: 0,
+  patch: 0,
+  belted: 0,
+  cracks: 0.45,
+  bump: 0.035,
+  clouds: 0,
+  shroud: 0,
+  fog: 0xffffff,
+  haze: 0xa8d8ff,
+  air: 0.6,
+};
+
+const HOT_FOG = 0xe8d9a8;
+const COLD_FOG = 0xd9a55a;
+
+function merged(from: Skin, to: Skin, share: number): Skin {
+  if (share <= 0) {
+    return from;
+  }
+  if (share >= 1) {
+    return to;
+  }
+  const mix = (left: number, right: number) => left + (right - left) * share;
+  return {
+    palette: from.palette.map((shade, index) => tone(shade, to.palette[index], share)),
+    low: mix(from.low, to.low),
+    span: mix(from.span, to.span),
+    frost: mix(from.frost, to.frost),
+    lift: mix(from.lift, to.lift),
+    snowy: mix(from.snowy, to.snowy),
+    patch: mix(from.patch, to.patch),
+    belted: mix(from.belted, to.belted),
+    cracks: mix(from.cracks, to.cracks),
+    bump: mix(from.bump, to.bump),
+    clouds: mix(from.clouds, to.clouds),
+    shroud: mix(from.shroud, to.shroud),
+    fog: tone(from.fog, to.fog, share),
+    haze: tone(from.haze, to.haze, share),
+    air: mix(from.air, to.air),
+  };
+}
+
+function ground(skin: Skin, change: (shade: number) => number): Skin {
+  return {
+    ...skin,
+    palette: skin.palette.map((shade, index) =>
+      (index >= 2 && index <= 5) || index === 7 ? change(shade) : shade,
+    ),
+  };
+}
+
+export function skinOf(body: Body): Skin {
+  const { physics } = body;
+  const random = createRandom(body.seed + 61);
+  const turn = 0.04 * (2 * random.next() - 1);
+  const vivid = random.next();
+  const bright = 0.8 + 0.4 * random.next();
+  const soot = random.next();
+  const pressure = physics.air > 0 ? Math.log10(physics.air) : 0;
+  const airy = smooth(2.5, 4.5, pressure);
+  const wet = seaCover(physics) > 0;
+  const chilled = 1 - smooth(200, 273, physics.heat);
+  const icy = smooth(0.03, 0.25, physics.ice) * chilled;
+
+  const rock = ground(BARREN, (shade) => varied(shade, turn, 0.5 + 3 * vivid, bright));
+  const sand = ground(DESERT, (shade) => varied(shade, turn, 0.8 + 0.4 * vivid, bright));
+  const dry = merged(merged(rock, sand, airy), CHARRED, smooth(700, 1200, physics.heat));
+  const temperate = wet ? merged(SEA, LIVING, physics.life) : dry;
+  const dirty = ground(ICE, (shade) => varied(shade, turn, 1, 1 - 0.45 * soot * soot));
+  const tholin = { ...dirty, patch: 0.55 * (1 - smooth(55, 90, physics.heat)) };
+  const skin = merged(temperate, tholin, icy);
+
+  const damp = Math.max(0, Math.min(1, Math.log10(Math.max(physics.ice, 1e-6) / 1e-6) / 2.5));
+  const frost = wet
+    ? Math.max(0.2, Math.min(1.3, 0.925 + 0.014 * (physics.heat - 288)))
+    : icy >= 0.5 || airy === 0
+      ? NO_FROST
+      : 1.05 - 0.17 * damp * (1 - smooth(250, 320, physics.heat));
+  const thick = smooth(5.7, 6.7, pressure);
+  return {
+    ...skin,
+    frost,
+    shroud: thick,
+    fog: thick > 0 ? tone(COLD_FOG, HOT_FOG, smooth(120, 350, physics.heat)) : skin.fog,
+    haze:
+      thick > 0
+        ? tone(skin.haze, tone(COLD_FOG, HOT_FOG, smooth(120, 350, physics.heat)), thick)
+        : skin.haze,
+    air: wet ? 1 : Math.max(0, Math.min(1.1, 0.35 * (pressure - 2) * Math.sign(physics.air))),
+  };
+}

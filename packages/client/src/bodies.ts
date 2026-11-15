@@ -1,4 +1,4 @@
-import { type Body, type BodyKind, createRandom } from "@barycenter/sim";
+import { type Body, createRandom } from "@barycenter/sim";
 import {
   AdditiveBlending,
   BackSide,
@@ -28,6 +28,17 @@ import {
   type WebGLRenderer,
 } from "three";
 import {
+  type Flame,
+  familyOf,
+  flameOf,
+  flatnessOf,
+  type Giant,
+  giantOf,
+  type Hoop,
+  hoopOf,
+  skinOf,
+} from "./looks.ts";
+import {
   BAKE_FRAGMENT,
   BAKE_VERTEX,
   BODY_VERTEX,
@@ -40,6 +51,7 @@ import {
   GAS_STEPS,
   LIMB,
   LIMB_DEPTH,
+  PALETTE_ROOM,
   RING_FRAGMENT,
   RING_VERTEX,
   SHELL_FRAGMENT,
@@ -58,23 +70,12 @@ export interface Look {
   light(sun: Vector3, chart: number, tick: number): void;
   refine(size: number): void;
   restore(): void;
+  dispose(): void;
 }
 
-interface Skin {
-  palette: number[];
-  haze: number;
-  air: number;
-}
-
-interface Flame {
-  tint: number;
-  kelvin: number;
-  grain: number;
-  chill: number;
-  poles: number;
-  regions: number;
-  girth: number;
-  belt: number;
+export interface Studio {
+  shineOf(star: Body | undefined): Color;
+  shape(body: Body, shine: Color, detail: number): Look;
 }
 
 interface Region {
@@ -84,47 +85,6 @@ interface Region {
   height: number;
   turn: number;
   girth: number;
-}
-
-interface Brew {
-  side: -1 | 0 | 1;
-  band: number;
-  seat: number;
-  count: number;
-  size: number;
-  stretch: number;
-  tint: number;
-  cover: number;
-  wake: number;
-  crest: number;
-}
-
-interface Hoop {
-  tint: number;
-  parts: [from: number, to: number, density: number][];
-}
-
-interface Giant {
-  zones: number[];
-  belts: number[];
-  pole: number;
-  wisp: number | null;
-  first: number;
-  width: number;
-  narrowing: number;
-  cap: number;
-  edge: number;
-  veins: number;
-  stir: number;
-  streak: number;
-  puff: number;
-  eastward: boolean;
-  jets: number;
-  squash: number;
-  haze: number;
-  air: number;
-  hoop: Hoop | null;
-  brews: Brew[];
 }
 
 interface Band {
@@ -150,7 +110,6 @@ interface Storm {
 
 const SHELL_SCALE = 1.04;
 const FLARE_REACH = 3;
-const PALETTE_ROOM = 8;
 const CLOUD_TURN = 2400;
 const JET_TURN = 1800;
 const FLOW_LIFE = 300;
@@ -169,204 +128,12 @@ const SHINE_PALE = 0.6;
 const WIEN = 14388;
 const WAVES = [0.61, 0.55, 0.465];
 
-function brew(given: Partial<Brew> & Pick<Brew, "band" | "size" | "tint">): Brew {
-  return { side: -1, seat: 0, count: 1, stretch: 1.3, cover: 0.9, wake: 0, crest: 0, ...given };
-}
-
-const GIANTS: Giant[] = [
-  {
-    zones: [0xefe6d2, 0xe3d2b0, 0xd9c8a8, 0xe8dcc0],
-    belts: [0x9a6a4a, 0x7a4b35, 0xa87a52, 0x86705e],
-    pole: 0x7f7669,
-    wisp: 0x6b7480,
-    first: 0.13,
-    width: 0.15,
-    narrowing: 0.82,
-    cap: 0.95,
-    edge: 0.008,
-    veins: 0.13,
-    stir: 0.8,
-    streak: 0.5,
-    puff: 0.35,
-    eastward: true,
-    jets: 1,
-    squash: 0.065,
-    haze: 0xbfae95,
-    air: 0.07,
-    hoop: null,
-    brews: [
-      brew({ band: 2, seat: -0.75, size: 0.6, stretch: 1.6, tint: 0xb5694e, cover: 0.95, wake: 1 }),
-      brew({ band: 4, count: 4, size: 0.3, stretch: 1.2, tint: 0xf3ead8 }),
-      brew({ band: 3, seat: 0.2, size: 0.34, stretch: 1.4, tint: 0xe2b99a }),
-      brew({
-        side: 1,
-        band: 1,
-        seat: 0.45,
-        count: 2,
-        size: 0.14,
-        stretch: 2.6,
-        tint: 0x5a3524,
-        cover: 0.85,
-      }),
-    ],
-  },
-  {
-    zones: [0xf5e0a8, 0xf0d590, 0xf7e7ba],
-    belts: [0xdcb872, 0xcfa35c, 0xe3c483, 0xc9a868],
-    pole: 0x8f9c9e,
-    wisp: null,
-    first: 0.16,
-    width: 0.12,
-    narrowing: 0.92,
-    cap: 1.15,
-    edge: 0.02,
-    veins: 0.09,
-    stir: 0.3,
-    streak: 0.2,
-    puff: 0.1,
-    eastward: true,
-    jets: 0.8,
-    squash: 0.098,
-    haze: 0xd9c79a,
-    air: 0.1,
-    hoop: {
-      tint: 0xe9e1d0,
-      parts: [
-        [1.22, 1.45, 0.14],
-        [1.45, 1.75, 0.9],
-        [1.8, 1.925, 0.6],
-        [1.94, 1.97, 0.5],
-      ],
-    },
-    brews: [
-      brew({ side: 1, band: 3, size: 0.3, stretch: 1.5, tint: 0xf4ecd6, cover: 0.7, wake: 0.6 }),
-      brew({ band: 4, count: 2, size: 0.25, tint: 0xefe2bd, cover: 0.6 }),
-    ],
-  },
-  {
-    zones: [0x3f6fd0, 0x4a7bd8, 0x3a66c4],
-    belts: [0x2f58b8, 0x2a4fa8, 0x3560bc],
-    pole: 0x2c4f9c,
-    wisp: null,
-    first: 0.3,
-    width: 0.24,
-    narrowing: 0.95,
-    cap: 1.2,
-    edge: 0.05,
-    veins: 0.05,
-    stir: 0.2,
-    streak: 0.2,
-    puff: 0.12,
-    eastward: false,
-    jets: 0,
-    squash: 0.02,
-    haze: 0x5a8cf0,
-    air: 0.25,
-    hoop: null,
-    brews: [
-      brew({ band: 1, seat: 0.2, size: 0.42, stretch: 1.8, tint: 0x1c3476, cover: 0.85, crest: 1 }),
-      brew({ side: 1, band: 2, size: 0.16, stretch: 1.5, tint: 0x1f3a80, cover: 0.8, crest: 0.8 }),
-      brew({ side: 0, band: 1, seat: -0.4, count: 3, size: 0.045, stretch: 6, tint: 0xe8f1ff }),
-    ],
-  },
-  {
-    zones: [0xa0dbe8, 0xaae2ea, 0x9cd6e6],
-    belts: [0x93cfe0, 0x98d3e2, 0x8fcbdc],
-    pole: 0xc2eef0,
-    wisp: null,
-    first: 0.35,
-    width: 0.25,
-    narrowing: 0.95,
-    cap: 0.85,
-    edge: 0.08,
-    veins: 0.02,
-    stir: 0.15,
-    streak: 0.08,
-    puff: 0.1,
-    eastward: false,
-    jets: 0,
-    squash: 0.023,
-    haze: 0xb9ecec,
-    air: 0.25,
-    hoop: {
-      tint: 0x8b9aa3,
-      parts: [
-        [1.6, 1.612, 0.5],
-        [1.68, 1.69, 0.45],
-        [1.75, 1.758, 0.4],
-        [1.83, 1.846, 0.55],
-        [1.95, 1.972, 0.7],
-      ],
-    },
-    brews: [
-      brew({ side: 1, band: 2, count: 2, size: 0.05, stretch: 4, tint: 0xf2ffff, cover: 0.6 }),
-    ],
-  },
-];
-
-const STARS: Flame[] = [
-  {
-    tint: 0xffb663,
-    kelvin: 5800,
-    grain: 0.07,
-    chill: 0.58,
-    poles: 0,
-    regions: 7,
-    girth: 0.03,
-    belt: 0.55,
-  },
-  {
-    tint: 0xff9545,
-    kelvin: 4700,
-    grain: 0.055,
-    chill: 0.62,
-    poles: 0,
-    regions: 8,
-    girth: 0.036,
-    belt: 0.7,
-  },
-  { tint: 0xccdeff, kelvin: 8200, grain: 0, chill: 1, poles: 0.2, regions: 0, girth: 0, belt: 0 },
-  {
-    tint: 0xff6f2c,
-    kelvin: 3400,
-    grain: 0.03,
-    chill: 0.8,
-    poles: 0,
-    regions: 8,
-    girth: 0.05,
-    belt: 1.1,
-  },
-];
-
-function flameOf(star: Body): Flame {
-  return STARS[star.seed % STARS.length];
-}
-
 function regionsOf(star: Body, flame: Flame): Region[] {
   const random = createRandom(star.seed);
   return Array.from({ length: Math.min(flame.regions, SPOT_ROOM / 2) }, () => {
     const span = REGION_LIFE * (0.7 + 0.6 * random.next());
     return { span, shift: span * random.next(), cycle: Number.NaN, height: 0, turn: 0, girth: 0 };
   });
-}
-
-const SKINS: Record<Exclude<BodyKind, "gas" | "star">, Skin> = {
-  terran: {
-    palette: [0x081a2c, 0x173d58, 0x4f6b45, 0x72804f, 0x97855f, 0x7d6a5a, 0xdfe3e6, 0xa59a66],
-    haze: 0x6fa8ff,
-    air: 1,
-  },
-  desert: {
-    palette: [0x4a2f24, 0x9a5230, 0xc48a55, 0xdcb98a, 0, 0, 0xe6e2da],
-    haze: 0xd89a70,
-    air: 0.4,
-  },
-  barren: { palette: [0x3c3a39, 0x77736e, 0xa9a49c], haze: 0, air: 0 },
-  ice: { palette: [0x9db8c9, 0xe8f1f5, 0x3f6a8c], haze: 0xa8d8ff, air: 0.6 },
-};
-
-function giantOf(body: Body): Giant {
-  return GIANTS[body.seed % GIANTS.length];
 }
 
 function bandsOf(body: Body, giant: Giant): Band[] {
@@ -438,7 +205,7 @@ function chartOf(body: Body, giant: Giant, bands: Band[]): DataTexture {
   const finest = ripple(random, 420);
   const flow = flowOf(giant, bands);
   const pole = new Color(giant.pole);
-  const wisp = giant.wisp === null ? null : new Color(giant.wisp);
+  const wisp = new Color(giant.wisp);
   const data = new Uint8Array(BAND_STEPS * 2 * 4);
   const shade = new Color();
   for (let step = 0; step < BAND_STEPS; step++) {
@@ -464,8 +231,8 @@ function chartOf(body: Body, giant: Giant, bands: Band[]): DataTexture {
       puff += ((band.dark ? 1 : 0.1) - puff) * within;
       const brink = Math.exp(-(((level - band.from) / (2.5 * giant.edge + 0.012)) ** 2));
       stir += 0.5 * calm * brink;
-      if (index === 0 && wisp !== null) {
-        shade.lerp(wisp, 0.75 * Math.exp(-(((level - band.from - 0.012) / 0.014) ** 2)));
+      if (index === 0) {
+        shade.lerp(wisp, giant.wispy * Math.exp(-(((level - band.from - 0.012) / 0.014) ** 2)));
       }
     });
     const capped = MathUtils.smoothstep(level, giant.cap - 0.12, giant.cap + 0.12);
@@ -559,6 +326,12 @@ function stormsOf(body: Body, giant: Giant, bands: Band[]): Storm[] {
 }
 
 export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: number): Look[] {
+  const studio = createStudio(renderer);
+  const shine = studio.shineOf(bodies.find((body) => familyOf(body.physics) === "star"));
+  return bodies.map((body) => studio.shape(body, shine, detail));
+}
+
+export function createStudio(renderer: WebGLRenderer): Studio {
   const packed =
     !renderer.extensions.has("EXT_color_buffer_half_float") &&
     !renderer.extensions.has("EXT_color_buffer_float");
@@ -625,9 +398,10 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
   };
   const fill = (target: WebGLCubeRenderTarget, body: Body) => {
     const before = renderer.getRenderTarget();
-    if (body.kind === "star") {
+    const family = familyOf(body.physics);
+    if (family === "star") {
       stamp(target, forge, body);
-    } else if (body.kind === "gas") {
+    } else if (family === "fluid") {
       const drafts = packed
         ? []
         : [0, 1].map(
@@ -661,7 +435,7 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
   };
   const bake = (body: Body, size: number): WebGLCubeRenderTarget => {
     const target = new WebGLCubeRenderTarget(size, {
-      type: packed || body.kind === "star" ? UnsignedByteType : HalfFloatType,
+      type: packed || familyOf(body.physics) === "star" ? UnsignedByteType : HalfFloatType,
       generateMipmaps: true,
       minFilter: LinearMipmapLinearFilter,
       magFilter: LinearFilter,
@@ -670,7 +444,11 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
     fill(target, body);
     return target;
   };
-  const baked = (body: Body, settle: (relief: CubeTexture, size: number) => void) => {
+  const baked = (
+    body: Body,
+    detail: number,
+    settle: (relief: CubeTexture, size: number) => void,
+  ) => {
     let size = detail;
     let target = bake(body, size);
     settle(target.texture, size);
@@ -689,16 +467,18 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
       restore() {
         fill(target, body);
       },
+      release() {
+        target.dispose();
+      },
     };
   };
 
-  const star = bodies.find((body) => body.kind === "star");
-  const shine =
+  const shineOf = (star: Body | undefined) =>
     star === undefined
       ? new Color(0xffffff)
       : new Color(flameOf(star).tint).lerp(new Color(0xffffff), SHINE_PALE);
 
-  const ignite = (body: Body): Look => {
+  const ignite = (body: Body, detail: number): Look => {
     const flame = flameOf(body);
     const regions = regionsOf(body, flame);
     const spots = Array.from({ length: SPOT_ROOM }, () => new Vector4(0, 0, 0, 0));
@@ -718,7 +498,7 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
       steep: { value: steep },
       traits: { value: new Vector3(flame.grain, flame.chill, flame.poles) },
     };
-    const surface = baked(body, (relief) => {
+    const { release, ...surface } = baked(body, detail, (relief) => {
       uniforms.relief.value = relief;
     });
 
@@ -799,32 +579,37 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
           );
         });
       },
+      dispose() {
+        release();
+        globe.material.dispose();
+        flare.material.dispose();
+      },
     };
   };
 
-  return bodies.map((body): Look => {
-    if (body.kind === "star") {
-      return ignite(body);
+  const shape = (body: Body, shine: Color, detail: number): Look => {
+    const family = familyOf(body.physics);
+    if (family === "star") {
+      return ignite(body, detail);
     }
-    const giant = body.kind === "gas" ? giantOf(body) : null;
-    const skin: Skin =
-      giant !== null
-        ? { palette: [], haze: giant.haze, air: giant.air }
-        : SKINS[body.kind as keyof typeof SKINS];
+    const giant = family === "fluid" ? giantOf(body) : null;
+    const skin = giant === null ? skinOf(body) : null;
+    const wet = body.relief.sea !== null;
     const palette = Array.from(
       { length: PALETTE_ROOM },
-      (_, index) => new Color(skin.palette[index] ?? 0),
+      (_, index) => new Color(skin?.palette[index] ?? 0),
     );
-    const haze = new Color(skin.haze);
+    const haze = new Color(giant?.haze ?? skin?.haze ?? 0);
     const sun = new Vector3(1, 0, 0);
-    const bands = giant === null ? [] : bandsOf(body, giant);
-    const storms = giant === null ? [] : stormsOf(body, giant, bands);
+    const lanes = giant === null ? [] : bandsOf(body, giant);
+    const storms = giant === null ? [] : stormsOf(body, giant, lanes);
     const spots = Array.from({ length: STORM_ROOM }, () => new Vector4(1, 0, 0, 0));
     const stream = new Vector4(0, 1, 0, 0);
     const shift = new Vector2();
-    const flat = 1 - (giant?.squash ?? 0);
-    const hoop = giant?.hoop ?? null;
+    const flat = 1 - flatnessOf(body.physics);
+    const hoop = hoopOf(body);
     const grit = hoop === null ? null : gritOf(body, hoop);
+    const bands = giant === null ? null : chartOf(body, giant, lanes);
     const reach =
       hoop === null
         ? new Vector2(0, 0)
@@ -837,15 +622,31 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
       haze: { value: haze },
       sun: { value: sun },
       chart: { value: 0 },
-      span: { value: body.relief.peak - (body.relief.sea ?? 0) },
-      air: { value: skin.air },
+      air: { value: giant?.air ?? skin?.air ?? 0 },
+      fog: { value: new Color(skin?.fog ?? 0xffffff) },
       shine: { value: shine },
       drift: { value: 0 },
       squash: { value: 1 / flat ** 2 },
+      grit: { value: grit },
+      hoop: { value: reach },
+      sunny: { value: sunny },
+      ...(skin === null
+        ? {}
+        : {
+            ramp: {
+              value: wet
+                ? new Vector2(0, body.relief.peak - (body.relief.sea ?? 0))
+                : new Vector2(skin.low, skin.span),
+            },
+            clime: { value: new Vector4(skin.frost, skin.lift, skin.snowy, wet ? 1 : 0) },
+            marks: { value: new Vector4(skin.patch, skin.belted, skin.cracks, 0) },
+            deck: { value: new Vector2(skin.clouds, skin.shroud) },
+            relish: { value: skin.bump },
+          }),
       ...(giant === null
         ? {}
         : {
-            bands: { value: chartOf(body, giant, bands) },
+            bands: { value: bands },
             stream: { value: stream },
             shift: { value: shift },
             mood: { value: new Vector3(giant.stir, giant.streak, giant.puff) },
@@ -866,12 +667,9 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
                   : new Vector4(storm.tint.r, storm.tint.g, storm.tint.b, storm.cover);
               }),
             },
-            grit: { value: grit },
-            hoop: { value: reach },
-            sunny: { value: sunny },
           }),
     };
-    const surface = baked(body, (relief) => {
+    const { release, ...surface } = baked(body, detail, (relief) => {
       uniforms.relief.value = relief;
     });
 
@@ -880,7 +678,7 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
       ball,
       new ShaderMaterial({
         vertexShader: BODY_VERTEX,
-        fragmentShader: bodyFragment(body.kind),
+        fragmentShader: bodyFragment(giant !== null),
         defines,
         uniforms,
       }),
@@ -888,7 +686,8 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
     globe.scale.set(body.radius, body.radius * flat, body.radius);
     frame.add(globe);
 
-    if (skin.air > 0) {
+    const parts: Mesh<IcosahedronGeometry | RingGeometry, ShaderMaterial>[] = [globe];
+    if (uniforms.air.value > 0) {
       const shell = new Mesh(
         ball,
         new ShaderMaterial({
@@ -909,6 +708,7 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
       );
       shell.scale.copy(globe.scale).multiplyScalar(SHELL_SCALE);
       frame.add(shell);
+      parts.push(shell);
     }
 
     if (grit !== null) {
@@ -932,6 +732,7 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
       ring.scale.setScalar(body.radius);
       ring.renderOrder = 1;
       frame.add(ring);
+      parts.push(ring);
     }
 
     return {
@@ -943,10 +744,12 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
         sun.copy(toward);
         uniforms.chart.value = chart;
         uniforms.drift.value = (2 * Math.PI * (tick % CLOUD_TURN)) / CLOUD_TURN;
+        if (grit !== null) {
+          sunny.copy(toward).applyQuaternion(frame.getWorldQuaternion(upright).invert());
+        }
         if (giant === null) {
           return;
         }
-        sunny.copy(toward).applyQuaternion(frame.getWorldQuaternion(upright).invert());
         const beat = (age: number, offset: number) => {
           const cycle = Math.floor(age);
           const share = age - cycle;
@@ -972,6 +775,19 @@ export function createLooks(renderer: WebGLRenderer, bodies: Body[], detail: num
           );
         });
       },
+      dispose() {
+        release();
+        grit?.dispose();
+        bands?.dispose();
+        for (const part of parts) {
+          part.material.dispose();
+          if (part.geometry !== ball) {
+            part.geometry.dispose();
+          }
+        }
+      },
     };
-  });
+  };
+
+  return { shineOf, shape };
 }

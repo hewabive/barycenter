@@ -1,4 +1,4 @@
-import { type BodyKind, RELIEF_SHAPE } from "@barycenter/sim";
+import { RELIEF_SHAPE } from "@barycenter/sim";
 
 const real = (value: number) => (Number.isInteger(value) ? `${value}.0` : String(value));
 const shape = RELIEF_SHAPE;
@@ -120,6 +120,7 @@ const ARCH_RISE = 1.8;
 const ARCH_CAP = 0.04;
 
 export const STORM_ROOM = 8;
+export const PALETTE_ROOM = 9;
 export const SPOT_ROOM = 16;
 export const LIMB = 0.28;
 export const LIMB_DEPTH = 0.4;
@@ -323,65 +324,45 @@ void main() {
 }
 `;
 
-const SKINS: Record<Exclude<BodyKind, "star" | "gas">, string> = {
-  terran: `
-  float rise = height / span;
-  float cold = smoothstep(0.88, 0.97, abs(at.y) + 0.06 * rise + 0.05 * other);
-  vec3 land = mix(palette[2], palette[3], smoothstep(0.0, 0.45, rise));
-  float arid = smoothstep(0.0, 0.5, other) * (1.0 - smoothstep(0.5, 0.75, abs(at.y)));
-  land = mix(land, palette[7], 0.75 * arid * (1.0 - smoothstep(0.5, 1.0, rise)));
-  land = mix(land, palette[4], smoothstep(0.45, 1.0, rise));
-  land = mix(land, palette[5], smoothstep(0.95, 1.5, rise));
-  land = mix(land, palette[6], max(cold, smoothstep(1.5, 2.2, rise)));
-  vec3 water = mix(palette[1], palette[0], smoothstep(0.0, 0.22, -height));
-  water = mix(water, palette[6] * 0.9, cold * 0.9);
-  wet = 1.0 - smoothstep(-edge, edge, height);
-  albedo = mix(land, water, wet);
-  bump = 0.07;
-  if (chart < 0.999) {
-    vec4 high = survey(spun(at, drift).yzx);
-    vec3 back = spun(at, -2.0 * drift);
-    vec4 low = survey(vec3(-back.z, back.x, -back.y));
-    float belt = 0.2 * cos(at.y * 5.2) - 0.08;
-    float mass = high.a + 0.6 * low.a + 0.02 * (high.r + low.g) + belt;
-    cover = 0.9 * smoothstep(0.2, 1.0, mass);
-  }
-`,
-  desert: `
-  float rise = height * 1.2 + 0.5;
-  vec3 land = mix(palette[0], palette[1], smoothstep(0.0, 0.5, rise));
-  land = mix(land, palette[2], smoothstep(0.45, 1.0, rise));
-  land = mix(land, palette[3], smoothstep(1.0, 1.6, rise));
-  float cold = smoothstep(0.86, 0.95, abs(at.y) + 0.05 * other);
-  albedo = mix(land, palette[6], cold);
-  bump = 0.08;
-`,
-  barren: `
-  float rise = height + 0.5;
-  vec3 land = mix(palette[0], palette[1], smoothstep(0.0, 1.0, rise));
-  land = mix(land, palette[2], smoothstep(1.0, 1.6, rise));
-  albedo = land * (1.0 - 0.3 * smoothstep(0.1, 0.4, other));
-  bump = 0.1;
-`,
-  ice: `
-  float rise = height + 0.5;
-  vec3 land = mix(palette[0], palette[1], smoothstep(-0.2, 0.9, rise));
-  float crack = smoothstep(5.0, 11.0, length(ground.rgb));
-  albedo = mix(land, palette[2], crack * 0.45);
-  bump = 0.035;
-`,
-};
+const SOLID_UNIFORMS = `
+uniform vec2 ramp;
+uniform vec4 clime;
+uniform vec4 marks;
+uniform vec2 deck;
+uniform float relish;
+`;
 
-function solid(skin: string): string {
-  return `
+const SOLID = `
   vec4 ground = survey(at);
   float height = ground.a;
   float other = survey(at.zxy).a;
   float edge = fwidth(height) + 1e-4;
   slope = ground.rgb;
-  ${skin}
+  float rise = (height - ramp.x) / ramp.y;
+  float cold = smoothstep(clime.x - 0.045, clime.x + 0.045, abs(at.y) + clime.y * rise + 0.05 * other);
+  vec3 land = mix(palette[2], palette[3], smoothstep(0.0, 0.45, rise));
+  float patchy = smoothstep(0.0, 0.5, other) * mix(1.0, 1.0 - smoothstep(0.5, 0.75, abs(at.y)), marks.y);
+  land = mix(land, palette[7], marks.x * patchy * (1.0 - smoothstep(0.5, 1.0, rise)));
+  land = mix(land, palette[4], smoothstep(0.45, 1.0, rise));
+  land = mix(land, palette[5], smoothstep(0.95, 1.5, rise));
+  land = mix(land, palette[8], marks.z * smoothstep(5.0, 11.0, length(slope)));
+  land = mix(land, palette[6], max(cold, clime.z * smoothstep(1.5, 2.2, rise)));
+  vec3 water = mix(palette[1], palette[0], smoothstep(0.0, 0.22, -height));
+  water = mix(water, palette[6] * 0.9, cold * 0.9);
+  wet = clime.w * (1.0 - smoothstep(-edge, edge, height));
+  albedo = mix(land, water, wet);
+  bump = relish;
+  if (chart < 0.999 && deck.x + deck.y > 0.0) {
+    vec4 high = survey(spun(at, drift).yzx);
+    vec3 back = spun(at, -2.0 * drift);
+    vec4 low = survey(vec3(-back.z, back.x, -back.y));
+    float belt = 0.2 * cos(at.y * 5.2) - 0.08;
+    float mass = high.a + 0.6 * low.a + 0.02 * (high.r + low.g) + belt;
+    float thick = smoothstep(0.2, 1.0, mass);
+    cover = max(0.9 * deck.x * thick, deck.y);
+    murk = 0.2 * deck.y * (1.0 - smoothstep(-0.4, 0.8, mass));
+  }
 `;
-}
 
 const GAS_UNIFORMS = `
 uniform sampler2D bands;
@@ -391,9 +372,6 @@ uniform vec3 mood;
 uniform vec4 storms[${STORM_ROOM}];
 uniform vec4 whirls[${STORM_ROOM}];
 uniform vec4 stains[${STORM_ROOM}];
-uniform sampler2D grit;
-uniform vec2 hoop;
-uniform vec3 sunny;
 `;
 
 const GAS = `
@@ -458,28 +436,24 @@ const GAS = `
   float crest = exp(-pow((rank - 1.25) / 0.2, 2.0)) * smoothstep(0.1, 0.9, seat.y * sign(chief.y) / max(rank, 1e-3));
   cloud = mix(cloud, vec3(1.0), habit.w * crest * smoothstep(-0.1, 0.25, mixed.b + 0.5 * mixed.g));
   albedo = cloud * mix(0.72, 1.0, pow(max(dot(round, eye), 0.0), 0.6));
-  if (hoop.y > 0.0) {
-    vec3 stood = at * vec3(1.0, inversesqrt(squash), 1.0);
-    float drop = -stood.y / (abs(sunny.y) < 1e-4 ? 1e-4 : sunny.y);
-    float across = (length((stood + sunny * drop).xz) - hoop.x) / (hoop.y - hoop.x);
-    float veil = texture2D(grit, vec2(across, 0.5)).a * step(0.0, drop) * step(0.0, across) * step(across, 1.0);
-    shaded = ${real(RING_SHADE)} * veil;
-  }
 `;
 
-export function bodyFragment(kind: Exclude<BodyKind, "star">): string {
+export function bodyFragment(fluid: boolean): string {
   return `
 ${SURVEY}
-uniform vec3 palette[8];
+uniform vec3 palette[${PALETTE_ROOM}];
 uniform vec3 haze;
+uniform vec3 fog;
 uniform vec3 sun;
 uniform float chart;
-uniform float span;
 uniform float air;
 uniform float drift;
 uniform float squash;
 uniform vec3 shine;
-${kind === "gas" ? GAS_UNIFORMS : ""}
+uniform sampler2D grit;
+uniform vec2 hoop;
+uniform vec3 sunny;
+${fluid ? GAS_UNIFORMS : SOLID_UNIFORMS}
 uniform mat4 modelMatrix;
 varying vec3 vAt;
 varying vec3 vPlace;
@@ -494,9 +468,17 @@ void main() {
   vec3 slope = vec3(0.0);
   float wet = 0.0;
   float cover = 0.0;
+  float murk = 0.0;
   float bump = 0.0;
   float shaded = 0.0;
-  ${kind === "gas" ? GAS : solid(SKINS[kind])}
+  ${fluid ? GAS : SOLID}
+  if (hoop.y > 0.0) {
+    vec3 stood = at * vec3(1.0, inversesqrt(squash), 1.0);
+    float drop = -stood.y / (abs(sunny.y) < 1e-4 ? 1e-4 : sunny.y);
+    float across = (length((stood + sunny * drop).xz) - hoop.x) / (hoop.y - hoop.x);
+    float veil = texture2D(grit, vec2(across, 0.5)).a * step(0.0, drop) * step(0.0, across) * step(across, 1.0);
+    shaded = ${real(RING_SHADE)} * veil;
+  }
   float depth = bump * mix(1.0, 0.3, wet);
   vec3 charted = albedo * hillshade(at, slope, depth);
 
@@ -507,7 +489,7 @@ void main() {
   orbited += shine * wet * day * 0.3 * pow(max(dot(reflect(-sun, round), eye), 0.0), 40.0);
   orbited = mix(
     orbited,
-    0.03 + 0.95 * shine * day * clamp(dot(round, sun) + 0.25, 0.0, 1.0),
+    fog * (1.0 - murk) * (0.03 + 0.95 * shine * day * (1.0 - shaded) * clamp(dot(round, sun) + 0.25, 0.0, 1.0)),
     cover
   );
 

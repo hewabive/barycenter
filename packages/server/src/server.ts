@@ -49,9 +49,16 @@ const REPLACED = 4000;
 const FLOODING = 4001;
 
 function encode(message: ServerMessage): string {
-  return JSON.stringify(message, (_key, value) =>
-    typeof value === "number" ? Math.round(value * WIRE_PRECISION) / WIRE_PRECISION : value,
-  );
+  let physics: unknown = null;
+  let ring: unknown = null;
+  return JSON.stringify(message, function (this: unknown, key, value) {
+    if (key === "physics") {
+      physics = value;
+      ring = value?.ring ?? null;
+    }
+    const rounded = typeof value === "number" && this !== physics && this !== ring;
+    return rounded ? Math.round(value * WIRE_PRECISION) / WIRE_PRECISION : value;
+  });
 }
 
 function send(socket: WebSocket, message: ServerMessage): void {

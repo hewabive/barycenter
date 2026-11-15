@@ -94,6 +94,9 @@ test("a client joins, runs time and receives one view per tick", async () => {
     assert.equal(welcome.seat, 0);
     assert.equal(welcome.view.tick, 0);
     assert.equal(welcome.time.paused, true);
+    const { system } = welcome.outline;
+    assert.ok(system.bodies[system.home].physics.ice > 0);
+    assert.ok(system.bodies[0].physics.mass > 1e29);
 
     client.send({ type: "time", paused: false, speed: 1 });
     const first = await client.next("view");
@@ -278,7 +281,7 @@ test("a save from another format is set aside and a fresh game starts", async ()
     const kept = JSON.parse(await readFile(join(folder, "eta.unsupported.json"), "utf8"));
     assert.equal(kept.state.tick, 9);
     const saved = JSON.parse(await readFile(join(folder, "eta.json"), "utf8"));
-    assert.equal(saved.version, 8);
+    assert.equal(saved.version, 9);
   } finally {
     await rm(folder, { recursive: true, force: true });
   }

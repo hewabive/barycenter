@@ -50,6 +50,7 @@ const REACH_SHARE = 1.9;
 export const SHORE_STEP = 0.01;
 const CAPITAL_LEVEL_CAP = 6;
 const START_MIX = [0.3, 0.45, 0.25];
+const SYSTEM_SALT = 0x5bd1e995;
 
 export function createWorld(options: WorldOptions): State {
   const constants = options.constants ?? defaultConstants;
@@ -59,7 +60,7 @@ export function createWorld(options: WorldOptions): State {
   const landShare = options.landShare ?? 0.62;
   const random = createRandom(options.seed);
 
-  const drawn = createSystem(random);
+  const drawn = createSystem(createRandom(options.seed ^ SYSTEM_SALT));
   const points = scatter(pointCount, random);
   const shape = drawn.bodies[drawn.home];
   const heights = points.map((point) => elevationAt(shape.seed, shape.relief, point));

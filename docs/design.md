@@ -39,7 +39,12 @@ A body has a nature of its own, apart from how the game divides it.
 - A cell takes its nature from the relief at its place. Land is where the relief rises above the sea, and the highest land is mountain.
 - Two cells are joined by land where they meet on dry ground. Where only water lies between them, a strait may join them.
 - The relief is no secret. Every power sees the coasts and mountains of a whole body from the start.
-- A star system holds a star and bodies of several kinds on orbits around it, and the place of each follows from the tick.
+- A star system holds a star and bodies on orbits around it, some with moons of their own, and the place of each follows from the tick.
+- A body is described by its physics in real units: its mass, what it is made of as shares of iron, rock, ice and gas, its radius, its temperature, the pressure of its air, its orbit and its spin. There are no kinds of body. A name such as gas giant or ice world is read off the physics for the player, and no rule depends on it.
+- Physics sets the limits and the seed chooses within them. The mass of a body and its distance from the star give what it can be made of, how large it is, how warm it is and whether it can hold air. Its history, such as how much water and air it kept, how fast it turns and whether it has a ring, is drawn inside those limits.
+- A system is made around the home body. The mass of the star gives its light, and the home stands where that light keeps water liquid. Other bodies form closer in and farther out: rock inside the frost line, giants with gas beyond it and ice farther still. Moons form the same way around their planets, where the pull of the planet outweighs that of the star.
+- A ring belongs to no kind of body. Any body may carry one inside the distance at which its pull would tear a moon apart, ice where it is cold and dark dust where it is warm. Giants often have one and rocky bodies seldom.
+- The game shows a conventional scale. Sizes, distances and periods are compressed so that a system fits a screen and a turn of a far body takes hours and not years, and they keep the order and the nesting of the real ones. The home body always has radius 1, a year of 9600 ticks and a day of 1200.
 
 ## Time
 
@@ -274,7 +279,7 @@ Play then found the size of the army tiring to set holding by holding, and found
 - One army order and one forward dial for the whole power, as described under Garrisons. The garrison order stays as the exception for one holding.
 - Reinforcement, as described under Garrisons.
 
-The look of the game was then rebuilt apart from its rules, as described under Nature. The home body is drawn from its relief with the state of its cells laid over it, and the star system is on screen: a star and eight bodies that can be visited. No rule runs beyond the home body yet.
+The look of the game was then rebuilt apart from its rules, as described under Nature. The home body is drawn from its relief with the state of its cells laid over it, and the star system is on screen: a star and the bodies around it, which can be visited. No rule runs beyond the home body yet.
 
 Stage 3 adds knowledge, cohesion, borders and trade, gifts, the moon and folding with governors. It tests whether the game stays manageable as it grows.
 
@@ -302,8 +307,9 @@ Stage 4 splits matter into kinds with prices and values. It is not designed in d
 - In 2 of the 11 matches that lasted no cell changed hands in the last third.
 - A power that has built every cell to its cap has nothing left to spend matter on. Its surplus then circulates and a tenth to a fifth of its output is lost on the way.
 - The client shows regions by number and lets values other than flows jump between ticks.
-- The star system is drawn ahead of its rules. A day of the home body is 1200 ticks and its year 9600, chosen for the look and not for play, and sizes and distances are not to scale. No rule reads an orbit yet.
-- The class of a star, which sets its color, its grain and its spots, is drawn from its seed for the look alone. It should come to mean something once energy depends on the star. The class of a gas giant is drawn the same way and should come to mean something once matter is taken from it.
+- The star system is drawn ahead of its rules. The conventional scale was chosen for the look and not for play, and no rule reads an orbit or the physics of a body yet. The light of the star should come to set energy, and what a body is made of the matter taken from it.
+- The system has one star, round bodies and circular orbits in one plane. Belts of small bodies, moons of moons, bodies too small to be round, brown dwarfs that glow, two stars, stretched and tilted orbits and bodies that always turn one face to their star are possible in physics and not made yet. A planet near a faint star keeps its spin, though it would have lost it.
+- The look that follows from the physics was judged on a sheet of bodies drawn by mass and by distance, and not yet in play.
 - The relief is public, so the mountains and coasts of unexplored land are known. Whether exploration should reveal more than richness is undecided.
 - A cell reaches to the coast however far that is from its middle, so cells by the sea differ much in size on the map while the rules count them alike.
 - Kinds of matter: how many functions there are and which, and whether energy, force and knowledge are split in the same way. Kinds of force would be unit types and kinds of knowledge a technology tree, and both are absent so far.

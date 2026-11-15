@@ -1,53 +1,380 @@
-import type { Random } from "./random.ts";
-import type { Body, BodyKind, Relief, StarSystem, Vector } from "./types.ts";
+import {
+  ASTRONOMICAL_UNIT,
+  balanceHeat,
+  DAY,
+  densityOf,
+  EARTH_AIR,
+  EARTH_MASS,
+  FLUID_SHARE,
+  gasShare,
+  greenhouse,
+  gripOf,
+  HOUR,
+  hillOf,
+  radiusOf,
+  rocheOf,
+  SUN_GLOW,
+  SUN_MASS,
+  seaCover,
+  starGlow,
+  starHeat,
+  starRadius,
+  yearOf,
+} from "./physics.ts";
+import { createRandom, type Random } from "./random.ts";
+import { elevationAt } from "./relief.ts";
+import { scatter } from "./sphere.ts";
+import type { Body, Physics, Relief, Ring, StarSystem, Vector } from "./types.ts";
 
-interface Plan {
-  kind: BodyKind;
-  radius: number;
+export interface Site {
+  star: Physics;
+  distance: number;
+  around: Physics;
   orbit: number;
-  moons: { kind: BodyKind; radius: number; orbit: number; year: number }[];
 }
 
-const STAR_RADIUS = 6;
+interface Draft {
+  physics: Physics;
+  parent: number | null;
+  tilt: number;
+}
+
+const FROST_LINE = 2.7 * ASTRONOMICAL_UNIT;
+const INNER_EDGE = 0.15 * ASTRONOMICAL_UNIT;
+const OUTER_EDGE = 40 * ASTRONOMICAL_UNIT;
+const INNER_STEPS = 2;
+const OUTER_STEPS = 5;
+const PLANET_SHARE = 0.85;
+const STRIP_MASS = 10;
+const STRIP_HEAT = 600;
+const PARCH_HEAT = 400;
+const ICE_HEAT = 160;
+const AIR_LEAST_HEAT = 45;
+const THICK_AIR = 1000;
+const ICY_SHARE = 0.1;
+const RING_SHARE_FLUID = 0.45;
+const RING_SHARE_SOLID = 0.05;
+const ROCK_GRAIN = 3000;
+const ICE_GRAIN = 900;
+const MOON_GRAIN = 2000;
+const MOON_REST = 0.35;
+
+const SIZE_POWER = 0.45;
+const ORBIT_POWER = 0.37;
+const TIME_POWER = 0.6;
 const HOME_ORBIT = 34;
 const HOME_YEAR = 9600;
 const HOME_DAY = 1200;
-const SPREAD = 0.12;
+const MOON_REACH = 1.16;
+const CLEARANCE = 1.35;
+const PLANET_GAP = 3;
+const MOON_GAP = 0.8;
 const MAX_TILT = 0.45;
 
-const PLANETS: Plan[] = [
-  { kind: "barren", radius: 0.4, orbit: 16, moons: [] },
-  {
-    kind: "terran",
-    radius: 1,
-    orbit: HOME_ORBIT,
-    moons: [{ kind: "barren", radius: 0.27, orbit: 9, year: 1600 }],
-  },
-  { kind: "desert", radius: 0.55, orbit: 52, moons: [] },
-  {
-    kind: "gas",
-    radius: 3.6,
-    orbit: 86,
-    moons: [
-      { kind: "ice", radius: 0.3, orbit: 8.5, year: 900 },
-      { kind: "barren", radius: 0.22, orbit: 12, year: 1500 },
-    ],
-  },
-  { kind: "ice", radius: 1.5, orbit: 118, moons: [] },
-];
-
-const RELIEFS: Record<BodyKind, Relief> = {
-  star: { frequency: 5, warp: 0.6, ridge: 0, sea: null, peak: 0.5 },
-  terran: { frequency: 1.2, warp: 0.5, ridge: 0.45, sea: 0, peak: 0.5 },
-  desert: { frequency: 1.6, warp: 0.4, ridge: 0.6, sea: null, peak: 0.5 },
-  barren: { frequency: 2.4, warp: 0.25, ridge: 0.2, sea: null, peak: 0.5 },
-  ice: { frequency: 1.8, warp: 0.55, ridge: 0.7, sea: null, peak: 0.5 },
-  gas: { frequency: 2, warp: 0.7, ridge: 0, sea: null, peak: 0.5 },
-};
+const SHORE_POINTS = 240;
+const HIGH_SHARE = 0.82;
+const HOME_SHAPE = { frequency: 1.2, warp: 0.5, ridge: 0.45 };
+const FLUID_RELIEF: Relief = { frequency: 2, warp: 0.7, ridge: 0, sea: null, peak: 0.5 };
 
 const OPENINGS = ["Ta", "Ke", "Mo", "Vi", "Su", "Ar", "El", "No", "Ri", "Ze", "Ha", "Ol"];
 const MIDDLES = ["ra", "li", "no", "ve", "tu", "sha", "mi", "do", ""];
 const ENDINGS = ["n", "s", "r", "th", "x", "l", "m", "a", "is", "on"];
+
+const trim = (value: number) => Number(value.toPrecision(5));
+const between = (random: Random, from: number, to: number) => from + (to - from) * random.next();
+const decades = (random: Random, from: number, to: number) => 10 ** between(random, from, to);
+
+function smooth(from: number, to: number, value: number): number {
+  const share = Math.max(0, Math.min(1, (value - from) / (to - from)));
+  return share * share * (3 - 2 * share);
+}
+
+export function kindled(mass: number, random: Random): Physics {
+  const glow = starGlow(mass);
+  const radius = starRadius(mass);
+  return {
+    mass,
+    radius,
+    iron: 0,
+    rock: 0,
+    ice: 0,
+    gas: 1,
+    heat: starHeat(glow, radius),
+    glow,
+    air: 0,
+    life: 0,
+    vigor: random.next(),
+    orbit: 0,
+    year: 0,
+    day: DAY * between(random, 12, 40),
+    ring: null,
+  };
+}
+
+function ringOf(
+  mass: number,
+  radius: number,
+  fluid: boolean,
+  bare: number,
+  random: Random,
+): Ring | null {
+  if (random.next() >= (fluid ? RING_SHARE_FLUID : RING_SHARE_SOLID)) {
+    return null;
+  }
+  const ice = bare < ICE_HEAT ? between(random, 0.6, 1) : between(random, 0, 0.1);
+  const grain = ROCK_GRAIN - (ROCK_GRAIN - ICE_GRAIN) * ice;
+  const limit = 0.95 * rocheOf(radius, densityOf(mass, radius), grain);
+  const dense = fluid && random.next() < 0.4;
+  const inner = radius * between(random, 1.15, 1.5);
+  const outer = Math.min(limit, radius * between(random, 1.8, 2.4));
+  if (outer < inner * 1.15) {
+    return null;
+  }
+  return {
+    inner,
+    outer,
+    depth: dense ? between(random, 0.55, 0.95) : between(random, 0.2, 0.5),
+    ice,
+  };
+}
+
+export function formed(mass: number, site: Site, random: Random, locked = false): Physics {
+  const glow = site.star.glow;
+  const bare = balanceHeat(glow, site.distance, 0);
+  const earths = mass / EARTH_MASS;
+  const stripped = earths < STRIP_MASS && bare > STRIP_HEAT;
+  const typical = gasShare(mass);
+  const odds = (typical / (1 - typical)) * decades(random, -0.3, 0.3);
+  const gas = stripped ? 0 : odds / (1 + odds);
+  const beyond = site.distance > FROST_LINE * Math.sqrt(glow / SUN_GLOW);
+  const damp = beyond
+    ? between(random, 0.3, 0.65)
+    : decades(random, -5.5, -3.2) * (bare > PARCH_HEAT ? 0.01 : 1);
+  const metal = random.next() < 0.06 ? between(random, 0.45, 0.7) : between(random, 0.15, 0.38);
+  const ice = (1 - gas) * damp;
+  const iron = (1 - gas) * (1 - damp) * metal;
+  const rock = 1 - gas - ice - iron;
+  const radius = radiusOf(mass, { iron, rock, ice, gas });
+  const fluid = gas >= FLUID_SHARE;
+  const grip = gripOf(mass, radius, bare);
+  const kept = !fluid && bare > AIR_LEAST_HEAT && grip > 1 && random.next() < grip - 0.6;
+  const air = kept ? EARTH_AIR * earths * decades(random, -2.5, 2) : 0;
+  const frozen = ice > ICY_SHARE && bare < 1.3 * ICE_HEAT;
+  const albedo = fluid ? 0.34 : air > THICK_AIR ? 0.3 : frozen ? 0.55 : 0.12;
+  const year = yearOf(site.orbit, site.around.mass);
+  const slow = random.next() < 0.12;
+  const day = locked
+    ? year
+    : fluid
+      ? HOUR * between(random, 8, 20)
+      : slow
+        ? DAY * decades(random, 1.3, 2.4)
+        : HOUR * decades(random, 0.9, 1.8);
+  return {
+    mass,
+    radius,
+    iron,
+    rock,
+    ice,
+    gas,
+    heat: balanceHeat(glow, site.distance, albedo) * greenhouse(air),
+    glow: 0,
+    air,
+    life: 0,
+    vigor: random.next(),
+    orbit: site.orbit,
+    year,
+    day,
+    ring: ringOf(mass, radius, fluid, bare, random),
+  };
+}
+
+function settled(star: Physics, orbit: number, random: Random): Physics {
+  const mass = EARTH_MASS * between(random, 0.8, 1.25);
+  const iron = between(random, 0.28, 0.36);
+  const ice = between(random, 1.5e-5, 3e-5);
+  const shares = { iron, rock: 1 - iron - ice, ice, gas: 0 };
+  const air = EARTH_AIR * between(random, 0.8, 1.3);
+  return {
+    mass,
+    radius: radiusOf(mass, shares),
+    ...shares,
+    heat: balanceHeat(star.glow, orbit, 0.3) * greenhouse(air),
+    glow: 0,
+    air,
+    life: 1,
+    vigor: between(random, 0.5, 0.9),
+    orbit,
+    year: yearOf(orbit, star.mass),
+    day: HOUR * between(random, 18, 30),
+    ring: null,
+  };
+}
+
+function massAt(distance: number, star: Physics, random: Random): number {
+  const place = distance / (FROST_LINE * Math.sqrt(star.glow / SUN_GLOW));
+  const pick = random.next();
+  if (place < 0.8) {
+    return EARTH_MASS * (pick < 0.12 ? decades(random, 0.5, 1) : decades(random, -1.4, 0.45));
+  }
+  if (place < 3.5) {
+    return (
+      EARTH_MASS *
+      (pick < 0.55
+        ? decades(random, 1.7, 2.9)
+        : pick < 0.8
+          ? decades(random, 0.9, 1.5)
+          : decades(random, -1.5, 0.3))
+    );
+  }
+  return (
+    EARTH_MASS *
+    (pick < 0.45
+      ? decades(random, 0.9, 1.5)
+      : pick < 0.6
+        ? decades(random, 1.6, 2.3)
+        : decades(random, -3, -0.7))
+  );
+}
+
+function moonsOf(planet: Physics, star: Physics, random: Random): Physics[] {
+  const fluid = planet.gas >= FLUID_SHARE;
+  const earths = planet.mass / EARTH_MASS;
+  const settledHere = planet.life > 0;
+  const count = settledHere
+    ? 1 + (random.next() < 0.15 ? 1 : 0)
+    : fluid
+      ? (earths > 50 ? 1 : 0) + Math.floor(3 * random.next())
+      : random.next() < (earths > 0.2 ? 0.3 : 0.05)
+        ? 1
+        : 0;
+  const low = Math.max(
+    3 * planet.radius,
+    1.3 * (planet.ring?.outer ?? 0),
+    1.2 * rocheOf(planet.radius, densityOf(planet.mass, planet.radius), MOON_GRAIN),
+  );
+  const high = MOON_REST * hillOf(planet.orbit, planet.mass, star.mass);
+  let orbit = fluid
+    ? low * decades(random, 0.1, 0.5)
+    : Math.max(low, Math.min(high, planet.radius * between(random, 25, 65)));
+  const moons: Physics[] = [];
+  for (let index = 0; index < count; index++) {
+    if (orbit > high && !(settledHere && index === 0)) {
+      break;
+    }
+    const share = settledHere
+      ? decades(random, -2.3, -1.7)
+      : fluid
+        ? decades(random, -5, -3.7)
+        : decades(random, -3.2, -1.8);
+    const site = { star, distance: planet.orbit, around: planet, orbit };
+    moons.push(formed(planet.mass * share, site, random, true));
+    orbit *= between(random, 1.5, 2.3);
+  }
+  return moons;
+}
+
+export function reliefOf(physics: Physics, seed: number): Relief {
+  if (physics.gas >= FLUID_SHARE) {
+    return FLUID_RELIEF;
+  }
+  const random = createRandom(seed + 71);
+  const small = 1 - smooth(-2, 0, Math.log10(physics.mass / EARTH_MASS));
+  const lively = physics.vigor * (1 - small);
+  const shape =
+    physics.life > 0
+      ? HOME_SHAPE
+      : physics.ice >= ICY_SHARE
+        ? { frequency: 1.6 + 0.4 * random.next(), warp: 0.55, ridge: 0.7 }
+        : { frequency: 1.3 + 1.1 * small, warp: 0.25 + 0.3 * lively, ridge: 0.2 + 0.45 * lively };
+  const cover = seaCover(physics);
+  if (cover === 0) {
+    return { ...shape, sea: null, peak: 0.5 };
+  }
+  const dry = { ...shape, sea: null, peak: 0.5 };
+  const heights = scatter(SHORE_POINTS, random)
+    .map((at) => elevationAt(seed, dry, at))
+    .sort((left, right) => left - right);
+  const level = (share: number) =>
+    heights[Math.min(heights.length - 1, Math.floor(share * heights.length))];
+  return { ...shape, sea: level(cover), peak: level(cover + HIGH_SHARE * (1 - cover)) };
+}
+
+function arranged(bodies: Body[], home: number): Body[] {
+  const anchor = bodies[home].physics;
+  let lead = bodies[home];
+  while (lead.parent !== null && bodies[lead.parent].parent !== null) {
+    lead = bodies[lead.parent];
+  }
+  const radius = bodies.map((body) => (body.physics.radius / anchor.radius) ** SIZE_POWER);
+  const orbit = bodies.map(() => 0);
+  const reach = (id: number): number => {
+    const { physics, parent } = bodies[id];
+    const own = radius[id] * Math.max(1, (physics.ring?.outer ?? 0) / physics.radius);
+    const gap = parent === null ? PLANET_GAP : MOON_GAP;
+    let edge = own * CLEARANCE;
+    const around = bodies
+      .filter((child) => child.parent === id)
+      .sort((left, right) => left.physics.orbit - right.physics.orbit);
+    for (const child of around) {
+      const span = reach(child.id);
+      const drawn =
+        parent === null
+          ? HOME_ORBIT * (child.physics.orbit / lead.physics.orbit) ** ORBIT_POWER
+          : MOON_REACH * radius[id] * Math.sqrt(child.physics.orbit / physics.radius);
+      orbit[child.id] = Math.max(drawn, edge + span);
+      edge = orbit[child.id] + span + gap;
+    }
+    return around.length === 0 ? own : edge - gap;
+  };
+  for (const body of bodies) {
+    if (body.parent === null) {
+      reach(body.id);
+    }
+  }
+  const pace = (span: number, unit: number, ticks: number) =>
+    Math.max(1, Math.round(ticks * (span / unit) ** TIME_POWER));
+  return bodies.map((body) => {
+    const year = body.parent === null ? 0 : pace(body.physics.year, anchor.year, HOME_YEAR);
+    const locked = body.physics.day === body.physics.year;
+    return {
+      ...body,
+      radius: trim(radius[body.id]),
+      orbit: trim(orbit[body.id]),
+      year,
+      day: locked ? year : pace(body.physics.day, anchor.day, HOME_DAY),
+    };
+  });
+}
+
+function trimmed(physics: Physics): Physics {
+  const ring = physics.ring;
+  return {
+    mass: trim(physics.mass),
+    radius: trim(physics.radius),
+    iron: trim(physics.iron),
+    rock: trim(physics.rock),
+    ice: trim(physics.ice),
+    gas: trim(physics.gas),
+    heat: trim(physics.heat),
+    glow: trim(physics.glow),
+    air: trim(physics.air),
+    life: physics.life,
+    vigor: trim(physics.vigor),
+    orbit: trim(physics.orbit),
+    year: trim(physics.year),
+    day: trim(physics.day),
+    ring:
+      ring === null
+        ? null
+        : {
+            inner: trim(ring.inner),
+            outer: trim(ring.outer),
+            depth: trim(ring.depth),
+            ice: trim(ring.ice),
+          },
+  };
+}
 
 export function createSystem(random: Random): StarSystem {
   const taken = new Set<string>();
@@ -60,66 +387,77 @@ export function createSystem(random: Random): StarSystem {
     taken.add(made);
     return made;
   };
-  const spread = (value: number) => value * (1 + SPREAD * (2 * random.next() - 1));
   const seed = () => Math.floor(random.next() * 0x7fffffff);
-  const turn = () => 2 * Math.PI * random.next();
+  const homeSeed = seed();
 
-  const bodies: Body[] = [
-    {
-      id: 0,
-      name: name(),
-      kind: "star",
-      seed: seed(),
-      radius: STAR_RADIUS,
-      parent: null,
-      orbit: 0,
-      year: 0,
-      phase: 0,
-      tilt: 0,
-      day: 4000,
-      relief: RELIEFS.star,
-    },
-  ];
-  let home = 0;
-  for (const plan of PLANETS) {
-    const id = bodies.length;
-    const settled = plan.kind === "terran";
-    const orbit = settled ? plan.orbit : spread(plan.orbit);
-    bodies.push({
-      id,
-      name: name(),
-      kind: plan.kind,
-      seed: seed(),
-      radius: settled ? plan.radius : spread(plan.radius),
-      parent: 0,
-      orbit,
-      year: Math.round(HOME_YEAR * (orbit / HOME_ORBIT) ** 1.5),
-      phase: turn(),
-      tilt: MAX_TILT * random.next(),
-      day: settled ? HOME_DAY : Math.round(spread(HOME_DAY) * (0.5 + random.next())),
-      relief: RELIEFS[plan.kind],
-    });
-    if (settled) {
-      home = id;
+  const star = kindled(SUN_MASS * decades(random, Math.log10(0.3), Math.log10(1.6)), random);
+  const lit = Math.sqrt(star.glow / SUN_GLOW);
+  const homeOrbit = (ASTRONOMICAL_UNIT * lit) / Math.sqrt(between(random, 0.92, 1.08));
+  const orbits = [homeOrbit];
+  const nearest = Math.max(INNER_EDGE * lit, 6 * star.radius);
+  let inward = homeOrbit;
+  for (let step = 0; step < INNER_STEPS; step++) {
+    inward /= between(random, 1.45, 2);
+    if (inward < nearest) {
+      break;
     }
-    for (const moon of plan.moons) {
-      bodies.push({
-        id: bodies.length,
-        name: name(),
-        kind: moon.kind,
-        seed: seed(),
-        radius: spread(moon.radius),
-        parent: id,
-        orbit: moon.orbit,
-        year: moon.year,
-        phase: turn(),
-        tilt: 0,
-        day: moon.year,
-        relief: RELIEFS[moon.kind],
-      });
+    if (random.next() < PLANET_SHARE) {
+      orbits.unshift(inward);
     }
   }
-  return { home, bodies };
+  let outward = homeOrbit;
+  for (let step = 0; step < OUTER_STEPS; step++) {
+    outward *= between(random, 1.5, 2.1);
+    if (outward > OUTER_EDGE * lit) {
+      break;
+    }
+    if (random.next() < PLANET_SHARE) {
+      orbits.push(outward);
+    }
+  }
+
+  const drafts: Draft[] = [{ physics: star, parent: null, tilt: 0 }];
+  let home = 0;
+  for (const orbit of orbits) {
+    const settledHere = orbit === homeOrbit;
+    const site = { star, distance: orbit, around: star, orbit };
+    const planet = settledHere
+      ? settled(star, orbit, random)
+      : formed(massAt(orbit, star, random), site, random);
+    const id = drafts.length;
+    const steep = !settledHere && random.next() < 0.1;
+    drafts.push({
+      physics: planet,
+      parent: 0,
+      tilt: steep ? between(random, 0.5, 1.75) : MAX_TILT * random.next(),
+    });
+    if (settledHere) {
+      home = id;
+    }
+    for (const moon of moonsOf(planet, star, random)) {
+      drafts.push({ physics: moon, parent: id, tilt: 0 });
+    }
+  }
+
+  const bodies = drafts.map((draft, id): Body => {
+    const physics = trimmed(draft.physics);
+    const own = id === home ? homeSeed : seed();
+    return {
+      id,
+      name: name(),
+      seed: own,
+      parent: draft.parent,
+      physics,
+      radius: 0,
+      orbit: 0,
+      year: 0,
+      phase: draft.parent === null ? 0 : trim(2 * Math.PI * random.next()),
+      tilt: trim(draft.tilt),
+      day: 0,
+      relief: id === home ? { ...HOME_SHAPE, sea: null, peak: 0.5 } : reliefOf(physics, own),
+    };
+  });
+  return { home, bodies: arranged(bodies, home) };
 }
 
 export function positionOf(system: StarSystem, id: number, tick: number): Vector {

@@ -12,16 +12,32 @@ export {
   type Shipment,
 } from "./economy.ts";
 export type { Duty, Muster, Route } from "./muster.ts";
+export {
+  ASTRONOMICAL_UNIT,
+  classOf,
+  DAY,
+  EARTH_AIR,
+  EARTH_MASS,
+  EARTH_RADIUS,
+  FLUID_SHARE,
+  flatOf,
+  HOUR,
+  STAR_LEAST,
+  SUN_GLOW,
+  SUN_MASS,
+  SUN_RADIUS,
+  seaCover,
+  YEAR,
+} from "./physics.ts";
 export { createRandom, type Random } from "./random.ts";
 export { elevationAt, RELIEF_SHAPE } from "./relief.ts";
 export { type ForceReport, forceReportFor } from "./report.ts";
 export { circumcenter, hullFaces } from "./sphere.ts";
 export { cloneState, issue, step } from "./step.ts";
-export { positionOf, spinOf } from "./system.ts";
+export { formed, kindled, positionOf, reliefOf, type Site, spinOf } from "./system.ts";
 export { retune } from "./tune.ts";
 export {
   type Body,
-  type BodyKind,
   BRANCHES,
   type Branch,
   type CellState,
@@ -38,10 +54,12 @@ export {
   type MapJoint,
   type MapRegion,
   type Neighbor,
+  type Physics,
   type PowerState,
   type Pressure,
   type Rejection,
   type Relief,
+  type Ring,
   type StarSystem,
   type State,
   type StepResult,
