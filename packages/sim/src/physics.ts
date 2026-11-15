@@ -1,4 +1,4 @@
-import type { Physics } from "./types.ts";
+import { GASES, type Gas, type Physics } from "./types.ts";
 
 export const SUN_MASS = 1.989e30;
 export const SUN_RADIUS = 6.957e8;
@@ -20,7 +20,7 @@ const GRAVITY = 6.674e-11;
 const FROST_LINE = 2.7 * ASTRONOMICAL_UNIT;
 const RADIATION = 5.67e-8;
 const BOLTZMANN = 1.381e-23;
-const NITROGEN = 28 * 1.661e-27;
+const DALTON = 1.661e-27;
 const EARTH_DENSITY = 5514;
 const IRON_DENSITY = 7900;
 const ROCK_DENSITY = 3400;
@@ -34,13 +34,80 @@ const GAS_FULL = 300;
 const GAS_MOST = 0.95;
 const ESCAPE_MARGIN = 6;
 const DAYSIDE = 1.4;
-const HAZE_DEPTH = 0.83;
-const HAZE_POWER = 1.1;
-const STEAM = 4890;
-const BOILING = 373.15;
 const MELTING = 273;
 const TRIPLE_AIR = 1000;
-const DAMP_LEAST = 1e-5;
+const TRACE_AIR = 1;
+export const DAMP_LEAST = 1e-5;
+const HUMIDITY = 0.6;
+const COLD_TRAP = 0.75;
+const CLIMATE_ROUNDS = 40;
+const CRITICAL = 647;
+const STEAM_LEFT = 200;
+const THERMOSTAT = 278;
+const THERMOSTAT_STEPS = 14;
+const BRIGHT_AIR = 0.3;
+const BRIGHT_DECK = 0.65;
+const BRIGHT_ICE = 0.55;
+const BRIGHT_ROCK = 0.12;
+const BRIGHT_GAS = 0.34;
+const SUN_HYDROGEN = 0.86;
+const RICH_JUPITER = 4;
+const RICH_POWER = -0.8;
+const RICH_MOST = 200;
+
+const WEIGHTS: Record<Gas, number> = {
+  hydrogen: 2,
+  helium: 4,
+  methane: 16,
+  ammonia: 17,
+  water: 18,
+  nitrogen: 28,
+  oxygen: 32,
+  "carbon dioxide": 44,
+};
+
+const VAPORS: Record<Gas, [boiling: number, latent: number] | null> = {
+  hydrogen: null,
+  helium: null,
+  methane: [111.7, 985],
+  ammonia: [239.8, 2810],
+  water: [373.15, 4890],
+  nitrogen: [77.4, 671],
+  oxygen: [90.2, 820],
+  "carbon dioxide": [194.7, 3180],
+};
+
+const WARMING: Record<Gas, [gain: number, power: number]> = {
+  hydrogen: [0.3, 0.8],
+  helium: [0, 1],
+  methane: [1.5, 0.3],
+  ammonia: [3, 0.3],
+  water: [3, 0.3],
+  nitrogen: [0, 1],
+  oxygen: [0, 1],
+  "carbon dioxide": [5.19, 0.72],
+};
+
+const SUN_TRACES: Partial<Record<Gas, number>> = {
+  methane: 5e-4,
+  ammonia: 1.4e-4,
+  water: 1e-3,
+};
+
+export interface Climate {
+  air: number;
+  gases: number[];
+  heat: number;
+}
+
+export interface Volatiles {
+  glow: number;
+  distance: number;
+  stock: number[];
+  weathered: number;
+  damp: boolean;
+  frozen: boolean;
+}
 const FLATTENING = 0.7;
 const ROCHE = 2.44;
 
@@ -125,13 +192,130 @@ export function balanceHeat(glow: number, distance: number, albedo: number): num
   return ((glow * (1 - albedo)) / (16 * Math.PI * RADIATION * distance ** 2)) ** 0.25;
 }
 
-export function gripOf(mass: number, radius: number, heat: number): number {
-  const thermal = Math.sqrt((3 * BOLTZMANN * DAYSIDE * heat) / NITROGEN);
+export function gripOf(mass: number, radius: number, heat: number, gas: Gas): number {
+  const thermal = Math.sqrt((3 * BOLTZMANN * DAYSIDE * heat) / (WEIGHTS[gas] * DALTON));
   return escapeOf(mass, radius) / (ESCAPE_MARGIN * thermal);
 }
 
-export function greenhouse(air: number): number {
-  return (1 + 0.75 * HAZE_DEPTH * (air / EARTH_AIR) ** HAZE_POWER) ** 0.25;
+export function stocked(parts: Partial<Record<Gas, number>>): number[] {
+  return GASES.map((gas) => parts[gas] ?? 0);
+}
+
+export function shareOf(physics: Physics, gas: Gas): number {
+  return physics.gases[GASES.indexOf(gas)] ?? 0;
+}
+
+export function vaporOf(gas: Gas, heat: number): number {
+  const curve = VAPORS[gas];
+  return curve === null
+    ? Number.POSITIVE_INFINITY
+    : EARTH_AIR * Math.exp(-curve[1] * (1 / heat - 1 / curve[0]));
+}
+
+function boilingAt(air: number): number {
+  const [boiling, latent] = VAPORS.water ?? [0, 1];
+  const found = 1 / (1 / boiling - Math.log(air / EARTH_AIR) / latent);
+  return found > 0 ? Math.min(CRITICAL, found) : CRITICAL;
+}
+
+function warmed(partials: number[]): number {
+  const depth = GASES.reduce((sum, gas, index) => {
+    const [gain, power] = WARMING[gas];
+    return sum + gain * (partials[index] / EARTH_AIR) ** power;
+  }, 0);
+  return (1 + 0.75 * depth) ** 0.25;
+}
+
+export function climateOf(given: Volatiles): Climate {
+  const whole = (parts: number[]) => parts.reduce((sum, part) => sum + part, 0);
+  const carbon = given.stock[GASES.indexOf("carbon dioxide")];
+  const settle = (weathered: number, steam: number) => {
+    let heat = balanceHeat(given.glow, given.distance, BRIGHT_AIR);
+    let partials = given.stock;
+    let air = whole(partials);
+    for (let round = 0; round < CLIMATE_ROUNDS; round++) {
+      const trap = COLD_TRAP + (1 - COLD_TRAP) * smooth(3, 5, Math.log10(Math.max(air, 1)));
+      partials = GASES.map((gas, index) => {
+        const most =
+          gas === "water"
+            ? Math.min(steam, HUMIDITY * vaporOf(gas, heat))
+            : gas === "carbon dioxide"
+              ? Math.min(weathered, vaporOf(gas, trap * heat))
+              : vaporOf(gas, trap * heat);
+        return Math.min(given.stock[index], most);
+      });
+      air = whole(partials);
+      const deck = smooth(5.5, 6.5, Math.log10(Math.max(air, 1)));
+      const albedo =
+        air > TRIPLE_AIR
+          ? BRIGHT_AIR + (BRIGHT_DECK - BRIGHT_AIR) * deck
+          : given.frozen
+            ? BRIGHT_ICE
+            : BRIGHT_ROCK;
+      const next = balanceHeat(given.glow, given.distance, albedo) * warmed(partials);
+      heat += 0.5 * (next - heat);
+    }
+    const sea = given.damp && air >= TRIPLE_AIR && heat >= MELTING && heat <= boilingAt(air);
+    return { air, heat, sea, gases: partials.map((part) => part / Math.max(air, 1e-12)) };
+  };
+  const wet = (weathered: number) => settle(weathered, Number.POSITIVE_INFINITY);
+  const dry = () => settle(Number.POSITIVE_INFINITY, STEAM_LEFT);
+  const regulated = () => {
+    if (!given.damp || wet(carbon).heat < THERMOSTAT) {
+      return dry();
+    }
+    let low = Math.log(given.weathered);
+    let high = Math.log(Math.max(carbon, given.weathered));
+    for (let step = 0; step < THERMOSTAT_STEPS; step++) {
+      const middle = (low + high) / 2;
+      if (wet(Math.exp(middle)).heat < THERMOSTAT) {
+        low = middle;
+      } else {
+        high = middle;
+      }
+    }
+    const kept = wet(Math.exp(high));
+    return kept.sea ? kept : dry();
+  };
+  const mild = wet(given.weathered);
+  const found = mild.sea ? mild : mild.heat < MELTING ? regulated() : dry();
+  return found.air < TRACE_AIR
+    ? {
+        air: 0,
+        gases: [],
+        heat: balanceHeat(given.glow, given.distance, given.frozen ? BRIGHT_ICE : BRIGHT_ROCK),
+      }
+    : { air: found.air, gases: found.gases, heat: found.heat };
+}
+
+function tracesOf(mass: number): Partial<Record<Gas, number>> {
+  const rich = Math.min(RICH_MOST, RICH_JUPITER * (mass / JUPITER_MASS) ** RICH_POWER);
+  return Object.fromEntries(Object.entries(SUN_TRACES).map(([gas, share]) => [gas, share * rich]));
+}
+
+export function envelopeOf(mass: number, glow: number, distance: number): Climate {
+  const heat = balanceHeat(glow, distance, BRIGHT_GAS);
+  const traces = tracesOf(mass);
+  const kept = GASES.map((gas) => Math.min(traces[gas] ?? 0, vaporOf(gas, heat) / EARTH_AIR));
+  const light = 1 - kept.reduce((sum, share) => sum + share, 0);
+  const gases = GASES.map((gas, index) =>
+    gas === "hydrogen"
+      ? SUN_HYDROGEN * light
+      : gas === "helium"
+        ? (1 - SUN_HYDROGEN) * light
+        : kept[index],
+  );
+  return { air: 0, gases, heat };
+}
+
+export function cloudsOf(physics: Physics): string {
+  if (physics.gas < FLUID_SHARE || physics.mass >= STAR_LEAST) {
+    return seaCover(physics) > 0 ? "water" : "none";
+  }
+  const traces = tracesOf(physics.mass);
+  const decks: Gas[] = ["methane", "ammonia", "water"];
+  const deck = decks.find((gas) => (traces[gas] ?? 0) > vaporOf(gas, physics.heat) / EARTH_AIR);
+  return deck ?? (physics.heat > 900 ? "rock" : "none");
 }
 
 export function flatOf(physics: Physics): number {
@@ -144,8 +328,7 @@ export function seaCover(physics: Physics): number {
   if (physics.gas >= FLUID_SHARE || physics.air < TRIPLE_AIR || physics.ice < DAMP_LEAST) {
     return 0;
   }
-  const boiling = 1 / (1 / BOILING - Math.log(physics.air / EARTH_AIR) / STEAM);
-  if (physics.heat < MELTING || physics.heat > boiling) {
+  if (physics.heat < MELTING || physics.heat > boilingAt(physics.air)) {
     return 0;
   }
   return Math.max(0.1, Math.min(0.97, 0.3 + 0.3 * Math.log10(physics.ice / DAMP_LEAST)));

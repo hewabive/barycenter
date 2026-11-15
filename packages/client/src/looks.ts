@@ -4,10 +4,12 @@ import {
   EARTH_MASS,
   FLUID_SHARE,
   flatOf,
+  type Gas,
   HOUR,
   type Physics,
   STAR_LEAST,
   seaCover,
+  shareOf,
 } from "@barycenter/sim";
 import { Color } from "three";
 
@@ -571,8 +573,27 @@ const ICE: Skin = {
   air: 0.6,
 };
 
-const HOT_FOG = 0xe8d9a8;
-const COLD_FOG = 0xd9a55a;
+const FOGS: [gas: Gas, shade: number, weight: number][] = [
+  ["methane", 0xd9a55a, 8],
+  ["carbon dioxide", 0xe8d9a8, 1],
+  ["water", 0xf2f4f6, 1],
+  ["hydrogen", 0xc9d6e2, 1],
+  ["nitrogen", 0xdfe6ee, 0.3],
+];
+
+function fogOf(physics: Physics): number {
+  const shade = new Color(0);
+  let whole = 0;
+  for (const [gas, tint, weight] of FOGS) {
+    const part = weight * shareOf(physics, gas);
+    const color = new Color(tint);
+    shade.r += part * color.r;
+    shade.g += part * color.g;
+    shade.b += part * color.b;
+    whole += part;
+  }
+  return whole > 0 ? shade.multiplyScalar(1 / whole).getHex() : 0xffffff;
+}
 
 function merged(from: Skin, to: Skin, share: number): Skin {
   if (share <= 0) {
@@ -617,8 +638,11 @@ function skinShares(physics: Physics) {
     airy: smooth(2.5, 4.5, pressure),
     hot: smooth(700, 1200, physics.heat),
     wet: seaCover(physics) > 0,
-    icy: smooth(0.03, 0.25, physics.ice) * (1 - smooth(200, 273, physics.heat)),
-    thick: smooth(5.7, 6.7, pressure),
+    icy: smooth(0.03, 0.25, physics.ice) * (1 - smooth(265, 275, physics.heat)),
+    thick: Math.max(
+      smooth(5.7, 6.7, pressure),
+      smooth(0.02, 0.1, shareOf(physics, "methane")) * smooth(4, 5, pressure),
+    ),
   };
 }
 
@@ -682,11 +706,8 @@ export function skinOf(body: Body): Skin {
     ...skin,
     frost,
     shroud: thick,
-    fog: thick > 0 ? tone(COLD_FOG, HOT_FOG, smooth(120, 350, physics.heat)) : skin.fog,
-    haze:
-      thick > 0
-        ? tone(skin.haze, tone(COLD_FOG, HOT_FOG, smooth(120, 350, physics.heat)), thick)
-        : skin.haze,
+    fog: thick > 0 ? fogOf(physics) : skin.fog,
+    haze: thick > 0 ? tone(skin.haze, fogOf(physics), thick) : skin.haze,
     air: wet ? 1 : Math.max(0, Math.min(1.1, 0.35 * (pressure - 2) * Math.sign(physics.air))),
   };
 }

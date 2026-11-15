@@ -49,14 +49,12 @@ const REPLACED = 4000;
 const FLOODING = 4001;
 
 function encode(message: ServerMessage): string {
-  let physics: unknown = null;
-  let ring: unknown = null;
+  let exact: unknown[] = [];
   return JSON.stringify(message, function (this: unknown, key, value) {
     if (key === "physics") {
-      physics = value;
-      ring = value?.ring ?? null;
+      exact = [value, value?.ring, value?.gases];
     }
-    const rounded = typeof value === "number" && this !== physics && this !== ring;
+    const rounded = typeof value === "number" && !exact.includes(this);
     return rounded ? Math.round(value * WIRE_PRECISION) / WIRE_PRECISION : value;
   });
 }

@@ -5,6 +5,7 @@ import {
   type Body,
   balanceHeat,
   classOf,
+  cloudsOf,
   DAY,
   densityOf,
   EARTH_AIR,
@@ -13,6 +14,7 @@ import {
   EARTH_RADIUS,
   escapeOf,
   frostOf,
+  GASES,
   gravityOf,
   HOUR,
   hillOf,
@@ -142,6 +144,17 @@ function factsOf(body: Body): Fact[] {
             ? `${figure(physics.air / EARTH_AIR)} bar`
             : "none",
       ],
+      [
+        "Air made of",
+        physics.gases.length === 0
+          ? "nothing"
+          : GASES.map((gas, index): [string, number] => [gas, physics.gases[index]])
+              .filter(([, part]) => part >= 1e-6)
+              .sort((left, right) => right[1] - left[1])
+              .map(([gas, part]) => `${gas} ${share(part)}`)
+              .join(" · "),
+      ],
+      ["Clouds of", cloudsOf(physics)],
       ["Sea", cover > 0 ? `covers ${share(cover)}` : "none"],
       ["Life", physics.life > 0 ? "yes" : "no"],
     );

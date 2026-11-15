@@ -1,16 +1,22 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  ASTRONOMICAL_UNIT,
   angleBetween,
+  climateOf,
   createWorld,
+  EARTH_AIR,
   elevationAt,
   FLUID_SHARE,
   positionOf,
   type Sketch,
   STAR_LEAST,
+  SUN_GLOW,
   seaCover,
+  shareOf,
   sketchSystem,
   slerp,
+  stocked,
   type Vector,
 } from "../src/index.ts";
 import { densityOf, hillOf, rocheOf, yearOf } from "../src/physics.ts";
@@ -133,6 +139,9 @@ test("land is where the relief of the home body rises above its sea", () => {
     const home = map.system.bodies[map.system.home];
     assert.equal(home.physics.life, 1);
     assert.ok(seaCover(home.physics) > 0, `seed ${seed}`);
+    assert.ok(home.physics.heat > 278 && home.physics.heat < 300, `seed ${seed}`);
+    assert.ok(shareOf(home.physics, "nitrogen") > 0.6, `seed ${seed}`);
+    assert.ok(shareOf(home.physics, "oxygen") > 0.15, `seed ${seed}`);
     const sea = home.relief.sea;
     assert.ok(sea !== null);
     for (const cell of map.cells) {
@@ -205,6 +214,9 @@ test("the physics of every body holds together", () => {
       const whole = physics.iron + physics.rock + physics.ice + physics.gas;
       assert.ok(Math.abs(whole - 1) < 1e-3, label);
       assert.ok(physics.mass > 0 && physics.radius > 0 && physics.heat > 0, label);
+      const airy = physics.air > 0 || (physics.gas >= FLUID_SHARE && physics.glow === 0);
+      const gases = physics.gases.reduce((sum, part) => sum + part, 0);
+      assert.ok(airy ? Math.abs(gases - 1) < 1e-3 : physics.gases.length === 0, label);
       const density = densityOf(physics.mass, physics.radius);
       assert.ok(
         density > 200 && density < (physics.glow > 0 ? 200000 : 20000),
@@ -275,6 +287,75 @@ test("the drawn scale keeps the order and the nesting of the real one", () => {
       }
     }
   }
+});
+
+test("the air of a body follows from what it keeps and how warm it is", () => {
+  const bar = EARTH_AIR;
+  const sun = { glow: SUN_GLOW, weathered: 4e-4 * bar, damp: true, frozen: false };
+  const share = (found: { gases: number[] }, gas: Parameters<typeof shareOf>[1]) =>
+    shareOf({ gases: found.gases } as Parameters<typeof shareOf>[0], gas);
+
+  const earth = climateOf({
+    ...sun,
+    distance: ASTRONOMICAL_UNIT,
+    stock: stocked({
+      nitrogen: 0.78 * bar,
+      oxygen: 0.21 * bar,
+      "carbon dioxide": 60 * bar,
+      water: 260 * bar,
+    }),
+  });
+  assert.ok(earth.heat > 280 && earth.heat < 295, `earth ${earth.heat}`);
+  assert.ok(Math.abs(earth.air / bar - 1) < 0.05);
+  assert.ok(share(earth, "carbon dioxide") < 0.001 && share(earth, "water") < 0.03);
+
+  const venus = climateOf({
+    ...sun,
+    damp: false,
+    distance: 0.723 * ASTRONOMICAL_UNIT,
+    stock: stocked({ nitrogen: 3.2 * bar, "carbon dioxide": 92 * bar }),
+  });
+  assert.ok(venus.heat > 650 && venus.heat < 900, `venus ${venus.heat}`);
+  assert.ok(share(venus, "carbon dioxide") > 0.9);
+
+  const mars = climateOf({
+    ...sun,
+    distance: 1.524 * ASTRONOMICAL_UNIT,
+    stock: stocked({ nitrogen: 2e-4 * bar, "carbon dioxide": 0.006 * bar, water: bar }),
+  });
+  assert.ok(mars.heat > 205 && mars.heat < 240, `mars ${mars.heat}`);
+
+  const titan = climateOf({
+    ...sun,
+    frozen: true,
+    distance: 9.54 * ASTRONOMICAL_UNIT,
+    stock: stocked({
+      nitrogen: 1.4 * bar,
+      methane: 2 * bar,
+      "carbon dioxide": 0.3 * bar,
+      water: 1e4 * bar,
+    }),
+  });
+  assert.ok(titan.heat > 85 && titan.heat < 102, `titan ${titan.heat}`);
+  assert.ok(share(titan, "methane") > 0.03 && share(titan, "methane") < 0.25);
+  assert.equal(share(titan, "carbon dioxide") < 1e-6, true);
+
+  const cold = climateOf({
+    ...sun,
+    distance: 1.25 * ASTRONOMICAL_UNIT,
+    stock: stocked({ nitrogen: 0.5 * bar, "carbon dioxide": 20 * bar, water: 260 * bar }),
+  });
+  assert.ok(cold.heat >= 277 && cold.heat < 285, `thermostat ${cold.heat}`);
+  assert.ok(share(cold, "carbon dioxide") > share(earth, "carbon dioxide"));
+
+  const far = climateOf({
+    ...sun,
+    frozen: true,
+    distance: 39.5 * ASTRONOMICAL_UNIT,
+    stock: stocked({ nitrogen: bar, water: 1e4 * bar }),
+  });
+  assert.equal(far.air, 0);
+  assert.deepEqual(far.gases, []);
 });
 
 test("a system sketched without a home has no life and can be given its star", () => {

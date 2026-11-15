@@ -15,7 +15,10 @@ export type { Duty, Muster, Route } from "./muster.ts";
 export {
   ASTRONOMICAL_UNIT,
   balanceHeat,
+  type Climate,
   classOf,
+  climateOf,
+  cloudsOf,
   DAY,
   densityOf,
   EARTH_AIR,
@@ -36,6 +39,10 @@ export {
   SUN_MASS,
   SUN_RADIUS,
   seaCover,
+  shareOf,
+  stocked,
+  type Volatiles,
+  vaporOf,
   YEAR,
 } from "./physics.ts";
 export { createRandom, type Random } from "./random.ts";
@@ -61,7 +68,9 @@ export {
   type CellState,
   type Command,
   type Constants,
+  GASES,
   type GameEvent,
+  type Gas,
   type HoldingOrders,
   type JointKind,
   type JointState,

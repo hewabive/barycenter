@@ -19,6 +19,19 @@ export interface Relief {
   peak: number;
 }
 
+export const GASES = [
+  "hydrogen",
+  "helium",
+  "methane",
+  "ammonia",
+  "water",
+  "nitrogen",
+  "oxygen",
+  "carbon dioxide",
+] as const;
+
+export type Gas = (typeof GASES)[number];
+
 export interface Ring {
   inner: number;
   outer: number;
@@ -36,6 +49,7 @@ export interface Physics {
   heat: number;
   glow: number;
   air: number;
+  gases: number[];
   life: number;
   vigor: number;
   orbit: number;
