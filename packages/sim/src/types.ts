@@ -70,6 +70,16 @@ export interface Physics {
   disks: Disk[];
 }
 
+export interface Shared {
+  with: number;
+  ahead: number;
+  sway: number;
+  lane: number;
+  chase: number;
+  year: number;
+  phase: number;
+}
+
 export interface Body {
   id: number;
   name: string;
@@ -88,6 +98,7 @@ export interface Body {
   day: number;
   disks: Lane[];
   relief: Relief;
+  shared: Shared | null;
 }
 
 export interface StarSystem {

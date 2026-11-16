@@ -86,6 +86,13 @@ interface Beat {
   season: number;
 }
 
+interface Share {
+  ahead: number;
+  sway: number;
+  lane: number;
+  chase: number;
+}
+
 interface Draft {
   physics: Physics;
   parent: number | null;
@@ -93,6 +100,8 @@ interface Draft {
   slant: number | null;
   plane: number | null;
   beat: Beat | null;
+  shared: (Share & { with: number }) | null;
+  apart: boolean;
 }
 
 interface Star {
@@ -128,6 +137,8 @@ interface Kin {
   slant: number | null;
   physics: Physics;
   moons: Kin[];
+  shared: (Share & { lead: Kin }) | null;
+  apart: boolean;
 }
 
 interface Anchor {
@@ -169,6 +180,8 @@ const TIED_REACH = 0.5 * ASTRONOMICAL_UNIT;
 const TIED_HEAVY = [10 * EARTH_MASS, 0.3];
 const KEPLER_STEPS = 5;
 const LAMP_LEAST = 1e-3;
+const CHASE_SHARP = 0.97;
+const ALONE = { ahead: 0, sway: 0, lane: 0, year: 1, phase: 0 };
 const KIN_SALT = 0x2545f491;
 const KIN_SHARE = [0.46, 0.25, 0.15, 0.8];
 const KIN_SETTLED = 0.3;
@@ -192,6 +205,21 @@ const HOME_IN = 1.6;
 const HOME_OUT = 2.5;
 const BELT_REACH = 1.3;
 const ZONE_LEAST = 10;
+const SHARE_SALT = 0x3c6ef372;
+const RING_DENSE = 0.55;
+const CHASE_SHARE = 1 / 30;
+const CHASE_WIDE = [1.6, 4];
+const CHASE_MOST = 0.49;
+const TROJAN_MOONS = 0.2;
+const TROJAN_BOTH = 0.3;
+const TROJAN_LIGHT = [-6, -4];
+const TROJAN_SWAY = [0.05, 0.35];
+const TROJAN_PLANETS = 0.013;
+const TROJAN_HOST = 10 * EARTH_MASS;
+const TROJAN_LEAST = 0.01 * EARTH_MASS;
+const TROJAN_MASS = [-3, -1];
+const TROJAN_SLOW = 10 * DAY;
+const CHASE_CLEAR = 1.5;
 const DOUBLE_SHARE = 0.08;
 const DOUBLE_MASS = [0.05, 0.45];
 const SETTLED_STARS = [0.3, 1.6];
@@ -526,19 +554,29 @@ function moonsOf(
   depth: number,
   random: Random,
   turns: Random,
+  rare: Random,
 ): Kin[] {
   const fluid = wrapped(host);
   const earths = host.mass / EARTH_MASS;
   const settledHere = host.life > 0;
-  const kin = (mass: number, orbit: number, stray: boolean): Kin => {
+  const siteAt = (orbit: number, stretch: number): Site => {
     const warmed = lent + lightAt(glowOf(host.radius, host.heat), orbit);
+    return { star, distance, around: host, orbit, lent: warmed, stretch, tied: false };
+  };
+  const kin = (mass: number, orbit: number, stray: boolean): Kin => {
     const caught = turns.next() < CAUGHT_SHARE && stray && !fluid;
     const stretch = (caught ? CAUGHT_STRETCH : MOON_STRETCH) * turns.next();
     const slant = caught ? Math.PI * turns.next() : null;
-    const site = { star, distance, around: host, orbit, lent: warmed, stretch, tied: false };
+    const site = siteAt(orbit, stretch);
     const physics = formed(mass, site, random, true);
-    const moons = moonsOf(physics, host, star, distance, warmed, depth + 1, random, turns);
-    return { physics, slant, moons };
+    const moons = moonsOf(physics, host, star, distance, site.lent, depth + 1, random, turns, rare);
+    return { physics, slant, moons, shared: null, apart: false };
+  };
+  const sharing = (lead: Kin, mass: number, share: Share): Kin => {
+    const site = siteAt(lead.physics.orbit, lead.physics.stretch);
+    const { year } = lead.physics;
+    const physics = { ...formed(mass, site, rare, true), year, day: year };
+    return { physics, slant: lead.slant, moons: [], shared: { ...share, lead }, apart: true };
   };
   const low = Math.max(
     3 * host.radius,
@@ -569,6 +607,32 @@ function moonsOf(
     const [least, most] = fluid ? STRAY_FLUID : STRAY_SOLID;
     const mass = Math.min(STRAY_MOST * host.mass, decades(random, least, most));
     moons.push(kin(mass, nearest * (farthest / nearest) ** share, true));
+  }
+  const ringed = host.disks.some((disk) => disk.depth >= RING_DENSE);
+  if (depth === 0 && fluid && ringed && farthest > 1.1 * nearest && rare.next() < CHASE_SHARE) {
+    const [least, most] = STRAY_FLUID;
+    const heavy = Math.min(STRAY_MOST * host.mass, decades(rare, least, most));
+    const light = heavy / (1 + 4 * rare.next());
+    const part = (heavy + light) / host.mass;
+    const wide = Math.min(
+      between(rare, CHASE_WIDE[0], CHASE_WIDE[1]),
+      CHASE_MOST / part ** (1 / 6),
+    );
+    const lane = wide * Math.sqrt((8 * part) / 3);
+    const closest = 1 / wide ** 2;
+    const orbit = nearest * between(rare, 1.02, 1.15);
+    const round = yearOf(orbit, host.mass);
+    const chase = ((4 * round) / (3 * lane)) * (1 - closest / Math.PI);
+    const site = siteAt(orbit, 0);
+    const lead: Kin = {
+      physics: formed(heavy, site, rare, true),
+      slant: null,
+      moons: [],
+      shared: null,
+      apart: true,
+    };
+    const share = { ahead: Math.PI, sway: Math.PI - closest, lane, chase };
+    moons.push(lead, sharing(lead, light, share));
   }
   if (high <= low && !settledHere) {
     return moons;
@@ -605,10 +669,30 @@ function moonsOf(
             : decades(random, -3.2, -1.8);
     const double = turns.next() < DOUBLE_SHARE && depth === 0 && !fluid && !settledHere;
     const twin = DOUBLE_MASS[0] + DOUBLE_MASS[1] * turns.next() ** 2;
-    moons.push(kin(host.mass * (double && index === 0 ? twin : usual), orbit, false));
+    const moon = kin(host.mass * (double && index === 0 ? twin : usual), orbit, false);
+    moons.push(moon);
+    if (depth === 0 && fluid && rare.next() < TROJAN_MOONS) {
+      const part = moon.physics.mass / host.mass;
+      const both = rare.next() < TROJAN_BOTH;
+      const side = rare.next() < 0.5 ? 1 : -1;
+      for (const ahead of both ? [side, -side] : [side]) {
+        const mass = moon.physics.mass * decades(rare, TROJAN_LIGHT[0], TROJAN_LIGHT[1]);
+        const sway = between(rare, TROJAN_SWAY[0], TROJAN_SWAY[1]);
+        moons.push(sharing(moon, mass, trojan(ahead, sway, part, moon.physics.year)));
+      }
+    }
     orbit *= between(random, 1.5, 2.3);
   }
   return moons;
+}
+
+function trojan(side: number, sway: number, part: number, round: number): Share {
+  return {
+    ahead: (side * Math.PI) / 3,
+    sway,
+    lane: sway * Math.sqrt(3 * part),
+    chase: round / Math.sqrt((27 * part) / 4),
+  };
 }
 
 export function reliefOf(physics: Physics, seed: number): Relief {
@@ -664,15 +748,19 @@ function arranged(bodies: Body[], anchor: Anchor): Body[] {
     const belts = sun ? physics.disks : [];
     const around = [
       ...bodies
-        .filter((child) => child.parent === id)
+        .filter((child) => child.parent === id && child.shared === null)
         .map((child) => ({ at: child.physics.orbit, child, belt: null })),
       ...belts.map((belt) => ({ at: belt.inner, child: null, belt })),
     ].sort((left, right) => left.at - right.at);
     for (const { child, belt } of around) {
       if (child !== null) {
-        const span = reach(child.id);
+        const sharers = bodies.filter((other) => other.shared?.with === child.id);
+        const span = Math.max(reach(child.id), ...sharers.map((other) => reach(other.id)));
         const oval = child.physics.stretch;
         orbit[child.id] = Math.max(drawn(child.physics.orbit), (edge + span) / (1 - oval));
+        for (const other of sharers) {
+          orbit[other.id] = orbit[child.id];
+        }
         edge = orbit[child.id] * (1 + oval) + span + gap;
       } else if (belt !== null) {
         const inner = Math.max(drawn(belt.inner), edge);
@@ -691,8 +779,23 @@ function arranged(bodies: Body[], anchor: Anchor): Body[] {
   return bodies.map((body) => {
     const year = body.parent === null ? 0 : pace(body.physics.year, anchor.year, HOME_YEAR);
     const locked = body.physics.day === body.physics.year;
+    const { shared } = body;
+    const touch =
+      shared === null
+        ? 0
+        : (radius[body.id] + radius[shared.with]) / Math.max(orbit[body.id], 1e-9);
     return {
       ...body,
+      shared:
+        shared === null
+          ? null
+          : {
+              ...shared,
+              sway: trim(
+                Math.max(0, Math.min(shared.sway, Math.abs(shared.ahead) - CHASE_CLEAR * touch)),
+              ),
+              year: pace(shared.chase, anchor.year, HOME_YEAR),
+            },
       radius: trim(radius[body.id]),
       orbit: trim(orbit[body.id]),
       year,
@@ -845,11 +948,12 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
   const marks = createRandom(world ^ MARK_SALT);
   const turns = createRandom(world ^ TURN_SALT);
   const kin = createRandom(world ^ KIN_SALT);
-  const pick = (list: string[]) => list[Math.floor(marks.next() * list.length)];
-  const name = (): string => {
+  const rare = createRandom(world ^ SHARE_SALT);
+  const name = (dice: Random): string => {
+    const pick = (list: string[]) => list[Math.floor(dice.next() * list.length)];
     const made = pick(OPENINGS) + pick(MIDDLES) + pick(ENDINGS);
     if (taken.has(made)) {
-      return name();
+      return name(dice);
     }
     taken.add(made);
     return made;
@@ -950,16 +1054,32 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
     sweep: planet.stretch,
     season: planet.year,
   });
+  const adopted = new Map<Kin, number>();
   const adopt = (moon: Kin, parent: number) => {
     const own = drafts.length;
     const { beat } = drafts[parent];
-    const physics = moon.physics;
-    drafts.push({ physics, parent, tilt: null, slant: moon.slant, plane: null, beat });
+    const { physics, slant, apart } = moon;
+    const lead = moon.shared === null ? undefined : adopted.get(moon.shared.lead);
+    const shared =
+      moon.shared === null || lead === undefined
+        ? null
+        : {
+            ahead: moon.shared.ahead,
+            sway: moon.shared.sway,
+            lane: moon.shared.lane,
+            chase: moon.shared.chase,
+            with: lead,
+          };
+    adopted.set(moon, own);
+    drafts.push({ physics, parent, tilt: null, slant, plane: null, beat, shared, apart });
     for (const lesser of moon.moons) {
       adopt(lesser, own);
     }
   };
-  const seat: { home: number | null } = { home: null };
+  const seat: { home: number | null; trojan: boolean } = {
+    home: null,
+    trojan: rare.next() < TROJAN_PLANETS,
+  };
 
   const lay = (zone: Zone): Disk[] => {
     const star = zone.centre;
@@ -1085,12 +1205,32 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
         slant: zone.plane === "equator" ? null : zone.plane === "system" ? slant : 0,
         plane: typeof zone.plane === "number" ? zone.plane : null,
         beat,
+        shared: null,
+        apart: false,
       });
       if (settledHere) {
         seat.home = id;
       }
-      for (const moon of moonsOf(planet, star, star, distance, zone.lent, 0, random, turns)) {
+      const moons = moonsOf(planet, star, star, distance, zone.lent, 0, random, turns, rare);
+      for (const moon of moons) {
         adopt(moon, id);
+      }
+      if (seat.trojan && !settledHere && mass >= TROJAN_HOST && planet.year >= TROJAN_SLOW) {
+        seat.trojan = false;
+        const light = planet.mass * decades(rare, TROJAN_MASS[0], TROJAN_MASS[1]);
+        const made = formed(Math.max(TROJAN_LEAST, light), site, rare);
+        const other = { ...made, year: planet.year, day: tied ? planet.year : made.day };
+        const part = (planet.mass + other.mass) / star.mass;
+        const side = rare.next() < 0.5 ? 1 : -1;
+        const sway = between(rare, TROJAN_SWAY[0], TROJAN_SWAY[1]);
+        drafts.push({
+          ...drafts[id],
+          physics: other,
+          tilt: MAX_TILT * rare.next(),
+          beat: beatOf(other, star, distance),
+          shared: { ...trojan(side, sway, part, planet.year), with: id },
+          apart: true,
+        });
       }
     }
     return belts;
@@ -1100,7 +1240,8 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
     const id = drafts.length;
     const { tilt, slant } = star;
     const physics = { ...star.physics, light: lent };
-    drafts.push({ physics, parent, tilt, slant, plane: null, beat: null });
+    const alone = { plane: null, beat: null, shared: null, apart: false };
+    drafts.push({ physics, parent, tilt, slant, ...alone });
     const belts: Disk[] = [];
     const beyond = (from: number) =>
       star.kin.slice(from).reduce((sum, far) => sum + lightAt(far.glow, wideOf(far.physics)), lent);
@@ -1150,25 +1291,35 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
         ? [draft.physics.heat, draft.physics.heat]
         : swingOf(draft.physics, beat.sun, beat.sweep, beat.season);
     const physics = trimmed({ ...draft.physics, coldest, hottest });
-    const drawn = Math.floor(marks.next() * 0x7fffffff);
+    const marked = draft.apart ? rare : marks;
+    const spun = draft.apart ? rare : turns;
+    const drawn = Math.floor(marked.next() * 0x7fffffff);
     const own = id === home ? homeSeed : drawn;
-    const named = name();
-    const phase = draft.parent === null ? 0 : trim(2 * Math.PI * marks.next());
+    const named = name(marked);
+    const lead = draft.shared === null ? null : bodies[draft.shared.with];
+    const placed = draft.parent === null || lead !== null ? 0 : trim(2 * Math.PI * marked.next());
+    const phase = lead === null ? placed : lead.phase;
     const around = draft.parent === null ? null : bodies[draft.parent];
-    const node = 2 * Math.PI * turns.next();
-    const apse = 2 * Math.PI * turns.next();
-    const swing = 2 * Math.PI * turns.next();
+    const node = 2 * Math.PI * spun.next();
+    const apse = 2 * Math.PI * spun.next();
+    const swing = 2 * Math.PI * spun.next();
     const level = draft.slant === null && around !== null;
-    const shared = draft.plane === null ? null : bodies[draft.plane];
-    const slant = shared !== null ? shared.slant : level ? around.tilt : (draft.slant ?? 0);
+    const flat = lead ?? (draft.plane === null ? null : bodies[draft.plane]);
+    const slant = flat !== null ? flat.slant : level ? around.tilt : (draft.slant ?? 0);
     const turned =
-      shared !== null
-        ? shared.node
-        : level
-          ? around.swing
-          : around === null || id === home
-            ? 0
-            : node;
+      flat !== null ? flat.node : level ? around.swing : around === null || id === home ? 0 : node;
+    const shared =
+      draft.shared === null
+        ? null
+        : {
+            with: draft.shared.with,
+            ahead: trim(draft.shared.ahead),
+            sway: trim(draft.shared.sway),
+            lane: trim(draft.shared.lane),
+            chase: trim(draft.shared.chase),
+            year: 1,
+            phase: trim(2 * Math.PI * rare.next()),
+          };
     bodies.push({
       id,
       name: named,
@@ -1181,12 +1332,13 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
       phase,
       slant: trim(slant),
       node: trim(turned),
-      apse: around === null ? 0 : trim(apse),
+      apse: lead !== null ? lead.apse : around === null ? 0 : trim(apse),
       tilt: trim(draft.tilt ?? slant),
       swing: around === null ? 0 : trim(draft.tilt === null ? turned : swing),
       day: 0,
       disks: [],
       relief: id === home ? { ...HOME_SHAPE, sea: null, peak: 0.5 } : reliefOf(physics, own),
+      shared,
     });
   }
   const settledOn = home === null ? null : bodies[home].physics;
@@ -1212,7 +1364,13 @@ interface Family {
 interface Tree {
   weights: number[];
   families: Family[];
+  sharers: number[][];
   candles: number[];
+}
+
+interface Pose {
+  shift: number;
+  scale: number;
 }
 
 export interface Places {
@@ -1230,9 +1388,13 @@ function treeOf(system: Sketch): Tree {
     return known;
   }
   const kids: number[][] = system.bodies.map(() => []);
+  const sharers: number[][] = system.bodies.map(() => []);
   for (const body of system.bodies) {
     if (body.parent !== null) {
       kids[body.parent].push(body.id);
+    }
+    if (body.shared !== null) {
+      sharers[body.shared.with].push(body.id);
     }
   }
   const weights = system.bodies.map(() => 0);
@@ -1247,18 +1409,21 @@ function treeOf(system: Sketch): Tree {
     }
   }
   const families = system.bodies.map((body) => {
-    const children = kids[body.id].sort(
-      (left, right) => system.bodies[left].physics.orbit - system.bodies[right].physics.orbit,
-    );
+    const children = kids[body.id]
+      .filter((kid) => system.bodies[kid].shared === null)
+      .sort(
+        (left, right) => system.bodies[left].physics.orbit - system.bodies[right].physics.orbit,
+      );
     let within = body.physics.mass;
     const shares = children.map((child) => {
-      within += weights[child];
-      return weights[child] / within;
+      const group = sharers[child].reduce((sum, other) => sum + weights[other], weights[child]);
+      within += group;
+      return group / within;
     });
     return { children, shares };
   });
   const candles = system.bodies.map(({ physics }) => seenGlow(physics.heat) * physics.radius ** 2);
-  const tree = { weights, families, candles };
+  const tree = { weights, families, sharers, candles };
   trees.set(system.bodies, tree);
   return tree;
 }
@@ -1268,12 +1433,43 @@ export function weightOf(system: Sketch, id: number): number {
 }
 
 export function swayOf(system: Sketch, id: number): number {
-  const { parent } = system.bodies[id];
+  const { parent, shared } = system.bodies[id];
   if (parent === null) {
     return 0;
   }
   const { children, shares } = treeOf(system).families[parent];
-  return shares[children.indexOf(id)];
+  return shares[children.indexOf(shared === null ? id : shared.with)];
+}
+
+function posesOf(system: Sketch, lead: number, tick: number): Pose[] {
+  const { weights, sharers } = treeOf(system);
+  const others = sharers[lead];
+  if (others.length === 0) {
+    return [{ shift: 0, scale: 1 }];
+  }
+  const whole = others.reduce((sum, id) => sum + weights[id], weights[lead]);
+  const steps = others.map((id) => {
+    const { ahead, sway, lane, year, phase } = system.bodies[id].shared ?? ALONE;
+    const turn = phase + (2 * Math.PI * tick) / year;
+    const sharp = sway > Math.PI / 2 ? CHASE_SHARP : 0;
+    const blunt = Math.sqrt(1 - (sharp * Math.sin(turn)) ** 2);
+    const wave = sharp > 0 ? Math.asin(sharp * Math.sin(turn)) / Math.asin(sharp) : Math.sin(turn);
+    const share = weights[id] / whole;
+    return { angle: ahead + sway * wave, gap: (-lane * Math.cos(turn)) / blunt, share };
+  });
+  const back = steps.reduce((sum, step) => sum + step.share * step.angle, 0);
+  const down = steps.reduce((sum, step) => sum + step.share * step.gap, 0);
+  return [
+    { shift: -back, scale: 1 - down },
+    ...steps.map((step) => ({ shift: step.angle - back, scale: 1 + step.gap - down })),
+  ];
+}
+
+export function poseOf(system: Sketch, id: number, tick: number): Pose {
+  const { shared } = system.bodies[id];
+  const lead = shared === null ? id : shared.with;
+  const at = shared === null ? 0 : 1 + treeOf(system).sharers[lead].indexOf(id);
+  return posesOf(system, lead, tick)[at];
 }
 
 export function lampsOf(system: Sketch, id: number): Lamp[] {
@@ -1318,9 +1514,9 @@ export function lampsAt(system: Sketch, id: number, tick: number): Lamp[] {
   });
 }
 
-export function courseOf(body: Body, anomaly: number, real = false): Vector {
+export function courseOf(body: Body, anomaly: number, real = false, scale = 1): Vector {
   const oval = body.physics.stretch;
-  const reach = real ? body.physics.orbit : body.orbit;
+  const reach = scale * (real ? body.physics.orbit : body.orbit);
   const along = reach * (Math.cos(anomaly) - oval);
   const across = reach * Math.sqrt(1 - oval ** 2) * Math.sin(anomaly);
   const ahead = along * Math.cos(body.apse) - across * Math.sin(body.apse);
@@ -1333,9 +1529,9 @@ export function courseOf(body: Body, anomaly: number, real = false): Vector {
   };
 }
 
-export function anomalyOf(body: Body, tick: number): number {
+export function anomalyOf(body: Body, tick: number, shift = 0): number {
   const oval = body.physics.stretch;
-  const mean = body.phase + (2 * Math.PI * tick) / body.year;
+  const mean = body.phase + (2 * Math.PI * tick) / body.year + shift;
   let anomaly = mean + oval * Math.sin(mean);
   for (let step = 0; step < KEPLER_STEPS; step++) {
     anomaly -= (anomaly - oval * Math.sin(anomaly) - mean) / (1 - oval * Math.cos(anomaly));
@@ -1350,7 +1546,7 @@ export function placesOf(system: Sketch, tick: number, real = false): Places {
   if (known !== undefined && known.tick === tick) {
     return known.places;
   }
-  const { families } = treeOf(system);
+  const { families, sharers, weights } = treeOf(system);
   const origin = { x: 0, y: 0, z: 0 };
   const places: Places = {
     at: system.bodies.map(() => origin),
@@ -1362,16 +1558,29 @@ export function placesOf(system: Sketch, tick: number, real = false): Places {
     let within = hub;
     places.hub[id] = hub;
     for (let index = children.length - 1; index >= 0; index--) {
-      const child = system.bodies[children[index]];
-      const reach = courseOf(child, anomalyOf(child, tick), real);
-      const share = shares[index];
-      const inner = {
-        x: within.x - share * reach.x,
-        y: within.y - share * reach.y,
-        z: within.z - share * reach.z,
-      };
-      places.centre[child.id] = within;
-      settle(child.id, { x: inner.x + reach.x, y: inner.y + reach.y, z: inner.z + reach.z });
+      const lead = children[index];
+      const group = [lead, ...sharers[lead]];
+      const poses = posesOf(system, lead, tick);
+      const reaches = group.map((member, at) => {
+        const body = system.bodies[member];
+        const { shift, scale } = poses[at];
+        return courseOf(body, anomalyOf(body, tick, shift), real, scale);
+      });
+      const whole = group.reduce((sum, member) => sum + weights[member], 0);
+      const pull = shares[index] / whole;
+      const inner = reaches.reduce(
+        (sum, reach, at) => ({
+          x: sum.x - pull * weights[group[at]] * reach.x,
+          y: sum.y - pull * weights[group[at]] * reach.y,
+          z: sum.z - pull * weights[group[at]] * reach.z,
+        }),
+        within,
+      );
+      for (const [at, member] of group.entries()) {
+        const reach = reaches[at];
+        places.centre[member] = within;
+        settle(member, { x: inner.x + reach.x, y: inner.y + reach.y, z: inner.z + reach.z });
+      }
       within = inner;
     }
     places.at[id] = within;
@@ -1414,7 +1623,8 @@ export function heatAt(system: Sketch, id: number, tick: number): number {
   }
   const even = (1 - oval ** 2) ** 0.25;
   const share = (reach: number) => Math.sqrt(even / reach);
-  const now = share(1 - oval * Math.cos(anomalyOf(path, tick)));
+  const { shift } = poseOf(system, path.id, tick);
+  const now = share(1 - oval * Math.cos(anomalyOf(path, tick, shift)));
   return now >= 1
     ? heat + ((hottest - heat) * (now - 1)) / (share(1 - oval) - 1)
     : heat - ((heat - coldest) * (1 - now)) / (1 - share(1 + oval));

@@ -90,6 +90,7 @@ export {
   type Plan,
   placesOf,
   poleOf,
+  poseOf,
   positionOf,
   reliefOf,
   type Site,

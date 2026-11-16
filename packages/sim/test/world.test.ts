@@ -30,6 +30,7 @@ import {
   nestOf,
   type Physics,
   poleOf,
+  poseOf,
   positionOf,
   radiusOf,
   roughOf,
@@ -218,6 +219,10 @@ test("cells joined by land meet on dry ground and a strait crosses water", () =>
   }
 });
 
+function sharing(system: Sketch, body: Body): boolean {
+  return body.shared !== null || system.bodies.some((other) => other.shared?.with === body.id);
+}
+
 test("a system has one star, a home body and others around them", () => {
   for (const seed of SEEDS) {
     const { system } = createWorld({ seed }).map;
@@ -236,12 +241,15 @@ test("a system has one star, a home body and others around them", () => {
         continue;
       }
       const around = system.bodies[body.parent];
+      const oval = body.physics.stretch;
+      assert.ok(body.orbit * (1 - oval) > body.radius + around.radius);
+      if (sharing(system, body)) {
+        continue;
+      }
       const share = 1 - swayOf(system, body.id);
       const center = centreOf(system, body.id, 1234);
       const away = Math.hypot(at.x - center.x, at.y - center.y, at.z - center.z) / share;
-      const oval = body.physics.stretch;
       assert.ok(away > body.orbit * (1 - oval) - 1e-9 && away < body.orbit * (1 + oval) + 1e-9);
-      assert.ok(body.orbit * (1 - oval) > body.radius + around.radius);
       const later = hubOf(system, body.id, 1234 + body.year);
       const moved = centreOf(system, body.id, 1234 + body.year);
       const drift = Math.hypot(
@@ -354,8 +362,13 @@ test("the drawn scale keeps the order and the nesting of the real one", () => {
     for (const body of system.bodies) {
       const label = `${world}, ${body.name}`;
       const around = system.bodies
-        .filter((other) => other.parent === body.id)
+        .filter((other) => other.parent === body.id && other.shared === null)
         .sort((left, right) => left.physics.orbit - right.physics.orbit);
+      for (const other of system.bodies.filter((kin) => kin.shared?.with === body.id)) {
+        assert.equal(other.orbit, body.orbit, label);
+        assert.equal(other.year, body.year, label);
+        assert.equal(other.parent, body.parent, label);
+      }
       around.forEach((child, index) => {
         const before = index === 0 ? null : around[index - 1];
         const edge =
@@ -661,7 +674,7 @@ test("an orbit is an oval in a plane of its own, swept as the pull of its centre
   for (let seed = 1; seed <= 150; seed++) {
     const system = sketchSystem(seed, { settled: seed % 3 === 0, star: null });
     const planets = system.bodies
-      .filter((body) => body.parent === 0)
+      .filter((body) => body.parent === 0 && body.shared === null)
       .sort((left, right) => left.physics.orbit - right.physics.orbit);
     planets.forEach((planet, index) => {
       const next = planets[index + 1];
@@ -670,7 +683,7 @@ test("an orbit is an oval in a plane of its own, swept as the pull of its centre
     });
     for (const body of system.bodies) {
       const label = `seed ${seed}, ${body.name}`;
-      if (body.parent === null) {
+      if (body.parent === null || sharing(system, body)) {
         continue;
       }
       const around = system.bodies[body.parent];
@@ -866,6 +879,78 @@ test("bodies balance about shared centres, and stars stand in nested groups that
   assert.ok(around > 30, `planets around a pair ${around}`);
   assert.ok(double > 5, `double planets ${double}`);
   assert.ok(swayed > 0, `stars swayed by a brown dwarf ${swayed}`);
+});
+
+test("bodies that share an orbit keep apart and trade places", () => {
+  let chases = 0;
+  let moons = 0;
+  let planets = 0;
+  for (let seed = 1; seed <= 600; seed++) {
+    const system = sketchSystem(seed, { settled: seed % 3 === 0, star: null });
+    for (const body of system.bodies) {
+      const { shared } = body;
+      if (shared === null || body.parent === null) {
+        continue;
+      }
+      const label = `seed ${seed}, ${body.name}`;
+      const lead = system.bodies[shared.with];
+      const host = system.bodies[body.parent];
+      assert.equal(lead.parent, body.parent, label);
+      assert.equal(lead.shared, null, label);
+      assert.equal(body.physics.orbit, lead.physics.orbit, label);
+      assert.equal(body.physics.year, lead.physics.year, label);
+      assert.ok(body.physics.mass <= lead.physics.mass, label);
+      const chasing = shared.sway > Math.PI / 2;
+      const part = (body.physics.mass + lead.physics.mass) / host.physics.mass;
+      assert.ok(part < (chasing ? 4e-4 : 1 / 27), `${label}: light enough to last`);
+      assert.ok(shared.chase > 10 * body.physics.year && shared.year > body.year, label);
+      const others = system.bodies.filter((other) => other.shared?.with === lead.id);
+      const ahead = (tick: number) =>
+        poseOf(system, body.id, tick).shift - poseOf(system, lead.id, tick).shift;
+      const wider = (tick: number) =>
+        poseOf(system, body.id, tick).scale - poseOf(system, lead.id, tick).scale;
+      const ticks = Array.from({ length: 96 }, (_, step) => (step * shared.year) / 96);
+      const angles = ticks.map(ahead);
+      const least = shared.ahead - shared.sway;
+      const most = shared.ahead + shared.sway;
+      assert.ok(Math.min(...angles) > least - 1e-9 && Math.max(...angles) < most + 1e-9, label);
+      assert.ok(Math.max(...angles) - Math.min(...angles) > 1.9 * shared.sway, label);
+      for (const tick of ticks) {
+        const one = positionOf(system, lead.id, tick);
+        const other = positionOf(system, body.id, tick);
+        const apart = Math.hypot(one.x - other.x, one.y - other.y, one.z - other.z);
+        assert.ok(apart > lead.radius + body.radius, `${label}: the two never touch on screen`);
+        const turn = ahead(tick + 1e-3 * shared.year) - ahead(tick);
+        if (Math.abs(wider(tick)) > 0.3 * shared.lane) {
+          assert.ok(turn * wider(tick) < 0, `${label}: the one on the wider orbit falls behind`);
+        }
+        if (others.length === 1) {
+          const weighed =
+            weightOf(system, body.id) * poseOf(system, body.id, tick).shift +
+            weightOf(system, lead.id) * poseOf(system, lead.id, tick).shift;
+          assert.ok(Math.abs(weighed) < 1e-9 * weightOf(system, lead.id), label);
+        }
+      }
+      const gaps = ticks.map(wider);
+      assert.ok(Math.abs(Math.max(...gaps) / shared.lane - 1) < 0.02, label);
+      assert.ok(Math.abs(Math.min(...gaps) / shared.lane + 1) < 0.02, label);
+      if (chasing) {
+        assert.ok(wrapped(host.physics) && host.physics.disks.length > 0, label);
+        assert.ok(lead.physics.mass < 6 * body.physics.mass, `${label}: of like mass`);
+        const rim = Math.max(...host.physics.disks.map((disk) => disk.outer));
+        assert.ok(body.physics.orbit > rim && body.physics.orbit < 1.5 * rim, label);
+        chases += 1;
+      } else {
+        assert.ok(Math.abs(Math.abs(shared.ahead) - Math.PI / 3) < 1e-4, label);
+        assert.ok(shared.sway < 0.36, label);
+        planets += starborn(host.physics) ? 1 : 0;
+        moons += starborn(host.physics) ? 0 : 1;
+      }
+    }
+  }
+  assert.ok(chases > 2 && chases < 40, `pairs that trade places ${chases}`);
+  assert.ok(moons > 400 && moons < 2500, `moons at the points ahead of and behind a moon ${moons}`);
+  assert.ok(planets > 1 && planets < 25, `planets that share an orbit ${planets}`);
 });
 
 test("a world on a long oval is hot at its nearest and cold at its farthest", () => {

@@ -147,6 +147,8 @@ function factsOf(body: Body): Fact[] {
   const glow = (LUMENS * seenGlow(physics.heat)) / Math.PI;
   const warmer = physics.light > 0 ? 1 - lightAt(sun.physics.glow, reach) / physics.light : 0;
   const sway = swayOf(system, body.id);
+  const { shared } = body;
+  const sharers = system.bodies.filter((other) => other.shared?.with === body.id);
   const within = parent === null ? [] : [parent, ...heavy(parent).filter(nearer(body))];
   const swaying = heavy(body);
   const lamps = lampsOf(system, body.id).slice(0, LAMPS);
@@ -290,6 +292,17 @@ function factsOf(body: Body): Fact[] {
           ? `that of the equator of ${parent.name}`
           : `${degrees(body.slant)} to the plane of the system${body.slant > Math.PI / 2 ? ", backward" : ""}`,
       ],
+      ...(shared === null
+        ? []
+        : [
+            [
+              "Shares its orbit with",
+              shared.sway > Math.PI / 2
+                ? `${system.bodies[shared.with].name} · the two trade places every ${span(shared.chase / 2)} and come no nearer than ${degrees(Math.PI - shared.sway)} · their orbits differ by ${lengthOf(shared.lane * physics.orbit)}`
+                : `${system.bodies[shared.with].name} · keeps 60° ${shared.ahead > 0 ? "ahead of" : "behind"} it, swinging ${degrees(shared.sway)} either way every ${span(shared.chase)}`,
+            ] satisfies Fact,
+          ]),
+      ...(sharers.length === 0 ? [] : [["Shares its orbit with", listed(sharers)] satisfies Fact]),
       ["Year", span(physics.year)],
       [
         "Day",

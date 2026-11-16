@@ -283,7 +283,7 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
     return { line, about: source.id };
   };
   const tracks = looks.flatMap(({ body }) => {
-    if (body.parent === null) {
+    if (body.parent === null || body.shared !== null) {
       return [];
     }
     const sway = swayOf(system, body.id);

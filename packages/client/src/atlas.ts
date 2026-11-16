@@ -74,6 +74,7 @@ const bodyOf = (physics: Physics, own: number): Body => ({
     year: 1,
   })),
   relief: reliefOf(physics, own),
+  shared: null,
 });
 
 const rows: Body[][] = masses.map((mass) =>

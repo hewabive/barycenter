@@ -54,6 +54,9 @@ function encode(message: ServerMessage): string {
     if (key === "physics") {
       exact = [value, value?.gases, ...(value?.disks ?? [])];
     }
+    if (key === "shared") {
+      exact = [value];
+    }
     const rounded = typeof value === "number" && !exact.includes(this);
     return rounded ? Math.round(value * WIRE_PRECISION) / WIRE_PRECISION : value;
   });
