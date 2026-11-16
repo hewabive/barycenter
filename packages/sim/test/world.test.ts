@@ -300,12 +300,15 @@ test("the physics of every body holds together", () => {
         continue;
       }
       const around = system.bodies[body.parent].physics;
-      const both = system.bodies
-        .filter((kin) => kin.parent === body.parent && kin.physics.mass >= STAR_LEAST)
-        .filter((kin) => kin.physics.orbit < physics.orbit)
-        .reduce((sum, kin) => sum + kin.physics.mass, 0);
-      const year = yearOf(physics.orbit, around.mass + both + physics.mass);
-      assert.ok(Math.abs(physics.year / year - 1) < 1e-3, label);
+      const lead = body.shared === null ? body : system.bodies[body.shared.with];
+      const within = system.bodies
+        .filter((kin) => kin.parent === body.parent)
+        .filter(
+          (kin) => kin.physics.orbit < physics.orbit || (kin.shared?.with ?? kin.id) === lead.id,
+        )
+        .reduce((sum, kin) => sum + weightOf(system, kin.id), 0);
+      const year = yearOf(physics.orbit, around.mass + within);
+      assert.ok(Math.abs(physics.year / year - 1) < 3e-4, label);
       assert.ok(physics.stretch >= 0 && physics.stretch < 0.7, label);
       assert.ok(physics.orbit * (1 - physics.stretch) > around.radius + physics.radius, label);
       assert.ok(physics.mass < around.mass, label);

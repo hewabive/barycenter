@@ -942,6 +942,53 @@ function accompany(
   }
 }
 
+function paced(drafts: Draft[]): void {
+  const kids: number[][] = drafts.map(() => []);
+  for (const [id, draft] of drafts.entries()) {
+    if (draft.parent !== null) {
+      kids[draft.parent].push(id);
+    }
+  }
+  const weights = drafts.map(() => 0);
+  const weigh = (id: number): number => {
+    weights[id] = kids[id].reduce((sum, kid) => sum + weigh(kid), drafts[id].physics.mass);
+    return weights[id];
+  };
+  for (const [id, draft] of drafts.entries()) {
+    if (draft.parent === null) {
+      weigh(id);
+    }
+  }
+  const turn = (id: number, year: number) => {
+    const draft = drafts[id];
+    const { physics, shared } = draft;
+    const rate = year / physics.year;
+    draft.physics = { ...physics, year, day: physics.day === physics.year ? year : physics.day };
+    draft.shared = shared === null ? null : { ...shared, chase: shared.chase * rate };
+  };
+  for (const [id, draft] of drafts.entries()) {
+    let within = draft.physics.mass;
+    const leads = kids[id]
+      .filter((kid) => drafts[kid].shared === null)
+      .sort((left, right) => drafts[left].physics.orbit - drafts[right].physics.orbit);
+    for (const lead of leads) {
+      const group = [lead, ...kids[id].filter((kid) => drafts[kid].shared?.with === lead)];
+      within += group.reduce((sum, member) => sum + weights[member], 0);
+      const year = yearOf(drafts[lead].physics.orbit, within);
+      for (const member of group) {
+        turn(member, year);
+      }
+    }
+  }
+  const seasons = new Set<Beat>();
+  for (const { beat, physics } of drafts) {
+    if (beat !== null && !seasons.has(beat)) {
+      seasons.add(beat);
+      beat.season = physics.year;
+    }
+  }
+}
+
 export function sketchSystem(world: number, plan: Plan): Sketch {
   const random = createRandom(world ^ SYSTEM_SALT);
   const taken = new Set<string>();
@@ -1281,6 +1328,7 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
     return id;
   };
   emit(root, null, open, 0);
+  paced(drafts);
   const { home } = seat;
 
   const bodies: Body[] = [];
