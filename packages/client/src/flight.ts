@@ -4,16 +4,23 @@ import "./flight.css";
 import {
   ASTRONOMICAL_UNIT,
   type Burn,
+  centreOf,
   circling,
   classOf,
   createFlight,
   createFlyer,
+  createForecast,
   DAY,
+  type Forecast,
   HEADINGS,
   type Heading,
   HOUR,
   headingOf,
+  hubOf,
+  type Kick,
+  lagrangeOf,
   orbitOf,
+  passesOf,
   poleOf,
   primaryOf,
   railsOf,
@@ -22,16 +29,54 @@ import {
   seenGlow,
   shownLight,
   surveySystem,
+  swayOf,
   YEAR,
 } from "@barycenter/sim";
 import { Quaternion, Vector3 } from "three";
+import { createCourse, type Frame } from "./course.ts";
 import { CRAFT_REACH, createCraft } from "./craft.ts";
 import { button, el, required, write } from "./dom.ts";
 import { createSpace } from "./space.ts";
 
+type Steering = Heading | "plan";
+
+interface Push {
+  id: number;
+  time: number;
+  along: number;
+  north: number;
+  out: number;
+  left: number;
+}
+
+interface Pin {
+  text: string;
+  tone: string;
+  slot: number;
+  share: number;
+}
+
 const WARPS = [1, 10, 100, 1e3, 1e4, 1e5, 1e6, 1e7];
 const BUDGET = 7;
 const BATCH = 6;
+const FORECAST_BUDGET = 3;
+const FORECAST_ROOM = 5000;
+const FORECAST_WORN = 0.25;
+const PUSH_DONE = 1e-6;
+const PUSH_GRACE = 5;
+const PUSH_AHEAD = 600;
+const AUTO_LEVEL = 1;
+const AHEADS: [span: number | null, label: string][] = [
+  [null, "as far as the orbit asks"],
+  [HOUR, "1 hour"],
+  [6 * HOUR, "6 hours"],
+  [DAY, "1 day"],
+  [10 * DAY, "10 days"],
+  [100 * DAY, "100 days"],
+  [YEAR, "1 year"],
+  [10 * YEAR, "10 years"],
+  [100 * YEAR, "100 years"],
+];
 const LONGEST_FRAME = 0.1;
 const READOUT_PACE = 0.15;
 const TURN_RATE = 0.9;
@@ -43,7 +88,8 @@ const LOW_SHARE = 0.05;
 const LABEL_GAP = 10;
 const SEEN_LEAST = 0.6;
 const TAG_MOST = 40;
-const HEADING_NAMES: Record<Heading, string> = {
+const HEADING_NAMES: Record<Steering, string> = {
+  plan: "Plan",
   hold: "Hold",
   prograde: "Prograde",
   retrograde: "Retrograde",
@@ -137,8 +183,21 @@ const engine = { thrust: 1e5, exhaust: 4500, dry: 4000, tank: 16000, endless: fa
 const held = { x: 1, y: 0, z: 0 };
 const aim = new Float64Array(3);
 const keys = new Set<string>();
+const plan: Push[] = [];
+const planAim = { x: 1, y: 0, z: 0 };
+const frame: Frame = { body: null, turning: false };
 let throttle = 0;
-let heading: Heading = "prograde";
+let steering: Steering = "prograde";
+let autopilot = true;
+let aimedFor = -1;
+let pushes = 0;
+let lookahead: number | null = null;
+let target: number | null = null;
+let forecast: Forecast | null = null;
+let brewing: Forecast | null = null;
+let spare: Forecast | null = null;
+let stalePlan = true;
+let pins: Pin[] = [];
 let chosen: number | null = null;
 let about = 0;
 let level = 0;
@@ -167,12 +226,15 @@ const launch = (id: number, height: number) => {
   ]);
   throttle = 0;
   dirty = true;
+  replan();
 };
 
 const stage = required<HTMLElement>("#stage");
 const space = createSpace(stage, system, true);
 const probe = space.probe(CRAFT_REACH / unit);
 const craft = createCraft(unit);
+const course = createCourse(space.world, system, unit);
+const foresee = createFlyer(rails);
 space.fore.add(craft.frame, craft.lights);
 const tag = el("button", { class: "label craft", type: "button" }, "Ship");
 tag.addEventListener("click", () => space.focus(probe.id));
@@ -191,12 +253,22 @@ const relative = (id: number) => {
     state[5] - speed[base + 2],
   ] as const;
 };
+const burning = () => throttle > 0 && (engine.endless || fuelLeft() > 0);
+const headingNow = (): Heading => (steering === "plan" ? "hold" : steering);
+const sighted = () => plan.length > 0 && aimedFor === plan[0].id;
+const follow = () => {
+  held.x = planAim.x;
+  held.y = planAim.y;
+  held.z = planAim.z;
+};
 const settle = () => {
   rails.place(flight.time, at, speed);
   about = chosen ?? primaryOf(rails, at, flight.state);
-  headingOf(heading, held, ...relative(about), aim);
+  if (steering === "plan" && sighted() && !burning()) {
+    follow();
+  }
+  headingOf(headingNow(), held, ...relative(about), aim);
 };
-const burning = () => throttle > 0 && (engine.endless || fuelLeft() > 0);
 const burnNow = (): Burn | null =>
   burning()
     ? {
@@ -204,19 +276,117 @@ const burnNow = (): Burn | null =>
         exhaust: engine.exhaust,
         dry: engine.dry,
         endless: engine.endless,
-        heading,
+        heading: headingNow(),
         about,
         held: { ...held },
       }
     : null;
-const point = (next: Heading) => {
+const point = (next: Steering) => {
   if (next === "hold") {
     held.x = aim[0];
     held.y = aim[1];
     held.z = aim[2];
   }
-  heading = next;
+  steering = next;
   dirty = true;
+};
+const sizeOf = (push: Push) => Math.hypot(push.along, push.north, push.out);
+const burnSpan = (gain: number, force: number): number => {
+  const mass = flight.state[6];
+  return engine.endless
+    ? (gain * mass) / force
+    : (mass * (1 - Math.exp(-gain / engine.exhaust)) * engine.exhaust) / force;
+};
+const kicksNow = (): Kick[] =>
+  plan.map((push) => ({
+    time: Math.max(push.time, flight.time + 1e-3),
+    along: push.along * push.left,
+    north: push.north * push.left,
+    out: push.out * push.left,
+    about: null,
+  }));
+function replan(): void {
+  plan.sort((left, right) => left.time - right.time);
+  spare = spare ?? brewing;
+  brewing = null;
+  stalePlan = true;
+}
+const advance = (until: number) => {
+  const started = performance.now();
+  while (flight.time < until && flight.wrecked === null && performance.now() - started < BUDGET) {
+    let stop = until;
+    const push = plan.length > 0 ? plan[0] : null;
+    const size = push === null ? 0 : sizeOf(push);
+    const pushing = push !== null && size > 0 && steering === "plan" && burning();
+    if (push !== null && !pushing) {
+      const half = burnSpan(push.left * size, engine.thrust) / 2;
+      if (flight.time > push.time + half + PUSH_GRACE) {
+        plan.shift();
+        listPlan();
+        replan();
+        continue;
+      }
+      if (autopilot && size > 0 && sighted() && (engine.endless || fuelLeft() > 0)) {
+        if (flight.time >= push.time - half) {
+          steering = "plan";
+          throttle = 1;
+          follow();
+          level = Math.min(level, AUTO_LEVEL);
+          gauge();
+          continue;
+        }
+        stop = Math.min(stop, push.time - half);
+      }
+    }
+    if (push !== null && pushing) {
+      stop = Math.min(stop, flight.time + burnSpan(push.left * size, throttle * engine.thrust));
+    }
+    const burn = burnNow();
+    const mass = flight.state[6];
+    const from = flight.time;
+    fly(flight, stop, burn, BATCH);
+    if (burn !== null) {
+      stalePlan = true;
+    }
+    if (push !== null && pushing && burn !== null) {
+      const gained = engine.endless
+        ? (burn.force / mass) * (flight.time - from)
+        : engine.exhaust * Math.log(mass / flight.state[6]);
+      push.left -= gained / size;
+      if (push.left <= PUSH_DONE || !burning()) {
+        plan.shift();
+        throttle = 0;
+        steering = "hold";
+        listPlan();
+        replan();
+      }
+    }
+  }
+};
+const brew = () => {
+  if (brewing === null) {
+    const worn =
+      forecast === null ||
+      flight.time - forecast.times[0] >
+        FORECAST_WORN * (forecast.times[forecast.count - 1] - forecast.times[0]);
+    if (!stalePlan && !worn) {
+      return;
+    }
+    brewing = createForecast(rails, foresee, flight, kicksNow(), lookahead, FORECAST_ROOM, spare);
+    spare = null;
+    stalePlan = false;
+  }
+  const started = performance.now();
+  while (!brewing.done && performance.now() - started < FORECAST_BUDGET) {
+    brewing.extend(4);
+  }
+  if (brewing.done) {
+    spare = forecast;
+    forecast = brewing;
+    brewing = null;
+    study();
+    dirty = true;
+  }
 };
 
 const turning = new Vector3();
@@ -226,7 +396,7 @@ const steer = (frame: number) => {
   const yaw = (keys.has("KeyD") ? 1 : 0) - (keys.has("KeyA") ? 1 : 0);
   const pitch = (keys.has("KeyW") ? 1 : 0) - (keys.has("KeyS") ? 1 : 0);
   if (yaw !== 0 || pitch !== 0) {
-    if (heading !== "hold") {
+    if (steering !== "hold") {
       point("hold");
     }
     unturned.copy(space.world.quaternion).invert();
@@ -254,18 +424,14 @@ space.onFrame((elapsed) => {
   steer(frame);
   const before = flight.time;
   if (!paused && flight.wrecked === null) {
-    const until = flight.time + WARPS[level] * frame;
-    const burn = burnNow();
-    const started = performance.now();
-    while (flight.time < until && flight.wrecked === null && performance.now() - started < BUDGET) {
-      fly(flight, until, burn, BATCH);
-    }
+    advance(flight.time + WARPS[level] * frame);
     weather += frame * Math.min(WARPS[level] / WEATHER_SPAN, WEATHER_MOST);
     dirty = true;
   }
   if (frame > 0) {
     pace += 0.1 * ((flight.time - before) / frame - pace);
   }
+  brew();
   if (dirty) {
     settle();
     space.clock(flight.time, 0, weather);
@@ -312,10 +478,65 @@ const blocked = (fromX: number, fromY: number, fromZ: number, to: number[], skip
   return false;
 };
 
+const pinLabels: HTMLElement[] = [];
+const pinAt = new Vector3();
+const arm = new Vector3();
+const heart = new Vector3();
+const shares = new Map<number, ReturnType<typeof lagrangeOf>>();
+let pinned = 0;
+const pin = (text: string, tone: string, where: Vector3) => {
+  const { world, camera } = space;
+  where.applyMatrix4(world.matrixWorld);
+  if (projected.copy(where).applyMatrix4(camera.matrixWorldInverse).z >= 0) {
+    return;
+  }
+  if (pinned === pinLabels.length) {
+    const made = el("div", { class: "label pin" }, "");
+    space.labels.append(made);
+    pinLabels.push(made);
+  }
+  const label = pinLabels[pinned];
+  pinned += 1;
+  projected.copy(where).project(camera);
+  const x = (projected.x * 0.5 + 0.5) * stage.clientWidth;
+  const y = (0.5 - projected.y * 0.5) * stage.clientHeight;
+  write(label, text);
+  label.dataset.tone = tone;
+  label.style.display = "";
+  const lift = tone === "turn" ? "30%" : "-130%";
+  label.style.transform = `translate(-50%, ${lift}) translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+};
+const balances = (id: number) => {
+  const hub = hubOf(system, id, flight.time, true);
+  const centre = centreOf(system, id, flight.time, true);
+  const share = swayOf(system, id);
+  const found = shares.get(id) ?? lagrangeOf(share);
+  shares.set(id, found);
+  arm.set(hub.x - centre.x, hub.y - centre.y, hub.z - centre.z).divideScalar(1 - share);
+  heart.set(hub.x, hub.y, hub.z).sub(arm);
+  const spots: [string, number, number][] = [
+    ["L1", 1 - found.inner, 0],
+    ["L2", 1 + found.outer, 0],
+    ["L3", -found.far, 0],
+    ["L4", 1, Math.PI / 3],
+    ["L5", 1, -Math.PI / 3],
+  ];
+  for (const [name, reach, angle] of spots) {
+    pinAt
+      .copy(arm)
+      .applyAxisAngle(course.pole(id), angle)
+      .multiplyScalar(reach)
+      .add(heart)
+      .divideScalar(unit);
+    pin(name, "balance", pinAt);
+  }
+};
+
 space.onPresent(() => {
   const { world, camera } = space;
   const { state } = flight;
   const ship = [state[0], state[1], state[2]];
+  course.place(flight.time, at, state);
   shipAt.copy(probe.frame.position).applyMatrix4(world.matrixWorld);
   const gap = shipAt.distanceTo(camera.position);
   eyeAt.copy(camera.position);
@@ -361,7 +582,112 @@ space.onPresent(() => {
     tag.classList.toggle("focus", focused === probe.id);
     tag.style.transform = `translate(-50%, 0) translate(${x.toFixed(1)}px, ${(y + wide + LABEL_GAP).toFixed(1)}px)`;
   }
+
+  pinned = 0;
+  if (forecast !== null) {
+    for (const each of pins) {
+      const late = forecast.times[Math.min(each.slot + 1, forecast.count - 1)] >= flight.time;
+      if (late && course.spot(each.slot, each.share, pinAt)) {
+        pin(each.text, each.tone, pinAt);
+      }
+    }
+  }
+  if (frame.turning && frame.body !== null && bodies[frame.body].parent !== null) {
+    balances(frame.body);
+  }
+  for (let index = pinned; index < pinLabels.length; index++) {
+    pinLabels[index].style.display = "none";
+  }
 });
+
+let passAhead: {
+  body: number;
+  low: number | null;
+  high: number | null;
+  lowAt: number;
+  highAt: number;
+} | null = null;
+let passNear: { gap: number; time: number } | null = null;
+function study(): void {
+  course.show(forecast, frame);
+  pins = [];
+  passAhead = null;
+  passNear = null;
+  if (forecast === null) {
+    return;
+  }
+  const { marks, count } = forecast;
+  let last = 0;
+  marks.forEach((mark, index) => {
+    if (mark >= 0) {
+      pins.push({ text: `Push ${index + 1}`, tone: "push", slot: mark, share: 0 });
+      last = mark;
+    }
+  });
+  if (plan.length > 0 && marks.length > 0 && marks[0] >= 0) {
+    const size = Math.hypot(forecast.pushes[0], forecast.pushes[1], forecast.pushes[2]);
+    if (size > 0) {
+      planAim.x = forecast.pushes[0] / size;
+      planAim.y = forecast.pushes[1] / size;
+      planAim.z = forecast.pushes[2] / size;
+      aimedFor = plan[0].id;
+    }
+  }
+  const body = frame.body ?? forecast.holds[count - 1];
+  const radius = rails.radii[body];
+  let entered = count - 1;
+  while (frame.body === null && entered > last && forecast.holds[entered - 1] === body) {
+    entered -= 1;
+  }
+  const since = forecast.times[frame.body === null ? entered : last];
+  const { lows, highs } = passesOf(forecast, rails.count, body, since);
+  const low = lows.length > 0 ? lows[0] : null;
+  const high = highs.length > 0 ? highs[0] : null;
+  if (low !== null) {
+    pins.push({
+      text: `Lowest ${lengthOf(low.gap - radius)}`,
+      tone: "turn",
+      slot: low.index,
+      share: low.share,
+    });
+  }
+  if (high !== null) {
+    pins.push({
+      text: `Highest ${lengthOf(high.gap - radius)}`,
+      tone: "turn",
+      slot: high.index,
+      share: high.share,
+    });
+  }
+  passAhead = {
+    body,
+    low: low === null ? null : low.gap - radius,
+    high: high === null ? null : high.gap - radius,
+    lowAt: low?.time ?? 0,
+    highAt: high?.time ?? 0,
+  };
+  if (target !== null) {
+    const { nearest } = passesOf(forecast, rails.count, target, forecast.times[0]);
+    if (nearest !== null) {
+      const gap = nearest.gap - rails.radii[target];
+      pins.push({
+        text: `Nearest ${bodies[target].name} ${lengthOf(gap)}`,
+        tone: "near",
+        slot: nearest.index,
+        share: nearest.share,
+      });
+      passNear = { gap, time: nearest.time };
+    }
+  }
+  if (forecast.wrecked !== null) {
+    pins.push({
+      text: `Strikes ${bodies[forecast.wrecked].name}`,
+      tone: "wreck",
+      slot: count - 1,
+      share: 0,
+    });
+  }
+}
 
 const cell = () => el("td", {}, "");
 const readings = {
@@ -396,10 +722,137 @@ throttleField.addEventListener("input", () => {
   throttle = Number(throttleField.value);
   dirty = true;
 });
-const headings = HEADINGS.map((name) => {
-  const control = button(HEADING_NAMES[name], `Point the ship ${name}`, () => point(name));
+const steerings: Steering[] = [...HEADINGS, "plan"];
+const headings = steerings.map((name) => {
+  const title =
+    name === "plan" ? "Point the ship along the next planned push" : `Point the ship ${name}`;
+  const control = button(HEADING_NAMES[name], title, () => point(name));
   return { name, control };
 });
+
+const planList = el("div", { class: "plan" });
+const aheadLine = el("div", { class: "hint" }, "");
+const nearLine = el("div", { class: "hint" }, "");
+let planRows: { push: Push; when: HTMLElement; sum: HTMLElement }[] = [];
+const turnNow = () => orbitOf(rails.pulls[about], ...relative(about), poleOf(bodies[about]));
+const nudge = () => {
+  const { year } = turnNow();
+  return Number.isFinite(year) ? Math.max(1, year / 360) : 60;
+};
+function listPlan(): void {
+  planList.replaceChildren();
+  planRows = plan.map((push, index) => {
+    const when = el("span", { class: "value" }, "");
+    const sum = el("div", { class: "hint" }, "");
+    const shift = (label: string, title: string, turns: number) =>
+      button(label, title, () => {
+        push.time = Math.max(flight.time + 1, push.time + turns * nudge());
+        replan();
+        listPlan();
+      });
+    const part = (name: string, title: string, key: "along" | "north" | "out") => {
+      const field = el("input", { type: "number", step: "1", value: String(push[key]), title });
+      field.addEventListener("input", () => {
+        const typed = Number.parseFloat(field.value);
+        push[key] = Number.isFinite(typed) ? typed : 0;
+        push.left = 1;
+        replan();
+      });
+      return el("label", {}, name, field);
+    };
+    planList.append(
+      el(
+        "div",
+        { class: "push" },
+        el(
+          "div",
+          { class: "strip" },
+          el("strong", {}, `Push ${index + 1}`),
+          when,
+          shift("«", "A tenth of a turn earlier", -36),
+          shift("‹", "A degree of the orbit earlier", -1),
+          shift("›", "A degree of the orbit later", 1),
+          shift("»", "A tenth of a turn later", 36),
+          button("Drop", "Take this push out of the plan", () => {
+            plan.splice(plan.indexOf(push), 1);
+            replan();
+            listPlan();
+          }),
+        ),
+        el(
+          "div",
+          { class: "strip" },
+          part("along", "Meters a second along the path, or against it when negative", "along"),
+          part("north", "Meters a second across the plane of the orbit", "north"),
+          part("out", "Meters a second outward, or inward when negative", "out"),
+        ),
+        sum,
+      ),
+    );
+    return { push, when, sum };
+  });
+}
+const add = (time: number) => {
+  if (!Number.isFinite(time) || time <= flight.time) {
+    return;
+  }
+  pushes += 1;
+  plan.push({ id: pushes, time, along: 0, north: 0, out: 0, left: 1 });
+  replan();
+  listPlan();
+};
+const autoField = el("input", { type: "checkbox" });
+autoField.checked = autopilot;
+autoField.addEventListener("change", () => {
+  autopilot = autoField.checked;
+});
+const pick = (
+  title: string,
+  options: [value: string, label: string][],
+  onPick: (value: string) => void,
+) => {
+  const field = el(
+    "select",
+    { title },
+    ...options.map(([value, label]) => el("option", { value }, label)),
+  );
+  field.addEventListener("change", () => onPick(field.value));
+  return field;
+};
+const named: [value: string, label: string][] = bodies.map((body) => [String(body.id), body.name]);
+const aheadField = pick(
+  "How far ahead the path is worked out, from now or from the last planned push",
+  AHEADS.map(([, label], index) => [String(index), label]),
+  (value) => {
+    lookahead = AHEADS[Number(value)][0];
+    replan();
+  },
+);
+const turningField = el("input", { type: "checkbox" });
+const reframe = () => {
+  study();
+  dirty = true;
+};
+const frameField = pick(
+  "The body the path is drawn around",
+  [["own", "the body holding each part"], ...named],
+  (value) => {
+    frame.body = value === "own" ? null : Number(value);
+    reframe();
+  },
+);
+turningField.addEventListener("change", () => {
+  frame.turning = turningField.checked;
+  reframe();
+});
+const targetField = pick(
+  "The body whose nearest pass is marked on the path",
+  [["none", "none"], ...named],
+  (value) => {
+    target = value === "none" ? null : Number(value);
+    reframe();
+  },
+);
 
 interface Dial {
   parts: HTMLElement[];
@@ -605,7 +1058,7 @@ function refresh(): void {
   }
   write(throttleNote, `${Math.round(100 * throttle)}%`);
   for (const { name, control } of headings) {
-    control.classList.toggle("active", name === heading);
+    control.classList.toggle("active", name === steering);
   }
   for (const each of dials) {
     each.show();
@@ -622,6 +1075,40 @@ function refresh(): void {
       ),
     );
   });
+  for (const { push, when, sum } of planRows) {
+    const size = sizeOf(push);
+    const span = burnSpan(push.left * size, engine.thrust);
+    write(when, `in ${spanOf(push.time - flight.time)}`);
+    write(
+      sum,
+      `${speedOf(push.left * size)}${push.left < 1 ? ` left of ${speedOf(size)}` : ""} · a burn of ${spanOf(span)} at full thrust`,
+    );
+  }
+  const ahead = passAhead;
+  const struck = forecast === null ? null : forecast.wrecked;
+  write(
+    aheadLine,
+    ahead === null
+      ? ""
+      : `Ahead, around ${bodies[ahead.body].name}: ${
+          ahead.low === null
+            ? "no lowest point"
+            : `lowest ${lengthOf(ahead.low)} in ${spanOf(ahead.lowAt - flight.time)}`
+        } · ${
+          ahead.high === null
+            ? "no highest point"
+            : `highest ${lengthOf(ahead.high)} in ${spanOf(ahead.highAt - flight.time)}`
+        }${struck === null ? "" : ` · strikes ${bodies[struck].name}`}`,
+  );
+  aheadLine.classList.toggle("alert", struck !== null);
+  write(
+    nearLine,
+    target === null
+      ? ""
+      : passNear === null
+        ? `The path ahead has no nearest pass by ${bodies[target].name}.`
+        : `Nearest to ${bodies[target].name}: ${lengthOf(passNear.gap)} in ${spanOf(passNear.time - flight.time)}`,
+  );
   write(clock, dateOf(flight.time));
   const asked = WARPS[level];
   write(
@@ -711,6 +1198,58 @@ required<HTMLElement>("#panel").append(
       el("div", { class: "dial" }, el("span", {}, "Throttle"), throttleField, throttleNote),
       el("div", { class: "strip" }, ...headings.map(({ control }) => control)),
       state,
+    ),
+    el(
+      "section",
+      {},
+      el("h3", {}, "Plan"),
+      el(
+        "div",
+        { class: "strip" },
+        button("Push in 10 min", "Plan a push ten minutes from now", () =>
+          add(flight.time + PUSH_AHEAD),
+        ),
+        button("At lowest", "Plan a push at the lowest point of the orbit", () =>
+          add(flight.time + turnNow().toLow),
+        ),
+        button("At highest", "Plan a push at the highest point of the orbit", () =>
+          add(flight.time + turnNow().toHigh),
+        ),
+        el(
+          "label",
+          { title: "The ship turns and burns each planned push by itself, half before its moment" },
+          autoField,
+          "the ship flies the plan",
+        ),
+      ),
+      planList,
+      aheadLine,
+      nearLine,
+      el(
+        "table",
+        { class: "facts" },
+        el("tr", {}, el("td", {}, "Path ahead"), el("td", {}, aheadField)),
+        el("tr", {}, el("td", {}, "Drawn around"), el("td", {}, frameField)),
+        el(
+          "tr",
+          {},
+          el("td", {}, "Turning"),
+          el(
+            "td",
+            {},
+            el(
+              "label",
+              {
+                title:
+                  "Draw the path as seen turning with that body round what it circles, and mark its five points of balance",
+              },
+              turningField,
+              " with that body",
+            ),
+          ),
+        ),
+        el("tr", {}, el("td", {}, "Target"), el("td", {}, targetField)),
+      ),
     ),
     el(
       "section",

@@ -71,3 +71,43 @@
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+
+.push {
+  margin: 4px 0;
+  padding: 4px 6px 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.push .strip {
+  margin: 0 0 4px;
+}
+
+.push input[type="number"] {
+  width: 64px;
+}
+
+.label.pin {
+  padding: 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #9fdcff;
+  background: rgb(5 7 12 / 65%);
+  border-radius: 6px;
+}
+
+.label.pin[data-tone="push"] {
+  color: #ffb347;
+}
+
+.label.pin[data-tone="near"] {
+  color: #b7f27a;
+}
+
+.label.pin[data-tone="wreck"] {
+  color: var(--alert);
+}
+
+.label.pin[data-tone="balance"] {
+  color: #d9c8ff;
+}

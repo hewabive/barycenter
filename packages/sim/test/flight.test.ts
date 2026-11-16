@@ -6,9 +6,12 @@ import {
   circling,
   createFlight,
   createFlyer,
+  createForecast,
   type Heading,
   hubOf,
+  lagrangeOf,
   orbitOf,
+  passesOf,
   positionOf,
   primaryOf,
   type Rails,
@@ -372,4 +375,227 @@ test("sixty degrees ahead of a planet a body stays with nothing to hold it", () 
   }
   assert.ok(least > (55 * Math.PI) / 180 && most < (65 * Math.PI) / 180, `${least}..${most}`);
   assert.ok(steps / 100 < 200, `${steps / 100} steps a year`);
+});
+
+test("the points of balance of two bodies lie where the quintics put them", () => {
+  const earth = lagrangeOf(3.0404e-6);
+  assert.ok(Math.abs(earth.inner - 0.010011) < 2e-5, String(earth.inner));
+  assert.ok(Math.abs(earth.outer - 0.010078) < 2e-5, String(earth.outer));
+  assert.ok(Math.abs(earth.far - (1 - (7 / 12) * 3.0404e-6)) < 1e-8, String(earth.far));
+  const twins = lagrangeOf(0.5);
+  assert.ok(Math.abs(twins.inner - 0.5) < 1e-9);
+  assert.ok(Math.abs(twins.outer - twins.far) < 1e-9);
+  for (const share of [1e-6, 1e-3, 0.02, 0.2]) {
+    const { inner, outer } = lagrangeOf(share);
+    const hill = Math.cbrt(share / 3);
+    assert.ok(inner < outer && inner > 0.6 * hill && outer < 1.4 * hill, String(share));
+  }
+});
+
+test("a forecast runs ahead of the ship along the path the ship then takes", () => {
+  const rails = lone(EARTH_PULL, 6.4e6);
+  const fly = createFlyer(rails);
+  const far = 7e6;
+  const swift = Math.sqrt(EARTH_PULL / far);
+  const year = 2 * Math.PI * Math.sqrt(far ** 3 / EARTH_PULL);
+  const flight = createFlight(100, [far, 0, 0, 0, swift, 0, 1]);
+  const forecast = createForecast(rails, fly, flight, [], null, 4000);
+  assert.equal(forecast.count, 1);
+  forecast.extend(10);
+  assert.equal(forecast.done, false);
+  forecast.extend(1e5);
+  assert.equal(forecast.done, true);
+  assert.equal(forecast.wrecked, null);
+  const last = forecast.count - 1;
+  assert.ok(Math.abs(forecast.times[last] - 100 - 1.1 * year) < 1e-6 * year);
+  assert.ok(forecast.count > 60 && forecast.count < 120, `${forecast.count} samples`);
+  assert.equal(flight.time, 100);
+  for (const slot of [7, 31, last]) {
+    fly(flight, forecast.times[slot], null, 1e5);
+    for (let axis = 0; axis < 6; axis++) {
+      const off = Math.abs(flight.state[axis] - forecast.states[6 * slot + axis]);
+      assert.ok(off < 1e-6 * (axis < 3 ? far : swift), `sample ${slot} axis ${axis}: ${off}`);
+    }
+  }
+  const fixed = createForecast(
+    rails,
+    fly,
+    createFlight(0, [far, 0, 0, 0, swift, 0, 1]),
+    [],
+    600,
+    4000,
+  );
+  fixed.extend(1e5);
+  assert.equal(fixed.times[fixed.count - 1], 600);
+});
+
+test("a planned push bends the forecast at its moment and not the flight", () => {
+  const rails = lone(EARTH_PULL, 6.4e6);
+  const fly = createFlyer(rails);
+  const far = 7e6;
+  const swift = Math.sqrt(EARTH_PULL / far);
+  const year = 2 * Math.PI * Math.sqrt(far ** 3 / EARTH_PULL);
+  const flight = createFlight(0, [far, 0, 0, 0, swift, 0, 1]);
+  const plan = [
+    { time: year / 2, along: 500, north: 0, out: 0, about: null },
+    { time: -5, along: 9, north: 9, out: 9, about: null },
+  ];
+  const forecast = createForecast(rails, fly, flight, plan, null, 4000);
+  forecast.extend(1e5);
+  assert.equal(forecast.done, true);
+  assert.equal(forecast.marks.length, 1);
+  const mark = forecast.marks[0];
+  assert.ok(mark > 0);
+  assert.equal(forecast.times[mark], year / 2);
+  assert.equal(forecast.legs[mark - 1], 0);
+  assert.equal(forecast.legs[mark], 1);
+  assert.ok(Math.abs(forecast.pushes[1] + 500) < 1e-3, String(forecast.pushes[1]));
+  assert.ok(Math.abs(forecast.states[6 * mark + 4] + swift + 500) < 1e-3);
+  const semi = 1 / (2 / far - (swift + 500) ** 2 / EARTH_PULL);
+  const { highs, lows, nearest } = passesOf(forecast, 1, 0, year / 2);
+  assert.ok(highs.length >= 1 && lows.length >= 1);
+  assert.ok(Math.abs(highs[0].gap / (2 * semi - far) - 1) < 1e-4, String(highs[0].gap));
+  assert.ok(Math.abs(lows[0].gap / far - 1) < 1e-4);
+  assert.ok(nearest !== null && Math.abs(nearest.gap / far - 1) < 1e-4);
+  const turn = 2 * Math.PI * Math.sqrt(semi ** 3 / EARTH_PULL);
+  assert.ok(Math.abs(highs[0].time - year / 2 - turn / 2) < 1e-3 * turn);
+  assert.ok(Math.abs(forecast.times[forecast.count - 1] - year / 2 - 1.1 * turn) < 1e-3 * turn);
+  const across = createForecast(
+    rails,
+    fly,
+    flight,
+    [{ time: 10, along: 0, north: 100, out: 50, about: 0 }],
+    null,
+    4000,
+  );
+  across.extend(1e5);
+  assert.ok(Math.abs(across.pushes[2] - 100) < 1e-3);
+  assert.ok(Math.abs(across.pushes[0] - 50) < 0.1);
+  assert.equal(flight.state[4], swift);
+});
+
+test("a forecast ends at the ground", () => {
+  const rails = lone(EARTH_PULL, 6.4e6);
+  const fly = createFlyer(rails);
+  const flight = createFlight(0, [7e6, 0, 0, 0, 5000, 0, 1]);
+  const forecast = createForecast(rails, fly, flight, [], null, 4000);
+  forecast.extend(1e5);
+  assert.equal(forecast.wrecked, 0);
+  assert.equal(forecast.done, true);
+  const short = createForecast(rails, fly, flight, [], null, 5);
+  short.extend(1e5);
+  assert.equal(short.count, 5);
+  assert.equal(short.done, true);
+  const again = createForecast(rails, fly, flight, [], null, 4000, forecast);
+  assert.equal(again.times, forecast.times);
+  assert.equal(again.count, 1);
+  again.extend(1e5);
+  assert.equal(again.wrecked, 0);
+  assert.notEqual(createForecast(rails, fly, flight, [], null, 9, forecast).times, forecast.times);
+});
+
+test("a forecast follows a ship out of the hold of a moon and round its planet", () => {
+  const system = surveySystem(1, { settled: true, star: null });
+  const rails = railsOf(system);
+  const fly = createFlyer(rails);
+  const home = system.home ?? 0;
+  const moon = system.bodies.find((body) => body.parent === home);
+  assert.ok(moon !== undefined);
+  const state = circling(rails, system, moon.id, 2e5, 0);
+  const low = createForecast(rails, fly, createFlight(0, [...state, 1]), [], null, 6000);
+  low.extend(1e5);
+  assert.equal(low.wrecked, null);
+  assert.ok(low.holds.subarray(0, low.count).every((hold) => hold === moon.id));
+  const swift = Math.sqrt(rails.pulls[moon.id] / (rails.radii[moon.id] + 2e5));
+  const leaving = createForecast(
+    rails,
+    fly,
+    createFlight(0, [...state, 1]),
+    [{ time: 600, along: 0.6 * swift, north: 0, out: 0, about: null }],
+    null,
+    6000,
+  );
+  leaving.extend(1e5);
+  const holds = Array.from(leaving.holds.subarray(0, leaving.count));
+  assert.ok(holds.includes(home), "the ship comes into the hold of the planet");
+  assert.equal(holds[0], moon.id);
+  const out = holds.indexOf(home);
+  const { nearest } = passesOf(leaving, rails.count, moon.id, leaving.times[out]);
+  assert.ok(nearest === null || nearest.gap > rails.radii[moon.id]);
+  assert.ok(leaving.times[leaving.count - 1] > 5 * 86400);
+});
+
+test("between a planet and its star a ship hangs where the formula says, and not for long", () => {
+  const system = surveySystem(1, { settled: true, star: null });
+  const id = system.home ?? 0;
+  const body = system.bodies[id];
+  const rails = railsOf(system);
+  const fly = createFlyer(rails);
+  const year = body.physics.year;
+  const inside = system.bodies
+    .filter((other) => other.parent === body.parent && other.physics.orbit <= body.physics.orbit)
+    .reduce((sum, other) => sum + weightOf(system, other.id), system.bodies[0].physics.mass);
+  const share = weightOf(system, id) / inside;
+  const { inner } = lagrangeOf(share);
+  const start = 2e8;
+  const blink = 1e-5 * year;
+  const arm = (time: number) => {
+    const hub = hubOf(system, id, time, true);
+    const centre = centreOf(system, id, time, true);
+    return { hub, centre };
+  };
+  const now = arm(start);
+  const next = arm(start + blink);
+  const last = arm(start - blink);
+  const fate = (reach: number): number => {
+    const scale = 1 - reach / (1 - share);
+    const along = (pick: (from: { x: number; y: number; z: number }) => number) => {
+      const place = pick(now.centre) + scale * (pick(now.hub) - pick(now.centre));
+      const hubSpeed = (pick(next.hub) - pick(last.hub)) / (2 * blink);
+      const centreSpeed = (pick(next.centre) - pick(last.centre)) / (2 * blink);
+      return [place, centreSpeed + scale * (hubSpeed - centreSpeed)];
+    };
+    const [x, u] = along((from) => from.x);
+    const [y, v] = along((from) => from.y);
+    const [z, w] = along((from) => from.z);
+    const flight = createFlight(start, [x, y, z, u, v, w, 1]);
+    for (let turn = 1; turn <= 160; turn++) {
+      fly(flight, start + (turn * year) / 40, null, 1e5);
+      const there = arm(flight.time);
+      const wide =
+        Math.hypot(
+          there.hub.x - there.centre.x,
+          there.hub.y - there.centre.y,
+          there.hub.z - there.centre.z,
+        ) /
+        (1 - share);
+      const gap =
+        Math.hypot(
+          flight.state[0] - there.hub.x,
+          flight.state[1] - there.hub.y,
+          flight.state[2] - there.hub.z,
+        ) /
+        (wide * reach);
+      if (gap < 0.5 || flight.wrecked !== null) {
+        return -1;
+      }
+      if (gap > 1.7) {
+        return 1;
+      }
+    }
+    return 0;
+  };
+  let low = 0.7 * inner;
+  let high = 1.3 * inner;
+  assert.equal(fate(low), -1);
+  assert.equal(fate(high), 1);
+  for (let step = 0; step < 24; step++) {
+    const middle = (low + high) / 2;
+    if (fate(middle) < 0) {
+      low = middle;
+    } else {
+      high = middle;
+    }
+  }
+  assert.ok(Math.abs((low + high) / 2 / inner - 1) < 5e-3, `${(low + high) / 2} against ${inner}`);
 });

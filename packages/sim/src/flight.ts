@@ -554,3 +554,266 @@ export function circling(
     speed[base + 2] + swift * (pole.x * outY - pole.y * outX),
   );
 }
+
+export interface Kick {
+  time: number;
+  along: number;
+  north: number;
+  out: number;
+  about: number | null;
+}
+
+export interface Forecast {
+  count: number;
+  times: Float64Array;
+  states: Float64Array;
+  places: Float64Array;
+  holds: Int32Array;
+  legs: Int32Array;
+  marks: Int32Array;
+  pushes: Float64Array;
+  wrecked: number | null;
+  done: boolean;
+  extend(steps: number): void;
+}
+
+export interface Pass {
+  time: number;
+  gap: number;
+  index: number;
+  share: number;
+}
+
+export interface Passes {
+  nearest: Pass | null;
+  lows: Pass[];
+  highs: Pass[];
+}
+
+export interface Balance {
+  inner: number;
+  outer: number;
+  far: number;
+}
+
+const FINE_TURN = 0.09;
+const AHEAD_TURNS = 1.1;
+const AHEAD_REACH = 3;
+const AHEAD_LEGS = 4;
+const SPIN_AXIS = { x: 0, y: 1, z: 0 };
+
+export function createForecast(
+  rails: Rails,
+  fly: Flyer,
+  from: Flight,
+  kicks: Kick[],
+  span: number | null,
+  room: number,
+  spare: Forecast | null = null,
+): Forecast {
+  const { count: crowd } = rails;
+  const kept =
+    spare !== null && spare.times.length === room && spare.places.length === 3 * crowd * room;
+  const flight = createFlight(from.time, from.state);
+  const pending = kicks
+    .filter((kick) => kick.time > from.time)
+    .sort((left, right) => left.time - right.time);
+  const at = new Float64Array(3 * crowd);
+  const speed = new Float64Array(3 * crowd);
+  const forecast: Forecast = {
+    count: 0,
+    times: kept ? spare.times : new Float64Array(room),
+    states: kept ? spare.states : new Float64Array(6 * room),
+    places: kept ? spare.places : new Float64Array(3 * crowd * room),
+    holds: kept ? spare.holds : new Int32Array(room),
+    legs: kept ? spare.legs : new Int32Array(room),
+    marks: new Int32Array(pending.length).fill(-1),
+    pushes: new Float64Array(3 * pending.length),
+    wrecked: null,
+    done: false,
+    extend,
+  };
+  let applied = 0;
+  let hold = 0;
+  let legs = AHEAD_LEGS;
+  let closing = Number.POSITIVE_INFINITY;
+
+  const apart = (body: number): [number, number, number, number, number, number] => {
+    const base = 3 * body;
+    const { state } = flight;
+    return [
+      state[0] - at[base],
+      state[1] - at[base + 1],
+      state[2] - at[base + 2],
+      state[3] - speed[base],
+      state[4] - speed[base + 1],
+      state[5] - speed[base + 2],
+    ];
+  };
+  const record = () => {
+    rails.place(flight.time, at, speed);
+    hold = primaryOf(rails, at, flight.state);
+    const slot = forecast.count;
+    forecast.times[slot] = flight.time;
+    forecast.states.set(flight.state.subarray(0, 6), 6 * slot);
+    forecast.places.set(at, 3 * crowd * slot);
+    forecast.holds[slot] = hold;
+    forecast.legs[slot] = applied;
+    forecast.count = slot + 1;
+  };
+  const ahead = (): number => {
+    if (span !== null) {
+      return flight.time + span;
+    }
+    const [rx, ry, rz, vx, vy, vz] = apart(hold);
+    const orbit = orbitOf(rails.pulls[hold], rx, ry, rz, vx, vy, vz, SPIN_AXIS);
+    if (orbit.stretch < 1 && orbit.semi > 0 && orbit.high < rails.domains[hold]) {
+      return flight.time + AHEAD_TURNS * orbit.year;
+    }
+    const reach = rails.domains[hold];
+    const edge = Number.isFinite(reach) ? reach : AHEAD_REACH * Math.hypot(rx, ry, rz);
+    return flight.time + (AHEAD_REACH * edge) / Math.max(Math.hypot(vx, vy, vz), ROUND);
+  };
+  const kick = (plan: Kick) => {
+    const [rx, ry, rz, vx, vy, vz] = apart(plan.about ?? hold);
+    const swift = Math.hypot(vx, vy, vz);
+    const nx = ry * vz - rz * vy;
+    const ny = rz * vx - rx * vz;
+    const nz = rx * vy - ry * vx;
+    const turn = Math.hypot(nx, ny, nz);
+    const ax = swift > 0 ? vx / swift : 1;
+    const ay = swift > 0 ? vy / swift : 0;
+    const az = swift > 0 ? vz / swift : 0;
+    const bx = turn > 0 ? nx / turn : 0;
+    const by = turn > 0 ? ny / turn : 1;
+    const bz = turn > 0 ? nz / turn : 0;
+    const push = [
+      plan.along * ax + plan.north * bx + plan.out * (ay * bz - az * by),
+      plan.along * ay + plan.north * by + plan.out * (az * bx - ax * bz),
+      plan.along * az + plan.north * bz + plan.out * (ax * by - ay * bx),
+    ];
+    forecast.pushes.set(push, 3 * applied);
+    forecast.marks[applied] = forecast.count;
+    flight.state[3] += push[0];
+    flight.state[4] += push[1];
+    flight.state[5] += push[2];
+    applied += 1;
+  };
+
+  record();
+  if (pending.length === 0) {
+    closing = ahead();
+  }
+
+  function extend(steps: number): void {
+    for (let step = 0; step < steps && !forecast.done; step++) {
+      if (forecast.count >= room) {
+        forecast.done = true;
+        break;
+      }
+      const [rx, ry, rz, vx, vy, vz] = apart(hold);
+      const fine = (FINE_TURN * Math.hypot(rx, ry, rz)) / Math.max(Math.hypot(vx, vy, vz), ROUND);
+      const next = applied < pending.length ? pending[applied] : null;
+      const was = hold;
+      fly(flight, Math.min(next === null ? closing : next.time, flight.time + fine), null, 1);
+      if (flight.wrecked !== null) {
+        record();
+        forecast.wrecked = flight.wrecked;
+        forecast.done = true;
+        break;
+      }
+      if (next !== null && flight.time >= next.time) {
+        rails.place(flight.time, at, speed);
+        hold = primaryOf(rails, at, flight.state);
+        kick(next);
+        record();
+        if (applied === pending.length) {
+          closing = ahead();
+        }
+        continue;
+      }
+      record();
+      if (next === null && span === null && hold !== was) {
+        legs -= 1;
+        closing = ahead();
+      }
+      if (next === null && (flight.time >= closing || legs < 0)) {
+        forecast.done = true;
+      }
+    }
+  }
+
+  return forecast;
+}
+
+export function passesOf(forecast: Forecast, crowd: number, body: number, from: number): Passes {
+  const { count, times, states, places } = forecast;
+  const gapAt = (slot: number) =>
+    Math.hypot(
+      states[6 * slot] - places[3 * (crowd * slot + body)],
+      states[6 * slot + 1] - places[3 * (crowd * slot + body) + 1],
+      states[6 * slot + 2] - places[3 * (crowd * slot + body) + 2],
+    );
+  const lows: Pass[] = [];
+  const highs: Pass[] = [];
+  let first = 0;
+  while (first < count && times[first] < from) {
+    first += 1;
+  }
+  let before = first < count ? gapAt(first) : 0;
+  let here = first + 1 < count ? gapAt(first + 1) : 0;
+  for (let slot = first + 1; slot + 1 < count; slot++) {
+    const after = gapAt(slot + 1);
+    const early = times[slot] - times[slot - 1];
+    const late = times[slot + 1] - times[slot];
+    const low = here <= before && here < after;
+    const high = here >= before && here > after;
+    if ((low || high) && early > 0 && late > 0) {
+      const rise = (after - here) / late;
+      const fall = (here - before) / early;
+      const bend = (rise - fall) / (0.5 * (early + late));
+      const lean = (rise * early + fall * late) / (early + late);
+      const shift = bend === 0 ? 0 : Math.max(-early, Math.min(late, -lean / bend));
+      const pass: Pass = {
+        time: times[slot] + shift,
+        gap: here + lean * shift + 0.5 * bend * shift * shift,
+        index: shift >= 0 ? slot : slot - 1,
+        share: shift >= 0 ? shift / late : 1 + shift / early,
+      };
+      (low ? lows : highs).push(pass);
+    }
+    before = here;
+    here = after;
+  }
+  const nearest = lows.reduce<Pass | null>(
+    (best, pass) => (best === null || pass.gap < best.gap ? pass : best),
+    null,
+  );
+  return { nearest, lows, highs };
+}
+
+export function lagrangeOf(share: number): Balance {
+  const root = (net: (reach: number) => number, from: number, to: number) => {
+    let low = from;
+    let high = to;
+    for (let step = 0; step < 200; step++) {
+      const middle = (low + high) / 2;
+      if (net(middle) > 0) {
+        high = middle;
+      } else {
+        low = middle;
+      }
+    }
+    return (low + high) / 2;
+  };
+  const rest = 1 - share;
+  return {
+    inner: root(
+      (reach) => rest / (1 - reach) ** 2 - share / reach ** 2 - (rest - reach),
+      1e-9,
+      1 - 1e-9,
+    ),
+    outer: root((reach) => rest + reach - rest / (1 + reach) ** 2 - share / reach ** 2, 1e-9, 2),
+    far: root((reach) => share + reach - rest / reach ** 2 - share / (1 + reach) ** 2, 1e-9, 2),
+  };
+}

@@ -256,6 +256,10 @@ The strategy is set aside for a while. On the same star systems a second game is
 - Time runs from real time to ten million times faster, and the engine works at any speed of time.
 - There is no air and no landing. A ship that meets the ground is lost, and the player may set the ship into a round orbit of any body at any time.
 - The readings are the height and speed of the ship, the highest and lowest points of its orbit with the time to each, the period, stretch and lean of the orbit, the mass, the speed left in the tanks and the push of full thrust.
+- The path ahead of the ship is worked out as the flight itself is, in the pull of every body, and drawn before it is flown. It runs a little over one turn of the orbit the ship is on, or, where the ship is leaving the body that holds it, out of that hold and round the next one, through up to four such changes. The player may ask for a fixed span from an hour to a hundred years instead.
+- The player plans pushes on that path. A push has a moment and three parts in meters a second, along the path, across the plane of the orbit and outward, counted from the body holding the ship at that moment. The path past a push is drawn in another color, as if the push were given all at once. A push may be set ten minutes ahead or at the lowest or highest point of the orbit, moved earlier and later, changed and dropped.
+- The ship flies the plan by itself unless the player switches that off: it turns to the push, slows time, burns from half the length of the burn before the moment and stops when the push is given. The player may also point the ship along the planned push and burn by hand, and the push shrinks by what was given.
+- The path is drawn around the body that holds each part of it, or around one body the player picks. Around a picked body it may be drawn as it looks turning with that body about what it circles, and the five points of balance of the pair are then marked. On the path are marked the planned pushes, the lowest and highest points ahead, the nearest pass by a target the player picks, and the place where the path meets the ground.
 
 ## Deliberately absent
 
