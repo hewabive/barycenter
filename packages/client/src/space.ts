@@ -105,6 +105,8 @@ const SUNLIT_TURN = 0.6;
 const SUNLIT_LIFT = 0.3;
 const STAR_CLEAR = 1.7;
 const SWING_LEAST = 0.005;
+const HALO_SLACK = 1.1;
+const BALL_SLACK = 1.5;
 const WAKE_PIXELS = 7;
 const SLEEP_PIXELS = 3.5;
 const SPECK_PIXELS = 3;
@@ -338,6 +340,10 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
   const swung = looks.map(
     ({ body }) => body.physics.hottest > (1 + SWING_LEAST) * body.physics.coldest,
   );
+  const glaring = looks.filter((look) => look.halo > 0);
+  const axis = new Vector3();
+  const seat = new Vector3();
+  const stance = new Quaternion();
   const origin = new Vector3();
   const rays = [new Vector3(), new Vector3()];
   const facing = new Vector3();
@@ -458,6 +464,30 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
       }
     }
     waking?.refine(rough);
+    camera.updateMatrixWorld();
+    for (const glare of glaring) {
+      const middle = places[glare.body.id];
+      const within = looks
+        .filter((look) => look !== glare)
+        .map((look) => ({ look, apart: places[look.body.id].distanceTo(middle) }))
+        .filter(({ look, apart }) => apart < HALO_SLACK * glare.halo + BALL_SLACK * look.ball)
+        .sort((left, right) => left.apart - right.apart);
+      glare.screens.forEach((screen, at) => {
+        const look = within[at]?.look;
+        if (look === undefined) {
+          screen.set(0, 0, 0, 0);
+          glare.poles[at].set(0, 0, 0, 0);
+          return;
+        }
+        seat.copy(places[look.body.id]).applyMatrix4(camera.matrixWorldInverse);
+        screen.set(seat.x, seat.y, seat.z, look.ball);
+        axis
+          .set(0, 1, 0)
+          .applyQuaternion(look.frame.getWorldQuaternion(stance))
+          .transformDirection(camera.matrixWorldInverse);
+        glare.poles[at].set(axis.x, axis.y, axis.z, 1 / look.flat - 1);
+      });
+    }
     looks.forEach((look, index) => {
       spots.setXYZ(index, look.frame.position.x, look.frame.position.y, look.frame.position.z);
       girths.setX(index, look.detail() === 0 ? look.body.radius : 0);

@@ -69,6 +69,7 @@ import {
   PALETTE_ROOM,
   RING_FRAGMENT,
   RING_VERTEX,
+  SCREEN_ROOM,
   SHELL_FRAGMENT,
   SHELL_VERTEX,
   SPOT_ROOM,
@@ -81,6 +82,11 @@ export interface Look {
   body: Body;
   frame: Group;
   girth: number;
+  ball: number;
+  flat: number;
+  halo: number;
+  screens: Vector4[];
+  poles: Vector4[];
   tone: Color;
   ember: Color;
   shine: Color;
@@ -136,6 +142,7 @@ interface Storm {
 
 const SHELL_SCALE = 1.04;
 const FLARE_REACH = 3;
+const LUMP_SWELL = 1.75;
 const CLOUD_TURN = 2400;
 const JET_TURN = 1800;
 const FLOW_LIFE = 300;
@@ -533,6 +540,8 @@ export function createStudio(renderer: WebGLRenderer): Studio {
     const regions = regionsOf(body, flame);
     const spots = Array.from({ length: SPOT_ROOM }, () => new Vector4(0, 0, 0, 0));
     const boil = new Vector4(0, 1, 0, 0);
+    const screens = Array.from({ length: SCREEN_ROOM }, () => new Vector4(0, 0, 0, 0));
+    const poles = Array.from({ length: SCREEN_ROOM }, () => new Vector4(0, 0, 0, 0));
     const flow = new Vector2();
     const tint = new Color(flame.tint);
     const steep = new Vector3(...WAVES.map((wave) => WIEN / (wave * flame.kelvin)));
@@ -570,6 +579,8 @@ export function createStudio(renderer: WebGLRenderer): Studio {
         depthWrite: false,
         uniforms: {
           spots: uniforms.spots,
+          screens: { value: screens },
+          poles: { value: poles },
           rim: { value: rim },
           reach: { value: body.radius * FLARE_REACH },
           girth: { value: body.radius },
@@ -597,6 +608,11 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       body,
       frame,
       girth: body.radius,
+      ball: body.radius,
+      flat: 1,
+      halo: body.radius * FLARE_REACH,
+      screens,
+      poles,
       tone: tint,
       ember: new Color(0, 0, 0),
       shine: new Color(0, 0, 0),
@@ -863,6 +879,14 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       body,
       frame,
       girth: body.radius * Math.max(1, RING_VIEW * reach.y),
+      ball:
+        lump.x > 0
+          ? girth * Math.min(lump.y, lump.z, lump.w) * (1 - LUMP_SWELL * lump.x)
+          : body.radius,
+      flat: lump.x > 0 ? 1 : flat,
+      halo: 0,
+      screens: [],
+      poles: [],
       tone,
       ember,
       shine: shines[0],
