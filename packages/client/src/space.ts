@@ -116,6 +116,9 @@ const BALL_SLACK = 1.5;
 const WAKE_PIXELS = 7;
 const SLEEP_PIXELS = 3.5;
 const SPECK_PIXELS = 3;
+const TRACK_GONE = 5;
+const TRACK_FULL = 12;
+const TRACK_SHADE = 0.55;
 
 function eased(share: number): number {
   return share * share * (3 - 2 * share);
@@ -193,6 +196,11 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
   const widest = Math.max(...system.bodies.map((body) => span(body.id)));
   const outmost = Math.max(FARTHEST, FAR_VIEW * widest);
   controls.maxDistance = outmost;
+  const brim = Math.max(
+    ...system.bodies.map(
+      (body) => span(body.id) + Math.max(body.radius, ...body.disks.map((lane) => lane.outer)),
+    ),
+  );
 
   let stale = true;
   const invalidate = () => {
@@ -282,17 +290,17 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
       ? {}
       : { PACKED: "" };
 
-  const trackMaterial = new LineBasicMaterial({ color: ORBIT, transparent: true, opacity: 0 });
   const traced = (source: Body, share: number) => {
     const loop: Vector3[] = [];
     for (let step = 0; step < ORBIT_STEPS; step++) {
       const at = courseOf(source, (2 * Math.PI * step) / ORBIT_STEPS);
       loop.push(new Vector3(share * at.x, share * at.y, share * at.z));
     }
-    const line = new LineLoop(new BufferGeometry().setFromPoints(loop), trackMaterial);
+    const material = new LineBasicMaterial({ color: ORBIT, transparent: true, opacity: 0 });
+    const line = new LineLoop(new BufferGeometry().setFromPoints(loop), material);
     line.frustumCulled = false;
     world.add(line);
-    return { line, about: source.id };
+    return { line, material, about: source.id, reach: Math.abs(share) * source.orbit };
   };
   const tracks = looks.flatMap(({ body }) => {
     if (body.parent === null || body.shared !== null) {
@@ -452,7 +460,6 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
     scene.updateMatrixWorld(true);
     const pixels = stage.clientHeight / 2 / Math.tan((camera.fov * Math.PI) / 360);
     let closest = Number.POSITIVE_INFINITY;
-    let farthest = 0;
     let waking: Look | null = null;
     let widest = WAKE_PIXELS;
     let turned = false;
@@ -463,7 +470,6 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
       const place = places[index];
       const gap = place.distanceTo(camera.position);
       closest = Math.min(closest, gap - look.body.radius);
-      farthest = Math.max(farthest, gap + look.body.radius);
       const lent = lit[index];
       rays.forEach((ray, at) => {
         if (at < lent.length) {
@@ -540,13 +546,18 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
     for (const belt of belts) {
       belt.turn(shown, dense, pixels * dense);
     }
+    for (const track of tracks) {
+      const gap = track.line.getWorldPosition(seat).distanceTo(camera.position);
+      const size = (track.reach * pixels) / Math.max(gap, 1e-6);
+      track.material.opacity = TRACK_SHADE * (1 - chart) * ramp(size, TRACK_GONE, TRACK_FULL);
+      track.line.visible = track.material.opacity > 0;
+    }
     camera.near = Math.max(0.02, Math.min(20, closest * 0.25));
-    camera.far = farthest * 1.2 + 50;
+    camera.far = (camera.position.distanceTo(world.position) + brim) * 1.2 + 50;
     camera.updateProjectionMatrix();
     sky.position.copy(camera.position);
     sky.scale.setScalar(camera.far * 0.8);
     sky.updateMatrixWorld(true);
-    trackMaterial.opacity = 0.55 * (1 - chart);
     eye.copy(camera.position);
     first.frame.worldToLocal(eye);
   };
