@@ -105,6 +105,7 @@ const SUNLIT_TURN = 0.6;
 const SUNLIT_LIFT = 0.3;
 const STAR_CLEAR = 1.7;
 const SWING_LEAST = 0.005;
+const SWAY_LEAST = 0.03;
 const HALO_SLACK = 1.1;
 const BALL_SLACK = 1.5;
 const WAKE_PIXELS = 7;
@@ -236,9 +237,11 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
     const { heat, radius } = star.body.physics;
     const seen = seenGlow(heat) * ((2 * radius) / (disk.inner + disk.outer)) ** 2;
     const shine = tintOf(star.body).multiplyScalar(shownLight([seen], 0).lamps[0]);
-    const mate = star.body.mate === null ? null : system.bodies[star.body.mate];
-    const held = mate !== null && disk.outer < mate.physics.orbit;
-    return { ...createBelt(lane, disk, star.body.seed + index, shine, coarse.matches), held };
+    const within = system.bodies
+      .filter((body) => body.parent === star.body.id && body.physics.orbit < disk.inner)
+      .sort((left, right) => right.physics.orbit - left.physics.orbit)[0];
+    const about = within === undefined ? null : within.id;
+    return { ...createBelt(lane, disk, star.body.seed + index, shine, coarse.matches), about };
   });
   for (const belt of belts) {
     world.add(belt.points);
@@ -268,14 +271,12 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
     return { line, about: source.id };
   };
   const tracks = looks.flatMap(({ body }) => {
-    const mate = body.mate === null ? null : system.bodies[body.mate];
-    const sway =
-      mate !== null && body.parent === null ? [traced(mate, -swayOf(system, body.id))] : [];
     if (body.parent === null) {
-      return sway;
+      return [];
     }
-    const host = system.bodies[body.parent];
-    return [traced(body, host.mate === body.id ? 1 - swayOf(system, host.id) : 1)];
+    const sway = swayOf(system, body.id);
+    const own = traced(body, 1 - sway);
+    return sway >= SWAY_LEAST ? [own, traced(body, -sway)] : [own];
   });
 
   const names = looks.map((look) => {
@@ -344,7 +345,6 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
   const axis = new Vector3();
   const seat = new Vector3();
   const stance = new Quaternion();
-  const origin = new Vector3();
   const rays = [new Vector3(), new Vector3()];
   const facing = new Vector3();
   const sunlit = new Vector3();
@@ -370,7 +370,12 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
       track.line.position.set(middle.x, middle.y, middle.z);
     }
     for (const belt of belts) {
-      belt.points.position.copy(belt.held ? star.frame.position : origin);
+      if (belt.about === null) {
+        belt.points.position.copy(star.frame.position);
+      } else {
+        const middle = centreOf(system, belt.about, shown);
+        belt.points.position.set(middle.x, middle.y, middle.z);
+      }
     }
 
     const from = looks[shift.from];

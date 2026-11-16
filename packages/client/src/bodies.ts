@@ -107,7 +107,7 @@ export interface Glare {
 
 export interface Studio {
   shineOf(source: Body): Color;
-  shape(body: Body, lamps: Glare[]): Look;
+  shape(body: Body, lamps: Glare[], spare?: number): Look;
 }
 
 interface Region {
@@ -367,7 +367,8 @@ export function createLooks(
   system: Sketch,
 ): { looks: Look[]; lamps: Lamp[][]; tintOf(source: Body): Color } {
   const studio = createStudio(renderer);
-  const lamps = system.bodies.map((body) => lampsOf(system, body.id).slice(0, LAMP_ROOM));
+  const every = system.bodies.map((body) => lampsOf(system, body.id));
+  const lamps = every.map((list) => list.slice(0, LAMP_ROOM));
   const looks = system.bodies.map((body, id) =>
     studio.shape(
       body,
@@ -375,6 +376,7 @@ export function createLooks(
         seen,
         tint: studio.shineOf(system.bodies[source]),
       })),
+      every[id].slice(LAMP_ROOM).reduce((sum, lamp) => sum + lamp.seen, 0),
     ),
   );
   return { looks, lamps, tintOf: studio.shineOf };
@@ -659,14 +661,14 @@ export function createStudio(renderer: WebGLRenderer): Studio {
     };
   };
 
-  const shape = (body: Body, lamps: Glare[]): Look => {
+  const shape = (body: Body, lamps: Glare[], spare = 0): Look => {
     const family = familyOf(body.physics);
     if (family === "star") {
       return ignite(body);
     }
     const seen = lamps.map((lamp) => lamp.seen);
-    const giant = family === "fluid" ? giantOf(body, seen) : null;
-    const skin = giant === null ? skinOf(body, seen) : null;
+    const giant = family === "fluid" ? giantOf(body, seen, spare) : null;
+    const skin = giant === null ? skinOf(body, seen, spare) : null;
     const suns = Array.from({ length: LAMP_ROOM }, () => new Vector3());
     const shines = suns.map(() => new Color(0, 0, 0));
     const might = { value: 0 };
@@ -703,7 +705,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
     const fade = RING_GLEAM / Math.max(1, (reach.x + reach.y) / 2) ** 3;
     let warmth = body.physics.heat;
     const relit = () => {
-      const season = seasonOf(body, seen, warmth);
+      const season = seasonOf(body, seen, warmth, spare);
       const [red, green, blue, strength] = season.ember;
       embers.set(red, green, blue, strength);
       melt.set(...season.melt);
@@ -715,7 +717,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       dusk.value = season.shown.sky;
       if (grit !== null) {
         const cast = giant === null ? 0 : seenGlow(warmth) * fade;
-        const hooped = shownLight([...seen, cast], 0);
+        const hooped = shownLight([...seen, cast], 0, spare);
         if (lamps.length > 0) {
           beam.copy(lamps[0].tint).multiplyScalar(hooped.lamps[0]);
         }

@@ -82,7 +82,9 @@ export {
   type Lamp,
   lampsAt,
   lampsOf,
+  type Places,
   type Plan,
+  placesOf,
   poleOf,
   positionOf,
   reliefOf,
@@ -90,6 +92,7 @@ export {
   sketchSystem,
   spinOf,
   swayOf,
+  weightOf,
 } from "./system.ts";
 export { retune } from "./tune.ts";
 export {

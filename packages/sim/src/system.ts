@@ -23,6 +23,7 @@ import {
   lightAt,
   radiusOf,
   rocheOf,
+  SKY_LIGHT,
   STAR_LEAST,
   SUN_GLOW,
   SUN_MASS,
@@ -132,7 +133,7 @@ const CAUGHT_STRETCH = 0.2;
 const TIED_REACH = 0.5 * ASTRONOMICAL_UNIT;
 const TIED_HEAVY = [10 * EARTH_MASS, 0.3];
 const KEPLER_STEPS = 5;
-const MATE_LEAST = 0.03;
+const LAMP_LEAST = 1e-3;
 const TWIN_SHARE = [0.12, 0.25];
 const TWIN_CLOSE = 0.3;
 const TWIN_RATIO = 0.15;
@@ -355,8 +356,7 @@ export function formed(mass: number, site: Site, random: Random, locked = false)
         frozen,
         ceiling: Math.max(site.star.heat, site.around.heat),
       });
-  const heavy = mass >= MATE_LEAST * (mass + site.around.mass) ? mass : 0;
-  const year = yearOf(site.orbit, site.around.mass + heavy);
+  const year = yearOf(site.orbit, site.around.mass + mass);
   const slow = random.next() < 0.12;
   const spun = () =>
     fluid
@@ -970,7 +970,6 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
       name: named,
       seed: own,
       parent: draft.parent,
-      mate: null,
       physics,
       radius: 0,
       orbit: 0,
@@ -986,13 +985,6 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
       relief: id === home ? { ...HOME_SHAPE, sea: null, peak: 0.5 } : reliefOf(physics, own),
     });
   }
-  for (const body of bodies) {
-    const heaviest = bodies
-      .filter((child) => child.parent === body.id)
-      .sort((left, right) => right.physics.mass - left.physics.mass)[0];
-    const whole = body.physics.mass + (heaviest?.physics.mass ?? 0);
-    body.mate = heaviest && heaviest.physics.mass >= MATE_LEAST * whole ? heaviest.id : null;
-  }
   const settledOn = home === null ? null : bodies[home].physics;
   const light = ASTRONOMICAL_UNIT * lit;
   const anchor: Anchor =
@@ -1007,28 +999,107 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
   return { home, bodies: arranged(bodies, anchor) };
 }
 
+interface Family {
+  children: number[];
+  shares: number[];
+}
+
+interface Tree {
+  weights: number[];
+  families: Family[];
+  candles: number[];
+}
+
+export interface Places {
+  at: Vector[];
+  hub: Vector[];
+  centre: Vector[];
+}
+
+const trees = new WeakMap<Body[], Tree>();
+const moments = new WeakMap<Body[], ({ tick: number; places: Places } | undefined)[]>();
+
+function treeOf(system: Sketch): Tree {
+  const known = trees.get(system.bodies);
+  if (known !== undefined) {
+    return known;
+  }
+  const kids: number[][] = system.bodies.map(() => []);
+  for (const body of system.bodies) {
+    if (body.parent !== null) {
+      kids[body.parent].push(body.id);
+    }
+  }
+  const weights = system.bodies.map(() => 0);
+  const weigh = (id: number): number => {
+    const retinue = kids[id].reduce((sum, kid) => sum + weigh(kid), 0);
+    weights[id] = system.bodies[id].physics.mass + retinue;
+    return weights[id];
+  };
+  for (const body of system.bodies) {
+    if (body.parent === null) {
+      weigh(body.id);
+    }
+  }
+  const families = system.bodies.map((body) => {
+    const children = kids[body.id].sort(
+      (left, right) => system.bodies[left].physics.orbit - system.bodies[right].physics.orbit,
+    );
+    let within = body.physics.mass;
+    const shares = children.map((child) => {
+      within += weights[child];
+      return weights[child] / within;
+    });
+    return { children, shares };
+  });
+  const candles = system.bodies.map(({ physics }) => seenGlow(physics.heat) * physics.radius ** 2);
+  const tree = { weights, families, candles };
+  trees.set(system.bodies, tree);
+  return tree;
+}
+
+export function weightOf(system: Sketch, id: number): number {
+  return treeOf(system).weights[id];
+}
+
+export function swayOf(system: Sketch, id: number): number {
+  const { parent } = system.bodies[id];
+  if (parent === null) {
+    return 0;
+  }
+  const { children, shares } = treeOf(system).families[parent];
+  return shares[children.indexOf(id)];
+}
+
 export function lampsOf(system: Sketch, id: number): Lamp[] {
+  const { candles } = treeOf(system);
+  const wide = ({ physics }: Body) => physics.orbit * (1 - physics.stretch ** 2) ** 0.25;
+  const chain = (from: number) => {
+    const line = [from];
+    for (let up = system.bodies[from].parent; up !== null; up = system.bodies[up].parent) {
+      line.push(up);
+    }
+    return line.reverse();
+  };
+  const own = chain(id);
   const lamps: Lamp[] = [];
-  const wide = (physics: Physics) => physics.orbit * (1 - physics.stretch ** 2) ** 0.25;
-  const light = (source: Body, reach: number) => {
-    const seen = seenGlow(source.physics.heat) * (source.physics.radius / reach) ** 2;
-    if (seen > 0) {
+  for (const source of system.bodies) {
+    if (source.id === id || candles[source.id] <= 0) {
+      continue;
+    }
+    const other = chain(source.id);
+    let fork = 0;
+    while (fork < own.length && fork < other.length && own[fork] === other[fork]) {
+      fork += 1;
+    }
+    const reach = Math.max(
+      fork < own.length ? wide(system.bodies[own[fork]]) : 0,
+      fork < other.length ? wide(system.bodies[other[fork]]) : 0,
+    );
+    const seen = candles[source.id] / reach ** 2;
+    if (seen >= LAMP_LEAST * SKY_LIGHT) {
       lamps.push({ source: source.id, seen, reach });
     }
-  };
-  let below = system.bodies[id];
-  if (below.mate !== null) {
-    light(system.bodies[below.mate], wide(system.bodies[below.mate].physics));
-  }
-  while (below.parent !== null) {
-    const host = system.bodies[below.parent];
-    const reach = wide(below.physics);
-    light(host, reach);
-    if (host.mate !== null && host.mate !== below.id) {
-      const mate = system.bodies[host.mate];
-      light(mate, Math.max(reach, wide(mate.physics)));
-    }
-    below = host;
   }
   return lamps.sort((left, right) => right.seen - left.seen);
 }
@@ -1067,52 +1138,59 @@ export function anomalyOf(body: Body, tick: number): number {
   return anomaly;
 }
 
-export function swayOf(system: Sketch, id: number): number {
-  const body = system.bodies[id];
-  if (body.mate === null) {
-    return 0;
+export function placesOf(system: Sketch, tick: number, real = false): Places {
+  const kept = moments.get(system.bodies) ?? [];
+  const slot = real ? 1 : 0;
+  const known = kept[slot];
+  if (known !== undefined && known.tick === tick) {
+    return known.places;
   }
-  const mate = system.bodies[body.mate].physics.mass;
-  return mate / (mate + body.physics.mass);
+  const { families } = treeOf(system);
+  const origin = { x: 0, y: 0, z: 0 };
+  const places: Places = {
+    at: system.bodies.map(() => origin),
+    hub: system.bodies.map(() => origin),
+    centre: system.bodies.map(() => origin),
+  };
+  const settle = (id: number, hub: Vector) => {
+    const { children, shares } = families[id];
+    let within = hub;
+    places.hub[id] = hub;
+    for (let index = children.length - 1; index >= 0; index--) {
+      const child = system.bodies[children[index]];
+      const reach = courseOf(child, anomalyOf(child, tick), real);
+      const share = shares[index];
+      const inner = {
+        x: within.x - share * reach.x,
+        y: within.y - share * reach.y,
+        z: within.z - share * reach.z,
+      };
+      places.centre[child.id] = within;
+      settle(child.id, { x: inner.x + reach.x, y: inner.y + reach.y, z: inner.z + reach.z });
+      within = inner;
+    }
+    places.at[id] = within;
+  };
+  for (const body of system.bodies) {
+    if (body.parent === null) {
+      settle(body.id, origin);
+    }
+  }
+  kept[slot] = { tick, places };
+  moments.set(system.bodies, kept);
+  return places;
 }
 
 export function centreOf(system: Sketch, id: number, tick: number, real = false): Vector {
-  const body = system.bodies[id];
-  if (body.parent === null) {
-    return { x: 0, y: 0, z: 0 };
-  }
-  const host = system.bodies[body.parent];
-  const mate = host.mate === null ? null : system.bodies[host.mate];
-  const outside = mate !== null && (mate.id === id || body.physics.orbit > mate.physics.orbit);
-  return outside ? hubOf(system, host.id, tick, real) : positionOf(system, host.id, tick, real);
+  return placesOf(system, tick, real).centre[id];
 }
 
 export function hubOf(system: Sketch, id: number, tick: number, real = false): Vector {
-  const body = system.bodies[id];
-  if (body.parent === null) {
-    return { x: 0, y: 0, z: 0 };
-  }
-  const host = system.bodies[body.parent];
-  const share = host.mate === id ? 1 - swayOf(system, host.id) : 1;
-  const centre = centreOf(system, id, tick, real);
-  const offset = courseOf(body, anomalyOf(body, tick), real);
-  return {
-    x: centre.x + share * offset.x,
-    y: centre.y + share * offset.y,
-    z: centre.z + share * offset.z,
-  };
+  return placesOf(system, tick, real).hub[id];
 }
 
 export function positionOf(system: Sketch, id: number, tick: number, real = false): Vector {
-  const body = system.bodies[id];
-  const hub = hubOf(system, id, tick, real);
-  if (body.mate === null) {
-    return hub;
-  }
-  const mate = system.bodies[body.mate];
-  const share = swayOf(system, id);
-  const apart = courseOf(mate, anomalyOf(mate, tick), real);
-  return { x: hub.x - share * apart.x, y: hub.y - share * apart.y, z: hub.z - share * apart.z };
+  return placesOf(system, tick, real).at[id];
 }
 
 export function heatAt(system: Sketch, id: number, tick: number): number {

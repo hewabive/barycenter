@@ -159,13 +159,14 @@ function lavaHeat(physics: Physics, heat: number): number {
   return Math.max(ROCK_MELT, Math.min(LAVA_MOST, noon));
 }
 
-export function shownOf(physics: Physics, seen: number[], heat = physics.heat): Shown {
-  return shownLight(seen, familyOf(physics) === "fluid" ? heat : lavaHeat(physics, heat));
+export function shownOf(physics: Physics, seen: number[], heat = physics.heat, spare = 0): Shown {
+  const glowing = familyOf(physics) === "fluid" ? heat : lavaHeat(physics, heat);
+  return shownLight(seen, glowing, spare);
 }
 
-export function seasonOf(body: Body, seen: number[], heat: number): Season {
+export function seasonOf(body: Body, seen: number[], heat: number, spare = 0): Season {
   const { physics } = body;
-  const shown = shownOf(physics, seen, heat);
+  const shown = shownOf(physics, seen, heat, spare);
   if (familyOf(physics) === "fluid") {
     const tinge = 0.8 * (1 - smooth(ALKALI[0], ALKALI[1], heat));
     return { frost: NO_FROST, melt: [0, 0], ember: [...emberOf(heat, tinge), shown.glow], shown };
@@ -596,9 +597,9 @@ function giantShares(physics: Physics) {
   };
 }
 
-export function giantOf(body: Body, seen: number[]): Giant {
+export function giantOf(body: Body, seen: number[], spare = 0): Giant {
   const { physics } = body;
-  const season = seasonOf(body, seen, physics.heat);
+  const season = seasonOf(body, seen, physics.heat, spare);
   const shares = giantShares(physics);
   const heavy = blended(SATURNIAN, JOVIAN, shares.heavy);
   const cold = blended(heavy, blended(URANIAN, NEPTUNIAN, shares.lively), shares.light);
@@ -881,9 +882,9 @@ export function recipeOf(body: Body): [name: string, share: number][] {
   ];
 }
 
-export function skinOf(body: Body, seen: number[]): Skin {
+export function skinOf(body: Body, seen: number[], spare = 0): Skin {
   const { physics } = body;
-  const season = seasonOf(body, seen, physics.heat);
+  const season = seasonOf(body, seen, physics.heat, spare);
   const random = createRandom(body.seed + 61);
   const turn = 0.04 * (2 * random.next() - 1);
   const vivid = random.next();

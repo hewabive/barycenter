@@ -75,7 +75,6 @@ export interface Body {
   name: string;
   seed: number;
   parent: number | null;
-  mate: number | null;
   physics: Physics;
   radius: number;
   orbit: number;

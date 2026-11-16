@@ -213,10 +213,10 @@ export function seenShare(heat: number): number {
   return heat <= 0 ? 0 : seenGlow(heat) / (RADIATION * heat ** 4);
 }
 
-export function shownLight(lamps: number[], heat: number): Shown {
+export function shownLight(lamps: number[], heat: number, spare = 0): Shown {
   const own = seenGlow(heat);
   const lent = lamps.map((seen) => SEEN_ALBEDO * seen);
-  const sky = SEEN_ALBEDO * SKY_LIGHT;
+  const sky = SEEN_ALBEDO * (SKY_LIGHT + spare);
   const most = Math.max(own, sky, ...lent);
   const whole = (most / (SEEN_ALBEDO * EARTH_SEEN)) ** LIGHT_POWER;
   const part = (given: number) => Math.min(LIGHT_MOST, whole) * (given / most) ** GLARE_POWER;

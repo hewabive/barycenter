@@ -56,6 +56,7 @@ type Fact = [name: string, value: string | ((now: Moment) => string)] | string;
 
 const PACES = [0, 2, 16, 128, 1024];
 const LAMPS = 2;
+const HEAVY = 0.03;
 const ROCK_GRAIN = 3000;
 const ICE_GRAIN = 900;
 
@@ -113,6 +114,19 @@ const lengthOf = (meters: number) =>
     ? `${figure(meters / ASTRONOMICAL_UNIT)} AU`
     : `${figure(meters / 1000)} km`;
 
+const heavy = (body: Body) =>
+  system.bodies
+    .filter((other) => other.parent === body.id && swayOf(system, other.id) >= HEAVY)
+    .sort((left, right) => left.physics.orbit - right.physics.orbit);
+const nearer = (body: Body) => (other: Body) => other.physics.orbit < body.physics.orbit;
+const listed = (bodies: Body[]) =>
+  bodies.length < 2
+    ? bodies.map((body) => body.name).join("")
+    : `${bodies
+        .slice(0, -1)
+        .map((body) => body.name)
+        .join(", ")} and ${bodies[bodies.length - 1].name}`;
+
 const sunny = (body: Body) => body.parent === null || familyOf(body.physics) === "star";
 const sunOf = (body: Body): { sun: Body; reach: number } => {
   const above = body.parent === null ? body : system.bodies[body.parent];
@@ -131,18 +145,27 @@ function factsOf(body: Body): Fact[] {
   const molten = moltenOf(physics);
   const glow = (LUMENS * seenGlow(physics.heat)) / Math.PI;
   const warmer = physics.light > 0 ? 1 - lightAt(sun.physics.glow, reach) / physics.light : 0;
-  const mate = body.mate === null ? null : system.bodies[body.mate];
   const sway = swayOf(system, body.id);
+  const within = parent === null ? [] : [parent, ...heavy(parent).filter(nearer(body))];
+  const swaying = heavy(body);
   const lamps = lampsOf(system, body.id).slice(0, LAMPS);
   const facts: Fact[] = [
     "Body",
     ["Class", classOf(physics)],
-    ...(mate === null
+    ...(sway < HEAVY
       ? []
       : [
           [
-            "Paired with",
-            `${mate.name}, which has ${share(sway)} of the mass of the two · both circle the point between them`,
+            "Shares a centre with",
+            `${listed(within)} · has ${share(sway)} of the mass of them all`,
+          ] satisfies Fact,
+        ]),
+    ...(swaying.length === 0
+      ? []
+      : [
+          [
+            "Swayed by",
+            swaying.map((other) => `${other.name}, ${share(swayOf(system, other.id))}`).join(" · "),
           ] satisfies Fact,
         ]),
     ["Mass", `${massOf(physics.mass)} · ${figure(physics.mass)} kg`],
@@ -244,10 +267,10 @@ function factsOf(body: Body): Fact[] {
       "Orbit",
       [
         "Around",
-        parent.mate === body.id
-          ? `the point it shares with ${parent.name}, ${share(swayOf(system, parent.id))} of the way from ${parent.name}`
-          : parent.mate !== null && physics.orbit > system.bodies[parent.mate].physics.orbit
-            ? `${parent.name} and ${system.bodies[parent.mate].name} together`
+        sway >= HEAVY
+          ? `the point it shares with ${listed(within)}, ${share(sway)} of the way from ${within.length > 1 ? "them" : parent.name}`
+          : within.length > 1
+            ? `${listed(within)} together`
             : parent.name,
       ],
       [
@@ -443,7 +466,7 @@ const rows = system.bodies.map((body) => {
   const row = el(
     "tr",
     {},
-    el("td", { style: `padding-left: ${4 + 12 * Math.max(0, depthOf(body) - 1)}px` }, body.name),
+    el("td", { style: `padding-left: ${4 + 12 * depthOf(body)}px` }, body.name),
     el("td", {}, classOf(body.physics)),
     el("td", {}, massOf(body.physics.mass).split(" · ")[0]),
     el("td", {}, `${figure(body.physics.heat)} K`),

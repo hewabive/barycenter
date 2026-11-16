@@ -57,7 +57,6 @@ const bodyOf = (physics: Physics, own: number): Body => ({
   name: "",
   seed: own,
   parent: null,
-  mate: null,
   physics,
   radius: 1,
   orbit: 0,
