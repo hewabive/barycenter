@@ -103,7 +103,9 @@ const PICK_SHARE = 0.012;
 const STARS = 2600;
 const ORBIT_STEPS = 160;
 const LABEL_GAP = 12;
-const MOON_CLEARANCE = 70;
+const KIN_CLEARANCE = 70;
+const NAME_WIDTH = 64;
+const NAME_HEIGHT = 20;
 const SUNLIT_TURN = 0.6;
 const SUNLIT_LIFT = 0.3;
 const STAR_CLEAR = 1.7;
@@ -162,6 +164,14 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
   stage.append(renderer.domElement);
   const labels = el("div", { class: "labels" });
   stage.append(labels);
+  labels.addEventListener(
+    "wheel",
+    (event) => {
+      event.preventDefault();
+      renderer.domElement.dispatchEvent(new WheelEvent(event.type, event));
+    },
+    { passive: false },
+  );
 
   const coarse = window.matchMedia("(pointer: coarse)");
   const fine = coarse.matches ? 256 : 512;
@@ -554,13 +564,17 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
     const disc = (look.body.radius / gap / half) * (height / 2);
     let shown = chart < 0.5 && projected.z < 1 && gap > look.body.radius;
     const parent = look.body.parent;
-    if (shown && parent !== null && parent !== star.body.id && look.body.id !== shift.to) {
-      looks[parent].frame.getWorldPosition(place).project(camera);
-      const apart = Math.hypot(
-        (place.x - projected.x) * 0.5 * width,
-        (place.y - projected.y) * 0.5 * height,
-      );
-      shown = apart > MOON_CLEARANCE;
+    if (shown && parent !== null && look.body.id !== shift.to) {
+      const kin = looks[parent];
+      kin.frame.getWorldPosition(place);
+      const sunk = (kin.body.radius / place.distanceTo(camera.position) / half) * (height / 2);
+      place.project(camera);
+      const across = (place.x - projected.x) * 0.5 * width;
+      const down = (projected.y - place.y) * 0.5 * height;
+      shown =
+        look.halo > 0
+          ? Math.abs(across) > NAME_WIDTH || Math.abs(down + sunk - disc) > NAME_HEIGHT
+          : Math.hypot(across, down) > KIN_CLEARANCE;
     }
     label.style.display = shown ? "" : "none";
     if (shown) {
