@@ -21,6 +21,7 @@ import {
   innerHeat,
   JUPITER_MASS,
   LUMENS,
+  lampsAt,
   lampsOf,
   moltenOf,
   type Physics,
@@ -846,6 +847,70 @@ test("a world on a long oval is hot at its nearest and cold at its farthest", ()
     }
   }
   assert.ok(swung > 10, `worlds with a wide swing ${swung}`);
+});
+
+test("a lamp is as bright as it is near at the moment, and over a year as bright as counted", () => {
+  const near = (left: number, right: number, slack: number) =>
+    Math.abs(left - right) <= slack * Math.abs(right);
+  let ovals = 0;
+  let lent = 0;
+  for (let seed = 1; seed <= 150; seed++) {
+    const system = sketchSystem(seed, { settled: false, star: null });
+    const star = system.bodies[0];
+    for (const body of system.bodies) {
+      const label = `seed ${seed}, ${body.name}`;
+      const counted = lampsOf(system, body.id);
+      const now = lampsAt(system, body.id, 777);
+      assert.deepEqual(
+        now.map((lamp) => lamp.source),
+        counted.map((lamp) => lamp.source),
+        label,
+      );
+      const here = positionOf(system, body.id, 777, true);
+      for (const lamp of now) {
+        const { heat, radius } = system.bodies[lamp.source].physics;
+        const there = positionOf(system, lamp.source, 777, true);
+        const apart = Math.hypot(there.x - here.x, there.y - here.y, there.z - here.z);
+        assert.ok(near(lamp.reach, apart, 1e-9), label);
+        assert.ok(near(lamp.seen, seenGlow(heat) * (radius / apart) ** 2, 1e-9), label);
+        lent += lamp.source === star.id ? 0 : 1;
+      }
+      if (body.parent !== star.id || star.mate !== null || body.mate !== null) {
+        continue;
+      }
+      const drawn = positionOf(system, body.id, 777);
+      const span = Math.hypot(here.x, here.y, here.z);
+      const scale = span / Math.hypot(drawn.x, drawn.y, drawn.z);
+      for (const axis of ["x", "y", "z"] as const) {
+        assert.ok(Math.abs(drawn[axis] * scale - here[axis]) < 1e-6 * span, label);
+      }
+      const oval = body.physics.stretch;
+      if (oval < 0.2) {
+        continue;
+      }
+      const sun = (tick: number) => {
+        const lamp = lampsAt(system, body.id, tick).find(({ source }) => source === star.id);
+        assert.ok(lamp, label);
+        return lamp;
+      };
+      const nearest = (-body.phase * body.year) / (2 * Math.PI);
+      const close = sun(nearest);
+      const far = sun(nearest + body.year / 2);
+      assert.ok(near(close.reach, body.physics.orbit * (1 - oval), 1e-6), label);
+      assert.ok(near(far.reach, body.physics.orbit * (1 + oval), 1e-6), label);
+      assert.ok(near(close.seen / far.seen, ((1 + oval) / (1 - oval)) ** 2, 1e-6), label);
+      const steps = 720;
+      let sum = 0;
+      for (let step = 0; step < steps; step++) {
+        sum += sun((step * body.year) / steps).seen / steps;
+      }
+      const whole = counted.find(({ source }) => source === star.id);
+      assert.ok(whole && near(sum, whole.seen, 0.01), `${label}: ${sum} against ${whole?.seen}`);
+      ovals += 1;
+    }
+  }
+  assert.ok(ovals > 10, `worlds on long ovals ${ovals}`);
+  assert.ok(lent > 10, `lamps that are not the first star ${lent}`);
 });
 
 test("small bodies are loose and not round, and rock melts where it is hot", () => {

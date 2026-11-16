@@ -20,14 +20,18 @@ import {
   GIGAYEAR,
   gravityOf,
   HOUR,
+  heatAt,
   hillOf,
   JUPITER_MASS,
+  type Lamp,
   LUMENS,
+  lampsAt,
   lampsOf,
   lightAt,
   moltenOf,
   rocheOf,
   roughOf,
+  type Shown,
   SUN_GLOW,
   SUN_MASS,
   SUN_RADIUS,
@@ -42,9 +46,16 @@ import { button, el, required, write } from "./dom.ts";
 import { familyOf, flatnessOf, recipeOf, shownOf } from "./looks.ts";
 import { createSpace } from "./space.ts";
 
-type Fact = [name: string, value: string] | string;
+interface Moment {
+  heat: number;
+  lamps: Lamp[];
+  shown: Shown;
+}
+
+type Fact = [name: string, value: string | ((now: Moment) => string)] | string;
 
 const PACES = [0, 2, 16, 128, 1024];
+const LAMPS = 2;
 const ROCK_GRAIN = 3000;
 const ICE_GRAIN = 900;
 
@@ -122,11 +133,7 @@ function factsOf(body: Body): Fact[] {
   const warmer = physics.light > 0 ? 1 - lightAt(sun.physics.glow, reach) / physics.light : 0;
   const mate = body.mate === null ? null : system.bodies[body.mate];
   const sway = swayOf(system, body.id);
-  const lamps = lampsOf(system, body.id).slice(0, 2);
-  const shown = shownOf(
-    physics,
-    lamps.map((lamp) => lamp.seen),
-  );
+  const lamps = lampsOf(system, body.id).slice(0, LAMPS);
   const facts: Fact[] = [
     "Body",
     ["Class", classOf(physics)],
@@ -178,6 +185,14 @@ function factsOf(body: Body): Fact[] {
           ? "the same"
           : `from ${figure(physics.coldest)} K at its farthest to ${figure(physics.hottest)} K at its nearest`,
       ],
+      ...(physics.hottest - physics.coldest < 1
+        ? []
+        : [
+            [
+              "Now",
+              (now) => `${figure(now.heat)} K · ${figure(now.heat - 273.15)} °C`,
+            ] satisfies Fact,
+          ]),
       [
         "As a black body",
         parent === null
@@ -283,17 +298,18 @@ function factsOf(body: Body): Fact[] {
                   `${figure(disk.inner / physics.radius)} to ${figure(disk.outer / physics.radius)} radii · density ${figure(disk.depth)} · ice ${share(disk.ice)} · ${figure(disk.mass)} kg`,
                 ],
         )),
-    "Light",
+    "Light now",
     ...(lamps.length === 0
       ? [["Lit by", "the stars of the sky alone"] satisfies Fact]
       : lamps.map(
-          ({ source, seen }, at): Fact => [
+          ({ source }, at): Fact => [
             at === 0 ? "Lit by" : "And by",
-            `${system.bodies[source].name} · ${figure(LUMENS * seen)} lux · ${figure(seen / EARTH_SEEN)} of daylight on the Earth · drawn at ${share(shown.lamps[at])}`,
+            ({ lamps: lit, shown }) =>
+              `${system.bodies[source].name}, ${lengthOf(lit[at].reach)} away · ${figure(LUMENS * lit[at].seen)} lux · ${figure(lit[at].seen / EARTH_SEEN)} of daylight on the Earth · drawn at ${share(shown.lamps[at])}`,
           ],
         )),
-    ["Sky drawn at", share(shown.sky)],
-    ["Glow drawn at", shown.glow > 0 ? share(shown.glow) : "none"],
+    ["Sky drawn at", ({ shown }) => share(shown.sky)],
+    ["Glow drawn at", ({ shown }) => (shown.glow > 0 ? share(shown.glow) : "none")],
     "On screen",
     [
       "Drawn as",
@@ -319,6 +335,7 @@ const space = createSpace(stage, system);
 
 let tick = 0;
 let pace = 0;
+let refresh = () => {};
 const clock = el("span", { class: "clock" }, "tick 0");
 const speeds = PACES.map((rate, index) => {
   const label = rate === 0 ? "Pause" : `${rate / PACES[1]}×`;
@@ -337,6 +354,7 @@ space.onFrame((elapsed) => {
     tick += elapsed * pace;
     space.clock(tick, pace);
     write(clock, `tick ${Math.floor(tick)}`);
+    refresh();
   }
 });
 
@@ -442,13 +460,30 @@ const show = (id: number) => {
     row.classList.toggle("active", at === id);
   });
   write(title, body.name);
+  const live: ((now: Moment) => void)[] = [];
   facts.replaceChildren(
-    ...factsOf(body).map((fact) =>
-      typeof fact === "string"
-        ? el("tr", { class: "group" }, el("td", { colspan: "2" }, fact))
-        : el("tr", {}, el("td", {}, fact[0]), el("td", {}, fact[1])),
-    ),
+    ...factsOf(body).map((fact) => {
+      if (typeof fact === "string") {
+        return el("tr", { class: "group" }, el("td", { colspan: "2" }, fact));
+      }
+      const [name, value] = fact;
+      const cell = el("td", {}, typeof value === "string" ? value : "");
+      if (typeof value !== "string") {
+        live.push((now) => write(cell, value(now)));
+      }
+      return el("tr", {}, el("td", {}, name), cell);
+    }),
   );
+  refresh = () => {
+    const heat = heatAt(system, id, tick);
+    const lamps = lampsAt(system, id, tick).slice(0, LAMPS);
+    const seen = lamps.map((lamp) => lamp.seen);
+    const now = { heat, lamps, shown: shownOf(body.physics, seen, heat) };
+    for (const each of live) {
+      each(now);
+    }
+  };
+  refresh();
   write(raw, JSON.stringify(body, null, 1));
 };
 space.onFocus(show);

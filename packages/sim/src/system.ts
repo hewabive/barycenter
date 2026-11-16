@@ -67,6 +67,7 @@ export interface Site {
 export interface Lamp {
   source: number;
   seen: number;
+  reach: number;
 }
 
 export interface Plan {
@@ -1012,7 +1013,7 @@ export function lampsOf(system: Sketch, id: number): Lamp[] {
   const light = (source: Body, reach: number) => {
     const seen = seenGlow(source.physics.heat) * (source.physics.radius / reach) ** 2;
     if (seen > 0) {
-      lamps.push({ source: source.id, seen });
+      lamps.push({ source: source.id, seen, reach });
     }
   };
   let below = system.bodies[id];
@@ -1032,10 +1033,20 @@ export function lampsOf(system: Sketch, id: number): Lamp[] {
   return lamps.sort((left, right) => right.seen - left.seen);
 }
 
-export function courseOf(body: Body, anomaly: number): Vector {
+export function lampsAt(system: Sketch, id: number, tick: number): Lamp[] {
+  const here = positionOf(system, id, tick, true);
+  return lampsOf(system, id).map(({ source, seen, reach }) => {
+    const there = positionOf(system, source, tick, true);
+    const apart = Math.hypot(there.x - here.x, there.y - here.y, there.z - here.z);
+    return { source, seen: seen * (reach / apart) ** 2, reach: apart };
+  });
+}
+
+export function courseOf(body: Body, anomaly: number, real = false): Vector {
   const oval = body.physics.stretch;
-  const along = body.orbit * (Math.cos(anomaly) - oval);
-  const across = body.orbit * Math.sqrt(1 - oval ** 2) * Math.sin(anomaly);
+  const reach = real ? body.physics.orbit : body.orbit;
+  const along = reach * (Math.cos(anomaly) - oval);
+  const across = reach * Math.sqrt(1 - oval ** 2) * Math.sin(anomaly);
   const ahead = along * Math.cos(body.apse) - across * Math.sin(body.apse);
   const aside = along * Math.sin(body.apse) + across * Math.cos(body.apse);
   const flat = -aside * Math.cos(body.slant);
@@ -1065,7 +1076,7 @@ export function swayOf(system: Sketch, id: number): number {
   return mate / (mate + body.physics.mass);
 }
 
-export function centreOf(system: Sketch, id: number, tick: number): Vector {
+export function centreOf(system: Sketch, id: number, tick: number, real = false): Vector {
   const body = system.bodies[id];
   if (body.parent === null) {
     return { x: 0, y: 0, z: 0 };
@@ -1073,18 +1084,18 @@ export function centreOf(system: Sketch, id: number, tick: number): Vector {
   const host = system.bodies[body.parent];
   const mate = host.mate === null ? null : system.bodies[host.mate];
   const outside = mate !== null && (mate.id === id || body.physics.orbit > mate.physics.orbit);
-  return outside ? hubOf(system, host.id, tick) : positionOf(system, host.id, tick);
+  return outside ? hubOf(system, host.id, tick, real) : positionOf(system, host.id, tick, real);
 }
 
-export function hubOf(system: Sketch, id: number, tick: number): Vector {
+export function hubOf(system: Sketch, id: number, tick: number, real = false): Vector {
   const body = system.bodies[id];
   if (body.parent === null) {
     return { x: 0, y: 0, z: 0 };
   }
   const host = system.bodies[body.parent];
   const share = host.mate === id ? 1 - swayOf(system, host.id) : 1;
-  const centre = centreOf(system, id, tick);
-  const offset = courseOf(body, anomalyOf(body, tick));
+  const centre = centreOf(system, id, tick, real);
+  const offset = courseOf(body, anomalyOf(body, tick), real);
   return {
     x: centre.x + share * offset.x,
     y: centre.y + share * offset.y,
@@ -1092,15 +1103,15 @@ export function hubOf(system: Sketch, id: number, tick: number): Vector {
   };
 }
 
-export function positionOf(system: Sketch, id: number, tick: number): Vector {
+export function positionOf(system: Sketch, id: number, tick: number, real = false): Vector {
   const body = system.bodies[id];
-  const hub = hubOf(system, id, tick);
+  const hub = hubOf(system, id, tick, real);
   if (body.mate === null) {
     return hub;
   }
   const mate = system.bodies[body.mate];
   const share = swayOf(system, id);
-  const apart = courseOf(mate, anomalyOf(mate, tick));
+  const apart = courseOf(mate, anomalyOf(mate, tick), real);
   return { x: hub.x - share * apart.x, y: hub.y - share * apart.y, z: hub.z - share * apart.z };
 }
 

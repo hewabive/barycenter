@@ -183,7 +183,9 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
   const sky = createSky(system.bodies[0].seed);
   scene.add(sky);
 
-  const { looks, sources, tintOf } = createLooks(renderer, system);
+  const { looks, lamps: lit, tintOf } = createLooks(renderer, system);
+  const sources = lit.map((list) => list.map((lamp) => lamp.source));
+  const glares = lit.map((list) => list.map((lamp) => lamp.seen));
   const home = system.home === null ? null : looks[system.home];
   home?.refine(fine);
   const star = looks.find((look) => look.body.parent === null) ?? looks[0];
@@ -202,27 +204,22 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
   specks.setAttribute("position", spots);
   specks.setAttribute("girth", girths);
   specks.setAttribute("lamp", lamps);
-  specks.setAttribute(
-    "shine",
-    new BufferAttribute(
-      new Float32Array(
-        looks.flatMap((look) => [look.shine.r, look.shine.g, look.shine.b, look.dusk]),
-      ),
-      4,
-    ),
-  );
-  const shades = (pick: (look: Look) => Color) =>
-    new BufferAttribute(
-      new Float32Array(looks.flatMap((look) => [pick(look).r, pick(look).g, pick(look).b])),
-      3,
-    );
+  const shines = new BufferAttribute(new Float32Array(4 * looks.length), 4);
+  const embers = new BufferAttribute(new Float32Array(3 * looks.length), 3);
+  const tinge = () => {
+    looks.forEach(({ shine, dusk, ember }, index) => {
+      shines.setXYZW(index, shine.r, shine.g, shine.b, dusk);
+      embers.setXYZ(index, ember.r, ember.g, ember.b);
+    });
+    shines.needsUpdate = true;
+    embers.needsUpdate = true;
+  };
+  tinge();
+  specks.setAttribute("shine", shines);
+  specks.setAttribute("ember", embers);
   specks.setAttribute(
     "tone",
-    shades((look) => look.tone),
-  );
-  specks.setAttribute(
-    "ember",
-    shades((look) => look.ember),
+    new BufferAttribute(new Float32Array(looks.flatMap(({ tone }) => [tone.r, tone.g, tone.b])), 3),
   );
   const speckMaterial = new ShaderMaterial({
     vertexShader: SPECK_VERTEX,
@@ -354,6 +351,7 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
   };
 
   const arrange = (shown: number) => {
+    const truly = looks.map((look) => positionOf(system, look.body.id, shown, true));
     for (const look of looks) {
       const at = positionOf(system, look.body.id, shown);
       look.frame.position.set(at.x, at.y, at.z);
@@ -419,6 +417,7 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
     let farthest = 0;
     let waking: Look | null = null;
     let widest = WAKE_PIXELS;
+    let turned = false;
     looks.forEach((look, index) => {
       look.frame.getWorldPosition(places[index]);
     });
@@ -427,18 +426,23 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
       const gap = place.distanceTo(camera.position);
       closest = Math.min(closest, gap - look.body.radius);
       farthest = Math.max(farthest, gap + look.body.radius);
-      const lit = sources[index];
+      const lent = lit[index];
       rays.forEach((ray, at) => {
-        if (at < lit.length) {
-          ray.copy(places[lit[at]]).sub(place).normalize();
+        if (at < lent.length) {
+          ray.copy(places[lent[at].source]).sub(place).normalize();
         } else {
           ray.set(0, 0, 0);
         }
       });
       look.light(rays, look === home ? chart : 0, shown);
-      if (swung[index]) {
-        look.warm(heatAt(system, look.body.id, shown));
-      }
+      const here = truly[index];
+      lent.forEach(({ source, seen, reach }, at) => {
+        const there = truly[source];
+        const apart = (there.x - here.x) ** 2 + (there.y - here.y) ** 2 + (there.z - here.z) ** 2;
+        glares[index][at] = (seen * reach ** 2) / apart;
+      });
+      const heat = swung[index] ? heatAt(system, index, shown) : look.body.physics.heat;
+      turned = look.warm(heat, glares[index]) || turned;
       const wide = (look.body.radius * pixels) / Math.max(gap, 1e-6);
       if (look === home || look === star || look === to) {
         continue;
@@ -463,6 +467,9 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
     spots.needsUpdate = true;
     girths.needsUpdate = true;
     lamps.needsUpdate = true;
+    if (turned) {
+      tinge();
+    }
     const dense = renderer.getPixelRatio();
     speckMaterial.uniforms.scale.value = pixels * dense;
     speckMaterial.uniforms.least.value = SPECK_PIXELS * dense;

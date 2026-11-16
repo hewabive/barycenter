@@ -80,6 +80,7 @@ export {
   hubOf,
   kindled,
   type Lamp,
+  lampsAt,
   lampsOf,
   type Plan,
   poleOf,

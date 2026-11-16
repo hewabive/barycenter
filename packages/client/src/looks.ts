@@ -55,6 +55,7 @@ export interface Season {
   frost: number;
   melt: [night: number, noon: number];
   ember: Ember;
+  shown: Shown;
 }
 
 export interface Giant {
@@ -158,17 +159,16 @@ function lavaHeat(physics: Physics, heat: number): number {
   return Math.max(ROCK_MELT, Math.min(LAVA_MOST, noon));
 }
 
-export function shownOf(physics: Physics, seen: number[]): Shown {
-  const family = familyOf(physics);
-  return shownLight(seen, family === "fluid" ? physics.heat : lavaHeat(physics, physics.heat));
+export function shownOf(physics: Physics, seen: number[], heat = physics.heat): Shown {
+  return shownLight(seen, familyOf(physics) === "fluid" ? heat : lavaHeat(physics, heat));
 }
 
 export function seasonOf(body: Body, seen: number[], heat: number): Season {
   const { physics } = body;
+  const shown = shownOf(physics, seen, heat);
   if (familyOf(physics) === "fluid") {
     const tinge = 0.8 * (1 - smooth(ALKALI[0], ALKALI[1], heat));
-    const glow = shownLight(seen, heat).glow;
-    return { frost: NO_FROST, melt: [0, 0], ember: [...emberOf(heat, tinge), glow] };
+    return { frost: NO_FROST, melt: [0, 0], ember: [...emberOf(heat, tinge), shown.glow], shown };
   }
   const { pressure, airy, wet, icy } = skinShares(physics);
   const damp = Math.max(0, Math.min(1, Math.log10(Math.max(physics.ice, 1e-6) / 1e-6) / 2.5));
@@ -179,14 +179,18 @@ export function seasonOf(body: Body, seen: number[], heat: number): Season {
       : 1.05 - 0.17 * damp * (1 - smooth(250, 320, heat));
   const lava = lavaHeat(physics, heat);
   if (lava <= 0) {
-    return { frost, melt: [0, 0], ember: DARK };
+    return { frost, melt: [0, 0], ember: DARK, shown };
   }
   const even = smooth(4, 6, pressure);
   const noon = heat * (Math.SQRT2 + (1 - Math.SQRT2) * even);
   const night = heat * (NIGHT_SHARE + (1 - NIGHT_SHARE) * even);
   const melted = (warmth: number) => (warmth - MELT_SPAN[0]) / (MELT_SPAN[1] - MELT_SPAN[0]);
-  const glow = LAVA_GAIN * shownLight(seen, lava).glow;
-  return { frost, melt: [melted(night), melted(noon)], ember: [...emberOf(lava), glow] };
+  return {
+    frost,
+    melt: [melted(night), melted(noon)],
+    ember: [...emberOf(lava), LAVA_GAIN * shown.glow],
+    shown,
+  };
 }
 
 export function flatnessOf(physics: Physics): number {
@@ -594,7 +598,7 @@ function giantShares(physics: Physics) {
 
 export function giantOf(body: Body, seen: number[]): Giant {
   const { physics } = body;
-  const shown = shownOf(physics, seen);
+  const season = seasonOf(body, seen, physics.heat);
   const shares = giantShares(physics);
   const heavy = blended(SATURNIAN, JOVIAN, shares.heavy);
   const cold = blended(heavy, blended(URANIAN, NEPTUNIAN, shares.lively), shares.light);
@@ -609,8 +613,8 @@ export function giantOf(body: Body, seen: number[]): Giant {
   const pace = Math.max(0.75, Math.min(1.35, Math.sqrt(physics.day / (12 * HOUR))));
   return {
     ...giant,
-    ember: seasonOf(body, seen, physics.heat).ember,
-    shown,
+    ember: season.ember,
+    shown: season.shown,
     vents: 0.35 + 0.5 * shares.bare,
     zones: giant.zones.map(shift),
     belts: giant.belts.map(shift),
@@ -879,7 +883,6 @@ export function recipeOf(body: Body): [name: string, share: number][] {
 
 export function skinOf(body: Body, seen: number[]): Skin {
   const { physics } = body;
-  const shown = shownOf(physics, seen);
   const season = seasonOf(body, seen, physics.heat);
   const random = createRandom(body.seed + 61);
   const turn = 0.04 * (2 * random.next() - 1);
@@ -907,7 +910,7 @@ export function skinOf(body: Body, seen: number[]): Skin {
     haze: thick > 0 ? tone(skin.haze, fogOf(physics), thick) : skin.haze,
     air: wet ? 1 : Math.max(0, Math.min(1.1, 0.35 * (pressure - 2) * Math.sign(physics.air))),
     ember: season.ember,
-    shown,
+    shown: season.shown,
     melt: season.melt,
     lump: [LUMP_DEPTH * rough, 1, up, across],
   };
