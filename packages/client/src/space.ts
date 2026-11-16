@@ -96,6 +96,7 @@ const CHART_GONE = 11;
 const RIG_BASE = 16;
 const RIG_PER_RADIUS = 14;
 const RIG_SPAN = 4;
+const RIG_CLEAR = 3.5;
 const SHIFT_TIME = 0.7;
 const GLIDE_TIME = 1.1;
 const PICK_SHARE = 0.012;
@@ -180,7 +181,8 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
     return parent === null ? 0 : span(parent) + orbit * (1 + physics.stretch);
   };
   const widest = Math.max(...system.bodies.map((body) => span(body.id)));
-  controls.maxDistance = Math.max(FARTHEST, FAR_VIEW * widest);
+  const outmost = Math.max(FARTHEST, FAR_VIEW * widest);
+  controls.maxDistance = outmost;
 
   let stale = true;
   const invalidate = () => {
@@ -401,11 +403,13 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
     const distance = camera.position.length();
     const near = RIG_BASE + RIG_PER_RADIUS * reach;
     const away = ramp(distance, near, near * RIG_SPAN);
+    const loose = Math.min(outmost, Math.max(near * RIG_SPAN, RIG_CLEAR * spot.length()));
+    const adrift = ramp(distance, loose / RIG_SPAN, loose);
     rig.copy(pose).slerp(still, away).invert();
     world.quaternion.copy(rig);
     world.position
       .copy(spot)
-      .multiplyScalar(away - 1)
+      .multiplyScalar(adrift - 1)
       .applyQuaternion(rig);
 
     const homeward = home === null ? 0 : to === home ? share : from === home ? 1 - share : 0;
