@@ -18,7 +18,7 @@ export const STAR_LEAST = 0.075 * SUN_MASS;
 export const BROWN_LEAST = 13 * JUPITER_MASS;
 export const ROCK_MELT = 1400;
 
-const GRAVITY = 6.674e-11;
+export const GRAVITY = 6.674e-11;
 const FROST_LINE = 2.7 * ASTRONOMICAL_UNIT;
 const RADIATION = 5.67e-8;
 const HOLD_LEAST = 0.02;

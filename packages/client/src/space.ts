@@ -43,9 +43,16 @@ import { el } from "./dom.ts";
 import { ORBIT, SKY } from "./palette.ts";
 import { SPECK_FRAGMENT, SPECK_VERTEX } from "./shaders.ts";
 
+export interface Probe {
+  id: number;
+  frame: Group;
+}
+
 export interface Space {
   camera: PerspectiveCamera;
   labels: HTMLElement;
+  world: Group;
+  fore: Scene;
   surface: Group;
   relief: CubeTexture;
   defines: Record<string, string>;
@@ -60,7 +67,10 @@ export interface Space {
   onResize(listener: (width: number, height: number) => void): void;
   onTap(listener: (at: Vector3 | null) => void): void;
   onFocus(listener: (id: number) => void): void;
+  onArrange(listener: (shown: number) => void): void;
   focus(id: number): void;
+  probe(radius: number): Probe;
+  depth(near: number, far: number): void;
   visit(toward: Vector3): void;
 }
 
@@ -216,6 +226,8 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
 
   const world = new Group();
   scene.add(world);
+  const fore = new Scene();
+  const range = { near: 1e-7, far: 1e-3 };
   const sky = createSky(system.bodies[0].seed);
   scene.add(sky);
 
@@ -366,31 +378,41 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
   const resizeListeners: ((width: number, height: number) => void)[] = [];
   const tapListeners: ((at: Vector3 | null) => void)[] = [];
   const focusListeners: ((id: number) => void)[] = [];
+  const arrangeListeners: ((shown: number) => void)[] = [];
   const eye = new Vector3();
+  const probes: { frame: Group; radius: number }[] = [];
+  const lookOf = (id: number): Look | null => (id < looks.length ? looks[id] : null);
+  const frameOf = (id: number) => lookOf(id)?.frame ?? probes[id - looks.length].frame;
+  const girthOf = (id: number) => lookOf(id)?.body.radius ?? probes[id - looks.length].radius;
 
   const attend = (id: number) => {
+    const look = lookOf(id);
     if (id !== shift.to) {
-      const left = looks[shift.to];
-      if (left !== home && left !== star) {
+      const left = lookOf(shift.to);
+      if (left !== null && left !== home && left !== star) {
         left.refine(rough);
       }
       shift.from = shift.to;
       shift.to = id;
       shift.share = 0;
-      looks[id].refine(fine);
+      look?.refine(fine);
       for (const listener of focusListeners) {
         listener(id);
       }
     }
-    const body = looks[id].body;
-    const wanted = id === system.home ? HOME_VIEW : PORTRAIT * looks[id].girth;
+    const wanted =
+      look === null
+        ? PORTRAIT * girthOf(id)
+        : id === system.home
+          ? HOME_VIEW
+          : PORTRAIT * look.girth;
+    const turned = look !== null && id !== system.home && look.body.parent !== null;
     glide = {
       from: camera.position.length(),
       to: wanted,
       share: 0,
       toward: null,
-      start:
-        id === system.home || body.parent === null ? null : camera.position.clone().normalize(),
+      start: turned ? camera.position.clone().normalize() : null,
     };
     stale = true;
   };
@@ -421,11 +443,14 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
   const partway = new Quaternion();
   const upward = new Vector3(0, 1, 0);
   const reachNow = () => {
-    const from = looks[shift.from].body.radius;
-    return from + (looks[shift.to].body.radius - from) * eased(shift.share);
+    const from = girthOf(shift.from);
+    return from + (girthOf(shift.to) - from) * eased(shift.share);
   };
 
   const arrange = (shown: number) => {
+    for (const listener of arrangeListeners) {
+      listener(shown);
+    }
     const truly = looks.map((look) => positionOf(system, look.body.id, shown, true));
     for (const look of looks) {
       const at = positionOf(system, look.body.id, shown);
@@ -453,12 +478,11 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
       }
     }
 
-    const from = looks[shift.from];
-    const to = looks[shift.to];
+    const to = lookOf(shift.to);
     const share = eased(shift.share);
     const reach = reachNow();
-    spot.copy(from.frame.position).lerp(to.frame.position, share);
-    pose.copy(from.frame.quaternion).slerp(to.frame.quaternion, share);
+    spot.copy(frameOf(shift.from).position).lerp(frameOf(shift.to).position, share);
+    pose.copy(frameOf(shift.from).quaternion).slerp(frameOf(shift.to).quaternion, share);
 
     const distance = camera.position.length();
     const near = RIG_BASE + RIG_PER_RADIUS * reach;
@@ -472,7 +496,7 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
       .multiplyScalar(adrift - 1)
       .applyQuaternion(rig);
 
-    const homeward = home === null ? 0 : to === home ? share : from === home ? 1 - share : 0;
+    const homeward = shift.to === system.home ? share : shift.from === system.home ? 1 - share : 0;
     chart = real ? 0 : homeward * (1 - ramp(distance, CHART_FULL, CHART_GONE));
 
     if (glide?.toward && home !== null) {
@@ -480,7 +504,7 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
       camera.position.copy(facing).setLength(distance);
       camera.lookAt(0, 0, 0);
     }
-    if (glide?.start) {
+    if (glide?.start && to !== null) {
       const sun = looks[sources[to.body.id][0] ?? star.body.id];
       sunlit.copy(sun.frame.position).sub(to.frame.position).applyQuaternion(rig);
       const apart = sunlit.length();
@@ -651,7 +675,7 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
           ? Math.abs(across) > NAME_WIDTH || Math.abs(down + sunk - disc) > NAME_HEIGHT
           : Math.hypot(across, down) > KIN_CLEARANCE;
     }
-    if (shown && look.body.id !== shift.to) {
+    if (shown && look.body.id !== shift.to && shift.to < looks.length) {
       const front = places[shift.to];
       seat.copy(places[index]).sub(camera.position).normalize();
       const along = seat.dot(axis.copy(front).sub(camera.position));
@@ -676,6 +700,19 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
     }
     looks.forEach(caption);
     renderer.render(scene, camera);
+    if (fore.children.length > 0) {
+      const { near, far } = camera;
+      camera.near = range.near;
+      camera.far = range.far;
+      camera.updateProjectionMatrix();
+      renderer.autoClear = false;
+      renderer.clearDepth();
+      renderer.render(fore, camera);
+      renderer.autoClear = true;
+      camera.near = near;
+      camera.far = far;
+      camera.updateProjectionMatrix();
+    }
   };
 
   const fit = () => {
@@ -763,8 +800,8 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
   let previous = performance.now();
   const animate = (now: number) => {
     requestAnimationFrame(animate);
-    const elapsed = (now - previous) / 1000;
-    previous = now;
+    const elapsed = Math.max(0, (now - previous) / 1000);
+    previous = Math.max(previous, now);
     if (shift.share < 1) {
       shift.share = Math.min(1, shift.share + elapsed / SHIFT_TIME);
       stale = true;
@@ -797,6 +834,8 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
   return {
     camera,
     labels,
+    world,
+    fore,
     surface: first.frame,
     relief: first.relief(),
     defines,
@@ -822,7 +861,18 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
     },
     onTap: (listener) => tapListeners.push(listener),
     onFocus: (listener) => focusListeners.push(listener),
+    onArrange: (listener) => arrangeListeners.push(listener),
     focus: attend,
+    probe(radius) {
+      const frame = new Group();
+      world.add(frame);
+      probes.push({ frame, radius });
+      return { id: looks.length + probes.length - 1, frame };
+    },
+    depth(near, far) {
+      range.near = near;
+      range.far = far;
+    },
     visit(toward) {
       if (system.home === null) {
         return;

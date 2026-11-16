@@ -1439,16 +1439,18 @@ interface Family {
   shares: number[];
 }
 
-interface Tree {
+export interface Tree {
   weights: number[];
   families: Family[];
   sharers: number[][];
   candles: number[];
 }
 
-interface Pose {
+export interface Pose {
   shift: number;
   scale: number;
+  drift: number;
+  swell: number;
 }
 
 export interface Places {
@@ -1460,7 +1462,7 @@ export interface Places {
 const trees = new WeakMap<Body[], Tree>();
 const moments = new WeakMap<Body[], ({ tick: number; places: Places } | undefined)[]>();
 
-function treeOf(system: Sketch): Tree {
+export function treeOf(system: Sketch): Tree {
   const known = trees.get(system.bodies);
   if (known !== undefined) {
     return known;
@@ -1519,27 +1521,44 @@ export function swayOf(system: Sketch, id: number): number {
   return shares[children.indexOf(shared === null ? id : shared.with)];
 }
 
-function posesOf(system: Sketch, lead: number, tick: number): Pose[] {
+export function posesOf(system: Sketch, lead: number, tick: number): Pose[] {
   const { weights, sharers } = treeOf(system);
   const others = sharers[lead];
   if (others.length === 0) {
-    return [{ shift: 0, scale: 1 }];
+    return [{ shift: 0, scale: 1, drift: 0, swell: 0 }];
   }
   const whole = others.reduce((sum, id) => sum + weights[id], weights[lead]);
   const steps = others.map((id) => {
     const { ahead, sway, lane, year, phase } = system.bodies[id].shared ?? ALONE;
     const turn = phase + (2 * Math.PI * tick) / year;
+    const pace = (2 * Math.PI) / year;
+    const sine = Math.sin(turn);
+    const cosine = Math.cos(turn);
     const sharp = sway > Math.PI / 2 ? CHASE_SHARP : 0;
-    const blunt = Math.sqrt(1 - (sharp * Math.sin(turn)) ** 2);
-    const wave = sharp > 0 ? Math.asin(sharp * Math.sin(turn)) / Math.asin(sharp) : Math.sin(turn);
+    const blunt = Math.sqrt(1 - (sharp * sine) ** 2);
+    const wave = sharp > 0 ? Math.asin(sharp * sine) / Math.asin(sharp) : sine;
+    const surge = sharp > 0 ? (sharp * cosine) / (blunt * Math.asin(sharp)) : cosine;
     const share = weights[id] / whole;
-    return { angle: ahead + sway * wave, gap: (-lane * Math.cos(turn)) / blunt, share };
+    return {
+      angle: ahead + sway * wave,
+      gap: (-lane * cosine) / blunt,
+      turning: sway * surge * pace,
+      parting: (lane * sine * pace * (1 - sharp ** 2)) / blunt ** 3,
+      share,
+    };
   });
   const back = steps.reduce((sum, step) => sum + step.share * step.angle, 0);
   const down = steps.reduce((sum, step) => sum + step.share * step.gap, 0);
+  const round = steps.reduce((sum, step) => sum + step.share * step.turning, 0);
+  const sink = steps.reduce((sum, step) => sum + step.share * step.parting, 0);
   return [
-    { shift: -back, scale: 1 - down },
-    ...steps.map((step) => ({ shift: step.angle - back, scale: 1 + step.gap - down })),
+    { shift: -back, scale: 1 - down, drift: -round, swell: -sink },
+    ...steps.map((step) => ({
+      shift: step.angle - back,
+      scale: 1 + step.gap - down,
+      drift: step.turning - round,
+      swell: step.parting - sink,
+    })),
   ];
 }
 

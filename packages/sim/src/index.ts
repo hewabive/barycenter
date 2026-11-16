@@ -11,6 +11,23 @@ export {
   type RegionAccount,
   type Shipment,
 } from "./economy.ts";
+export {
+  type Burn,
+  circling,
+  createFlight,
+  createFlyer,
+  type Flight,
+  type Flyer,
+  HEADINGS,
+  type Heading,
+  headingOf,
+  type Orbit,
+  orbitOf,
+  primaryOf,
+  type Rails,
+  railsOf,
+  STANDARD_GRAVITY,
+} from "./flight.ts";
 export type { Duty, Muster, Route } from "./muster.ts";
 export {
   ASTRONOMICAL_UNIT,
@@ -34,6 +51,7 @@ export {
   flatOf,
   frostOf,
   GIGAYEAR,
+  GRAVITY,
   glowOf,
   gravityOf,
   HOUR,

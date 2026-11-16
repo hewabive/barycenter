@@ -245,6 +245,18 @@ Later mechanics build on prices. How well a power knows a rival's prices depends
 
 Two brakes act on every power, rivals included: size breeds discord, and lag breeds catch-up. They make leadership more expensive, but leading must always remain better than lagging.
 
+## Flight
+
+The strategy is set aside for a while. On the same star systems a second game is being built: one ship flown through a system on its real scale.
+
+- The system is taken as it is made, with real sizes, distances and times. Its bodies keep to their orbits whatever the ship does.
+- The ship is a point with a mass. Every body of the system pulls it at once, each from where it stands at that moment, and nothing is pieced together from orbits around one body at a time. A place sixty degrees ahead of a planet therefore holds a ship, and the point between a planet and its star holds it only for a while.
+- The ship has one engine with a thrust and an exhaust speed, a mass of its own and tanks. The player may change all four at any time, refill the tanks or make them endless. A burn spends propellant as the rocket equation says.
+- The player sets the throttle and a heading: along the path or against it, to either side of the plane of the orbit, outward or inward, or held against the stars and turned by hand. A burn against the path eases off as the ship comes to rest. Headings and readings are counted from the body that holds the ship most closely, or from one the player picks.
+- Time runs from real time to ten million times faster, and the engine works at any speed of time.
+- There is no air and no landing. A ship that meets the ground is lost, and the player may set the ship into a round orbit of any body at any time.
+- The readings are the height and speed of the ship, the highest and lowest points of its orbit with the time to each, the period, stretch and lean of the orbit, the mass, the speed left in the tanks and the push of full thrust.
+
 ## Deliberately absent
 
 Population, food, money, a technology tree, unit types, treaties, random events and characters.

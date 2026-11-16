@@ -1,0 +1,85 @@
+import {
+  AdditiveBlending,
+  AmbientLight,
+  BoxGeometry,
+  Color,
+  ConeGeometry,
+  CylinderGeometry,
+  DirectionalLight,
+  Group,
+  Mesh,
+  MeshBasicMaterial,
+  MeshStandardMaterial,
+  Vector3,
+} from "three";
+
+export interface Craft {
+  frame: Group;
+  lights: Group;
+  pose(heading: Vector3, throttle: number, sun: Vector3, lit: number): void;
+}
+
+export const CRAFT_REACH = 8;
+
+const HULL = 0xc9ced6;
+const DARK = 0x2a2d33;
+const PANEL = 0x1b2a4a;
+const FLAME = 0x9fc4ff;
+const SUNLIGHT = 0xfff4e6;
+const FILL = 0x46536a;
+const SUN_MIGHT = 3.2;
+const FILL_MIGHT = 1;
+const PLUME_LENGTH = 14;
+
+export function createCraft(unit: number): Craft {
+  const model = new Group();
+  const hull = new MeshStandardMaterial({ color: HULL, metalness: 0.45, roughness: 0.55 });
+  const dark = new MeshStandardMaterial({ color: DARK, metalness: 0.6, roughness: 0.5 });
+  const panel = new MeshStandardMaterial({ color: PANEL, metalness: 0.3, roughness: 0.35 });
+  const flame = new MeshBasicMaterial({
+    color: FLAME,
+    transparent: true,
+    opacity: 0,
+    blending: AdditiveBlending,
+    depthWrite: false,
+  });
+
+  const tank = new Mesh(new CylinderGeometry(1.5, 1.5, 7, 24), hull);
+  const nose = new Mesh(new ConeGeometry(1.5, 3, 24), hull);
+  nose.position.y = 5;
+  const collar = new Mesh(new CylinderGeometry(1.55, 1.55, 0.5, 24), dark);
+  collar.position.y = 2.6;
+  const bell = new Mesh(new CylinderGeometry(0.5, 1.2, 1.6, 20, 1, true), dark);
+  bell.position.y = -4.3;
+  const wings = new Mesh(new BoxGeometry(13, 0.08, 2.2), panel);
+  wings.position.y = -0.8;
+  const plume = new Mesh(new ConeGeometry(1.05, PLUME_LENGTH, 20, 1, true), flame);
+  plume.rotation.x = Math.PI;
+  model.add(tank, nose, collar, bell, wings, plume);
+  model.scale.setScalar(1 / unit);
+
+  const frame = new Group();
+  frame.add(model);
+  const sunlight = new DirectionalLight(SUNLIGHT, SUN_MIGHT);
+  const fill = new AmbientLight(FILL, FILL_MIGHT);
+  const lights = new Group();
+  lights.add(sunlight, sunlight.target, fill);
+
+  const forward = new Vector3(0, 1, 0);
+  const warm = new Color(SUNLIGHT);
+  return {
+    frame,
+    lights,
+    pose(heading, throttle, sun, lit) {
+      frame.quaternion.setFromUnitVectors(forward, heading);
+      sunlight.position.copy(sun);
+      sunlight.color.copy(warm);
+      sunlight.intensity = SUN_MIGHT * lit;
+      const burning = Math.max(0, Math.min(1, throttle));
+      flame.opacity = burning > 0 ? 0.35 + 0.5 * burning : 0;
+      plume.visible = burning > 0;
+      plume.scale.set(1, 0.25 + 0.75 * burning, 1);
+      plume.position.y = -5.1 - (PLUME_LENGTH / 2) * plume.scale.y;
+    },
+  };
+}

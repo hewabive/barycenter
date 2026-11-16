@@ -1,0 +1,73 @@
+.facts td:last-child select {
+  max-width: 150px;
+  font: inherit;
+  color: inherit;
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 4px 0 8px;
+}
+
+.strip button {
+  padding: 2px 7px;
+  font-size: 12px;
+}
+
+.strip label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.dial {
+  display: grid;
+  grid-template-columns: 96px 1fr 132px;
+  align-items: center;
+  gap: 2px 8px;
+  font-size: 12px;
+}
+
+.dial span:first-child {
+  color: var(--muted);
+}
+
+.dial span:last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.dial input[type="range"] {
+  width: 100%;
+  min-width: 0;
+}
+
+.alert {
+  color: var(--alert);
+}
+
+.label.craft {
+  min-height: 0;
+  padding: 0 6px;
+  color: #ffd27a;
+  background: rgb(5 7 12 / 72%);
+  border: 1px solid #806a3d;
+  border-radius: 9px;
+  pointer-events: auto;
+}
+
+.label.craft.focus {
+  border-color: #ffd27a;
+}
+
+#topbar .rate {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}

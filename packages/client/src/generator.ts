@@ -479,6 +479,14 @@ required<HTMLElement>("#topbar").append(
   ...speeds,
   clock,
   el("a", { href: "atlas.html" }, "Atlas"),
+  el(
+    "a",
+    {
+      href: `flight.html${address({ seed, settled, star: starMass, real: false })}`,
+      title: "Fly a ship through this system",
+    },
+    "Fly",
+  ),
 );
 
 const suns = system.bodies.filter((body) => sunny(body));
