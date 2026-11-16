@@ -21,6 +21,7 @@ export const ROCK_MELT = 1400;
 const GRAVITY = 6.674e-11;
 const FROST_LINE = 2.7 * ASTRONOMICAL_UNIT;
 const RADIATION = 5.67e-8;
+const HOLD_LEAST = 0.02;
 const BOLTZMANN = 1.381e-23;
 const DALTON = 1.661e-27;
 const EARTH_DENSITY = 5514;
@@ -300,6 +301,38 @@ export function yearOf(orbit: number, around: number): number {
 
 export function hillOf(orbit: number, mass: number, around: number): number {
   return orbit * Math.cbrt(mass / (3 * around));
+}
+
+export function holdOf(share: number, stretch: number): number {
+  const held =
+    0.464 -
+    0.38 * share -
+    0.631 * stretch +
+    0.586 * share * stretch +
+    0.15 * stretch ** 2 -
+    0.198 * share * stretch ** 2;
+  return Math.max(HOLD_LEAST, held);
+}
+
+export function clearOf(share: number, stretch: number): number {
+  const light = Math.min(share, 1 - share);
+  return (
+    1.6 +
+    5.1 * stretch -
+    2.22 * stretch ** 2 +
+    4.12 * light -
+    4.27 * stretch * light -
+    5.09 * light ** 2 +
+    4.61 * stretch ** 2 * light ** 2
+  );
+}
+
+export function nestOf(ratio: number, stretch: number): number {
+  return 2.8 * (((1 + ratio) * (1 + stretch)) / Math.sqrt(1 - stretch)) ** 0.4;
+}
+
+export function starborn(physics: Pick<Physics, "iron" | "rock" | "ice">): boolean {
+  return physics.iron === 0 && physics.rock === 0 && physics.ice === 0;
 }
 
 export function rocheOf(radius: number, density: number, grain: number): number {

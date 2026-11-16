@@ -38,6 +38,7 @@ import {
   seaCover,
   seenGlow,
   sketchSystem,
+  starborn,
   starHeat,
   swayOf,
   YEAR,
@@ -127,7 +128,7 @@ const listed = (bodies: Body[]) =>
         .map((body) => body.name)
         .join(", ")} and ${bodies[bodies.length - 1].name}`;
 
-const sunny = (body: Body) => body.parent === null || familyOf(body.physics) === "star";
+const sunny = (body: Body) => body.parent === null || starborn(body.physics);
 const sunOf = (body: Body): { sun: Body; reach: number } => {
   const above = body.parent === null ? body : system.bodies[body.parent];
   const reach = body.physics.orbit * (1 - body.physics.stretch ** 2) ** 0.25;
@@ -452,7 +453,7 @@ const summary = el(
   el(
     "div",
     { class: "hint" },
-    `${planets} planets, ${system.bodies.length - suns.length - planets} moons and ${star.physics.disks.length} belts · ${
+    `${planets} planets, ${system.bodies.length - suns.length - planets} moons and ${suns.reduce((sum, body) => sum + body.physics.disks.length, 0)} belts · ${
       system.home === null
         ? "no home"
         : `home ${system.bodies[system.home].name}, the system of world seed ${seed}`

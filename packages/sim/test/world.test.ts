@@ -3,9 +3,11 @@ import { test } from "node:test";
 import {
   ASTRONOMICAL_UNIT,
   angleBetween,
+  type Body,
   BROWN_LEAST,
   centreOf,
   classOf,
+  clearOf,
   climateOf,
   columnOf,
   createWorld,
@@ -17,6 +19,7 @@ import {
   GIGAYEAR,
   glowOf,
   heatAt,
+  holdOf,
   hubOf,
   innerHeat,
   JUPITER_MASS,
@@ -24,6 +27,7 @@ import {
   lampsAt,
   lampsOf,
   moltenOf,
+  nestOf,
   type Physics,
   poleOf,
   positionOf,
@@ -41,6 +45,7 @@ import {
   shownLight,
   sketchSystem,
   slerp,
+  starborn,
   starHeat,
   stocked,
   strippedShare,
@@ -481,7 +486,7 @@ test("a moon has a moon of its own only where it holds one", () => {
       if (moon === null || planet === null || planet.parent === null) {
         continue;
       }
-      if (planet.physics.mass >= STAR_LEAST) {
+      if (starborn(planet.physics)) {
         continue;
       }
       found += 1;
@@ -508,7 +513,7 @@ test("a system sketched without a home has no life and can be given its star", (
     { length: 60 },
     (_, seed) => sketchSystem(seed + 1, { settled: false, star: null }).bodies.length,
   );
-  assert.ok(Math.min(...sizes) >= 1 && Math.max(...sizes) > 12 && Math.max(...sizes) < 48);
+  assert.ok(Math.min(...sizes) >= 1 && Math.max(...sizes) > 12 && Math.max(...sizes) < 120);
 });
 
 test("systems differ in their stars and in what circles them", () => {
@@ -615,7 +620,7 @@ test("light is drawn on a scale that keeps what is brighter brighter", () => {
       if (centre.mass >= STAR_LEAST) {
         assert.ok(sun, label);
       }
-      const suns = system.bodies.filter((other) => other.physics.mass >= STAR_LEAST).length;
+      const suns = system.bodies.filter((other) => starborn(other.physics)).length;
       if (sun && body.parent === 0 && suns === 1) {
         const given = body.physics.light * seenShare(centre.heat);
         assert.ok(Math.abs(sun.seen / given - 1) < 0.01, `${label}: ${sun.seen} ${given}`);
@@ -729,16 +734,25 @@ test("an orbit is an oval in a plane of its own, swept as the pull of its centre
   assert.ok(backward > 1, `backward ${backward}`);
 });
 
-test("two bodies of like mass circle the point between them", () => {
-  let near = 0;
-  let far = 0;
+test("the stability of nested orbits follows the published fits", () => {
+  const near = (value: number, wanted: number) => Math.abs(value / wanted - 1) < 0.02;
+  assert.ok(near(holdOf(0.5, 0), 0.274) && near(holdOf(0.5, 0.5), 0.118));
+  assert.ok(near(clearOf(0.5, 0), 2.39) && near(clearOf(0.5, 0.5), 3.6));
+  assert.ok(clearOf(0.2, 0.3) === clearOf(0.8, 0.3) && holdOf(0.9, 0.7) > 0);
+  assert.ok(near(nestOf(0.5, 0), 3.29) && nestOf(0.5, 0.4) > nestOf(0.5, 0));
+  assert.ok(holdOf(0.2, 0.2) > holdOf(0.6, 0.2) && clearOf(0.5, 0.4) > clearOf(0.5, 0.1));
+});
+
+test("bodies balance about shared centres, and stars stand in nested groups that hold", () => {
+  const stars = [0, 0, 0, 0];
   let double = 0;
   let swayed = 0;
   let owned = 0;
-  for (let seed = 1; seed <= 300; seed++) {
+  let around = 0;
+  let nested = 0;
+  let deep = 0;
+  for (let seed = 1; seed <= 400; seed++) {
     const system = sketchSystem(seed, { settled: seed % 4 === 0, star: null });
-    const stars = system.bodies.filter((body) => body.physics.mass >= STAR_LEAST);
-    assert.ok(stars.length <= 2, `seed ${seed}`);
     const whole = weightOf(system, 0);
     const widest = Math.max(...system.bodies.map((body) => body.orbit));
     for (const tick of [0, 777, 5000]) {
@@ -755,6 +769,10 @@ test("two bodies of like mass circle the point between them", () => {
         );
       }
     }
+    const born = system.bodies.filter((body) => starborn(body.physics));
+    stars[Math.min(born.length, stars.length) - 1] += 1;
+    const far = (body: Body) => body.physics.orbit * (1 + body.physics.stretch);
+    const close = (body: Body) => body.physics.orbit * (1 - body.physics.stretch);
     for (const body of system.bodies) {
       const kids = system.bodies.filter((kin) => kin.parent === body.id);
       for (const tick of [0, 777]) {
@@ -773,41 +791,59 @@ test("two bodies of like mass circle the point between them", () => {
           `seed ${seed}, ${body.name}: a body and all around it balance about their middle`,
         );
       }
-      const mate = kids
-        .filter((kin) => swayOf(system, kin.id) >= 0.03)
-        .sort((left, right) => right.physics.mass - left.physics.mass)[0];
-      if (mate === undefined) {
+      if (body.parent === null) {
         continue;
       }
       const label = `seed ${seed}, ${body.name}`;
-      const apart = mate.physics.orbit * (1 - mate.physics.stretch);
-      for (const other of system.bodies.filter((kin) => kin.parent === body.id && kin !== mate)) {
-        const inside = other.physics.orbit < mate.physics.orbit;
-        const edge = inside
-          ? other.physics.orbit * (1 + other.physics.stretch) < 0.36 * apart
-          : other.physics.orbit * (1 - other.physics.stretch) >
-            2.5 * mate.physics.orbit * (1 + mate.physics.stretch);
-        assert.ok(edge || mate.physics.mass < 0.03 * body.physics.mass, `${label}, ${other.name}`);
-      }
-      if (mate.physics.mass >= STAR_LEAST) {
-        const wide = system.bodies.some(
-          (other) => other.parent === body.id && other.physics.orbit < mate.physics.orbit,
+      const host = system.bodies[body.parent];
+      const kin = system.bodies.filter(
+        (other) => other.parent === host.id && other.id !== body.id && starborn(other.physics),
+      );
+      const within = (other: Body) =>
+        kin
+          .filter((inner) => inner.id !== other.id && inner.physics.orbit < other.physics.orbit)
+          .reduce((sum, inner) => sum + weightOf(system, inner.id), host.physics.mass);
+      const share = (other: Body) =>
+        weightOf(system, other.id) / (within(other) + weightOf(system, other.id));
+      if (starborn(body.physics)) {
+        assert.ok(starborn(host.physics), label);
+        assert.ok(body.physics.mass <= host.physics.mass, label);
+        const inner = kin.filter((other) => other.physics.orbit < body.physics.orbit);
+        const reach = Math.max(0, ...inner.map(far));
+        const ratio = weightOf(system, body.id) / within(body);
+        assert.ok(
+          close(body) > 1.25 * nestOf(ratio, body.physics.stretch) * reach,
+          `${label}: a group inside a wider orbit holds together`,
         );
-        near += wide ? 0 : 1;
-        far += wide ? 1 : 0;
-        const planets = system.bodies.filter((other) => other.parent === mate.id);
-        owned += planets.length;
-        for (const planet of planets) {
-          assert.ok(
-            planet.physics.orbit * (1 + planet.physics.stretch) < 0.21 * apart,
-            `${label}, ${planet.name}`,
-          );
-          assert.equal(planet.slant, mate.tilt, label);
-        }
-      } else if (body.parent === null) {
-        swayed += 1;
-      } else {
-        double += 1;
+        nested += inner.length > 0 ? 1 : 0;
+        deep += host.parent !== null ? 1 : 0;
+        continue;
+      }
+      if (!starborn(host.physics)) {
+        double += host.parent !== null && swayOf(system, body.id) >= 0.03 ? 1 : 0;
+        continue;
+      }
+      swayed += swayOf(system, body.id) >= 0.03 ? 1 : 0;
+      owned += host.parent !== null ? 1 : 0;
+      around += kin.some((other) => other.physics.orbit < body.physics.orbit) ? 1 : 0;
+      for (const other of kin) {
+        const { orbit, stretch } = other.physics;
+        const kept =
+          body.physics.orbit < orbit
+            ? far(body) < 0.83 * holdOf(share(other), stretch) * orbit
+            : close(body) > 1.12 * clearOf(share(other), stretch) * orbit;
+        assert.ok(kept, `${label}: a planet keeps clear of ${other.name}`);
+      }
+      if (host.parent !== null) {
+        const { orbit, stretch } = host.physics;
+        assert.ok(
+          far(body) < 0.83 * holdOf(1 - swayOf(system, host.id), stretch) * orbit,
+          `${label}: a planet stays in the hold of its star`,
+        );
+        const plane =
+          body.slant === host.tilt ||
+          kin.some((other) => other.slant === body.slant || other.slant === 0);
+        assert.ok(plane, `${label}: it lies in the plane of its star or of the pair it circles`);
       }
     }
     if (system.home !== null) {
@@ -816,11 +852,18 @@ test("two bodies of like mass circle the point between them", () => {
         kin.every((other) => swayOf(system, other.id) < 0.03),
         `seed ${seed}`,
       );
+      assert.equal(system.bodies[system.home].parent, 0, `seed ${seed}`);
     }
   }
-  assert.ok(near > 5 && near < 60, `near pairs ${near}`);
-  assert.ok(far > 15 && far < 110, `far pairs ${far}`);
-  assert.ok(owned > 10, `planets of a second star ${owned}`);
+  const [single, pair, triple, more] = stars;
+  assert.ok(single > 220 && single < 330, `systems of one star ${single}`);
+  assert.ok(pair > 60 && pair < 150, `of two ${pair}`);
+  assert.ok(triple > 5 && triple < 45, `of three ${triple}`);
+  assert.ok(more > 0 && more < 15, `of four and more ${more}`);
+  assert.ok(nested > 5, `stars around a pair ${nested}`);
+  assert.ok(deep > 5, `stars with a star of their own ${deep}`);
+  assert.ok(owned > 30, `planets of a second star ${owned}`);
+  assert.ok(around > 30, `planets around a pair ${around}`);
   assert.ok(double > 5, `double planets ${double}`);
   assert.ok(swayed > 0, `stars swayed by a brown dwarf ${swayed}`);
 });
@@ -994,15 +1037,18 @@ test("small bodies are loose and not round, and rock melts where it is hot", () 
 
 test("a centre too light to be a star is a brown dwarf with small worlds close to it", () => {
   for (const seed of SEEDS) {
-    const { bodies } = sketchSystem(seed, { settled: false, star: 0.04 * SUN_MASS });
+    const system = sketchSystem(seed, { settled: false, star: 0.04 * SUN_MASS });
+    const { bodies } = system;
     const centre = bodies[0].physics;
+    const whole = weightOf(system, 0);
     const label = `seed ${seed}`;
     assert.ok(classOf(centre).startsWith("brown dwarf"), label);
     assert.ok(centre.glow > 0 && centre.glow < 1e-3 * SUN_GLOW, label);
     assert.ok(centre.heat > 400 && centre.heat < 2900, `${label}: ${centre.heat}`);
     assert.ok(Math.abs(centre.radius / 7.15e7 - 1) < 0.3, label);
-    for (const body of bodies.filter((other) => other.parent === 0)) {
-      assert.ok(body.physics.mass <= 0.0021 * centre.mass, `${label}, ${body.name}`);
+    for (const body of bodies.filter((other) => other.parent === 0 && !starborn(other.physics))) {
+      const most = 0.0105 * Math.sqrt(whole / SUN_MASS) * whole;
+      assert.ok(body.physics.mass <= most, `${label}, ${body.name}`);
       assert.ok(body.physics.orbit < 2 * ASTRONOMICAL_UNIT, `${label}, ${body.name}`);
     }
   }
@@ -1033,7 +1079,8 @@ test("rare bodies turn up among many systems", () => {
     const heavy = system.bodies.filter(
       (body) => body.physics.mass >= BROWN_LEAST && body.physics.mass < STAR_LEAST && body.id > 0,
     );
-    assert.ok(heavy.every((body) => body.physics.mass < 0.081 * centre.mass));
+    const made = heavy.filter((body) => !starborn(body.physics));
+    assert.ok(made.every((body) => body.physics.mass < 0.081 * weightOf(system, 0)));
     assert.ok(heavy.every((body) => classOf(body.physics).startsWith("brown dwarf")));
   }
 });

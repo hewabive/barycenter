@@ -9,6 +9,7 @@ import {
   seenGlow,
   shownLight,
   spinOf,
+  starborn,
   swayOf,
 } from "@barycenter/sim";
 import {
@@ -87,6 +88,7 @@ const TAP_SLACK = 12;
 const HANDHELD_FRAME = 30;
 const APPROACH = 1.3;
 const FARTHEST = 1400;
+const FAR_VIEW = 2.4;
 const HOME_VIEW = 3.3;
 const PORTRAIT = 4.5;
 const CHART_FULL = 5;
@@ -173,7 +175,12 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
   controls.enableDamping = true;
   controls.zoomSpeed = coarse.matches ? 1.5 : 2.5;
   controls.minDistance = APPROACH;
-  controls.maxDistance = FARTHEST;
+  const span = (id: number): number => {
+    const { parent, orbit, physics } = system.bodies[id];
+    return parent === null ? 0 : span(parent) + orbit * (1 + physics.stretch);
+  };
+  const widest = Math.max(...system.bodies.map((body) => span(body.id)));
+  controls.maxDistance = Math.max(FARTHEST, FAR_VIEW * widest);
 
   let stale = true;
   const invalidate = () => {
@@ -232,17 +239,22 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
   const dust = new Points(specks, speckMaterial);
   dust.frustumCulled = false;
   world.add(dust);
-  const belts = star.body.disks.map((lane, index) => {
-    const disk = star.body.physics.disks[index];
-    const { heat, radius } = star.body.physics;
-    const seen = seenGlow(heat) * ((2 * radius) / (disk.inner + disk.outer)) ** 2;
-    const shine = tintOf(star.body).multiplyScalar(shownLight([seen], 0).lamps[0]);
-    const within = system.bodies
-      .filter((body) => body.parent === star.body.id && body.physics.orbit < disk.inner)
-      .sort((left, right) => right.physics.orbit - left.physics.orbit)[0];
-    const about = within === undefined ? null : within.id;
-    return { ...createBelt(lane, disk, star.body.seed + index, shine, coarse.matches), about };
-  });
+  const belts = looks
+    .filter(({ body }) => body.parent === null || starborn(body.physics))
+    .flatMap((owner) =>
+      owner.body.disks.map((lane, index) => {
+        const disk = owner.body.physics.disks[index];
+        const { heat, radius } = owner.body.physics;
+        const seen = seenGlow(heat) * ((2 * radius) / (disk.inner + disk.outer)) ** 2;
+        const shine = tintOf(owner.body).multiplyScalar(shownLight([seen], 0).lamps[0]);
+        const within = system.bodies
+          .filter((body) => body.parent === owner.body.id && body.physics.orbit < disk.inner)
+          .sort((left, right) => right.physics.orbit - left.physics.orbit)[0];
+        const about = within === undefined ? null : within.id;
+        const cloud = createBelt(lane, disk, owner.body.seed + index, shine, coarse.matches);
+        return { ...cloud, about, owner };
+      }),
+    );
   for (const belt of belts) {
     world.add(belt.points);
   }
@@ -371,7 +383,7 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
     }
     for (const belt of belts) {
       if (belt.about === null) {
-        belt.points.position.copy(star.frame.position);
+        belt.points.position.copy(belt.owner.frame.position);
       } else {
         const middle = centreOf(system, belt.about, shown);
         belt.points.position.set(middle.x, middle.y, middle.z);
