@@ -318,6 +318,7 @@ Stage 4 splits matter into kinds with prices and values. It is not designed in d
 - A power that has built every cell to its cap has nothing left to spend matter on. Its surplus then circulates and a tenth to a fifth of its output is lost on the way.
 - The client shows regions by number and lets values other than flows jump between ticks.
 - The star system is drawn ahead of its rules. The conventional scale was chosen for the look and not for play, and no rule reads an orbit or the physics of a body yet. The light of the star should come to set energy, and what a body is made of the matter taken from it.
+- The temperature of a body is a mean with one swing over its year. It leaves out the beat of the light in a close pair of stars, the oval orbits of moons close to a glowing body and eclipses, and air and sea do not change with the season. The architecture document gives the sizes. None of it is worth counting until a rule reads temperature.
 - The system has one star, round bodies and circular orbits in one plane. Bodies too small to be round, brown dwarfs that glow, two stars, stretched and tilted orbits and bodies that always turn one face to their star are possible in physics and not made yet. A planet near a faint star keeps its spin, though it would have lost it.
 - The look that follows from the physics was judged on a sheet of bodies drawn by mass and by distance, and not yet in play.
 - The relief is public, so the mountains and coasts of unexplored land are known. Whether exploration should reveal more than richness is undecided.
