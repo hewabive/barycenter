@@ -28,6 +28,7 @@ import {
   SUN_MASS,
   seenGlow,
   shownLight,
+  starborn,
   surveySystem,
   swayOf,
   YEAR,
@@ -210,8 +211,10 @@ let sinceReadout = Number.POSITIVE_INFINITY;
 const lowOver = (id: number) => Math.max(LOW_HEIGHT, LOW_SHARE * rails.radii[id]);
 const first =
   system.home ??
-  bodies.find((body) => body.parent === 0 && body.physics.mass < 0.01 * bodies[0].physics.mass)
-    ?.id ??
+  bodies.find(
+    (body) =>
+      body.parent !== null && !starborn(body.physics) && starborn(bodies[body.parent].physics),
+  )?.id ??
   0;
 let flight = createFlight(0, [
   ...circling(rails, system, first, lowOver(first), 0),
