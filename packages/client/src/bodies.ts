@@ -96,6 +96,7 @@ export interface Look {
   light(rays: Vector3[], chart: number, tick: number): void;
   warm(heat: number, glare: number[]): boolean;
   refine(size: number): void;
+  recede(far: boolean): void;
   restore(): void;
   dispose(): void;
 }
@@ -163,6 +164,7 @@ const SPECK_EMBER = 0.6;
 const RING_GLEAM = 0.25;
 const WARM_STEP = 0.5;
 const GLARE_STEP = 0.02;
+const DISC_STEPS = 16;
 const NOWHERE = new Vector3();
 
 function regionsOf(star: Body, flame: Flame): Region[] {
@@ -495,9 +497,16 @@ export function createStudio(renderer: WebGLRenderer): Studio {
     fill(target, body);
     return target;
   };
-  const baked = (body: Body, settle: (relief: CubeTexture | null) => void) => {
+  const baked = (body: Body, slot: { value: CubeTexture | null }, shown: Mesh[]) => {
     let size = 0;
+    let far = false;
     let target: WebGLCubeRenderTarget | null = null;
+    const settle = () => {
+      slot.value = target?.texture ?? null;
+      for (const mesh of shown) {
+        mesh.visible = target !== null && !far;
+      }
+    };
     return {
       detail: () => size,
       relief() {
@@ -513,8 +522,14 @@ export function createStudio(renderer: WebGLRenderer): Studio {
         const old = target;
         size = wanted;
         target = wanted === 0 ? null : bake(body, wanted);
-        settle(target?.texture ?? null);
+        settle();
         old?.dispose();
+      },
+      recede(next: boolean) {
+        if (next !== far) {
+          far = next;
+          settle();
+        }
       },
       restore() {
         if (target !== null) {
@@ -547,9 +562,22 @@ export function createStudio(renderer: WebGLRenderer): Studio {
     const flow = new Vector2();
     const tint = new Color(flame.tint);
     const steep = new Vector3(...WAVES.map((wave) => WIEN / (wave * flame.kelvin)));
-    const edge = (shade: number, power: number) =>
-      1 - Math.exp(-EXPOSURE * shade * LIMB_DEPTH ** (LIMB * power));
-    const rim = new Color(edge(tint.r, steep.x), edge(tint.g, steep.y), edge(tint.b, steep.z));
+    const glow = (shade: number, power: number, facing: number) =>
+      1 - Math.exp(-EXPOSURE * shade * MathUtils.lerp(LIMB_DEPTH, 1, facing) ** (LIMB * power));
+    const disc = (shade: number, power: number) => {
+      let mean = 0;
+      for (let step = 0; step < DISC_STEPS; step++) {
+        const facing = (step + 0.5) / DISC_STEPS;
+        mean += (2 * facing * glow(shade, power, facing)) / DISC_STEPS;
+      }
+      return -Math.log(1 - mean);
+    };
+    const rim = new Color(
+      glow(tint.r, steep.x, 0),
+      glow(tint.g, steep.y, 0),
+      glow(tint.b, steep.z, 0),
+    );
+    const ember = new Color(disc(tint.r, steep.x), disc(tint.g, steep.y), disc(tint.b, steep.z));
     const uniforms = {
       relief: { value: null as CubeTexture | null },
       spots: { value: spots },
@@ -565,10 +593,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       new ShaderMaterial({ vertexShader: BODY_VERTEX, fragmentShader: STAR_FRAGMENT, uniforms }),
     );
     globe.visible = false;
-    const { release, ...surface } = baked(body, (relief) => {
-      uniforms.relief.value = relief;
-      globe.visible = relief !== null;
-    });
+    const { release, ...surface } = baked(body, uniforms.relief, [globe]);
     globe.scale.setScalar(body.radius);
     frame.add(globe);
     const flare = new Mesh(
@@ -616,7 +641,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       screens,
       poles,
       tone: tint,
-      ember: new Color(0, 0, 0),
+      ember,
       shine: new Color(0, 0, 0),
       dusk: 0,
       ...surface,
@@ -789,12 +814,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
           }),
     };
     const shown: Mesh[] = [];
-    const { release, ...surface } = baked(body, (relief) => {
-      uniforms.relief.value = relief;
-      for (const mesh of shown) {
-        mesh.visible = relief !== null;
-      }
-    });
+    const { release, ...surface } = baked(body, uniforms.relief, shown);
 
     const frame = new Group();
     const globe = new Mesh(

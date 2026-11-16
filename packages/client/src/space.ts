@@ -350,6 +350,7 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
   const still = new Quaternion();
   const rig = new Quaternion();
   const places = looks.map(() => new Vector3());
+  const tiny = looks.map(() => false);
   const swung = looks.map(
     ({ body }) => body.physics.hottest > (1 + SWING_LEAST) * body.physics.coldest,
   );
@@ -467,6 +468,8 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
       const heat = swung[index] ? heatAt(system, index, shown) : look.body.physics.heat;
       turned = look.warm(heat, glares[index]) || turned;
       const wide = (look.body.radius * pixels) / Math.max(gap, 1e-6);
+      tiny[index] = 2 * wide < SPECK_PIXELS;
+      look.recede(tiny[index]);
       if (look === home || look === star || look === to) {
         continue;
       }
@@ -507,7 +510,7 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
     }
     looks.forEach((look, index) => {
       spots.setXYZ(index, look.frame.position.x, look.frame.position.y, look.frame.position.z);
-      girths.setX(index, look.detail() === 0 ? look.body.radius : 0);
+      girths.setX(index, look.detail() === 0 || tiny[index] ? look.body.radius : 0);
       const lamp = looks[sources[index][0] ?? index].frame.position;
       lamps.setXYZ(index, lamp.x, lamp.y, lamp.z);
     });
