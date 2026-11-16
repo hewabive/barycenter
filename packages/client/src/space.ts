@@ -1,9 +1,11 @@
 import {
+  anomalyOf,
   type Body,
   centreOf,
   courseOf,
   createRandom,
   heatAt,
+  poseOf,
   positionOf,
   type Sketch,
   seenGlow,
@@ -51,7 +53,7 @@ export interface Space {
   chart(): number;
   size(): { width: number; height: number };
   invalidate(): void;
-  clock(tick: number, pace: number): void;
+  clock(tick: number, pace: number, weather?: number): void;
   lively(busy: () => boolean): void;
   onFrame(listener: (elapsed: number) => void): void;
   onPresent(listener: () => void): void;
@@ -101,7 +103,11 @@ const SHIFT_TIME = 0.7;
 const GLIDE_TIME = 1.1;
 const PICK_SHARE = 0.012;
 const STARS = 2600;
-const ORBIT_STEPS = 160;
+const ORBIT_STEPS = 256;
+const ORBIT_CROWD = 3;
+const NEAR_LEAST = 0.02;
+const REAL_NEAR = 1e-5;
+const REAL_ZOOM = 1.6;
 const LABEL_GAP = 12;
 const KIN_CLEARANCE = 70;
 const NAME_WIDTH = 64;
@@ -161,7 +167,7 @@ function createSky(seed: number): Points {
   return sky;
 }
 
-export function createSpace(stage: HTMLElement, system: Sketch): Space {
+export function createSpace(stage: HTMLElement, system: Sketch, real = false): Space {
   const renderer = new WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   stage.append(renderer.domElement);
@@ -187,7 +193,7 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enablePan = false;
   controls.enableDamping = true;
-  controls.zoomSpeed = coarse.matches ? 1.5 : 2.5;
+  controls.zoomSpeed = (coarse.matches ? 1.5 : 2.5) * (real ? REAL_ZOOM : 1);
   controls.minDistance = APPROACH;
   const span = (id: number): number => {
     const { parent, orbit, physics } = system.bodies[id];
@@ -223,6 +229,15 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
   const first = home ?? star;
   if (home === null) {
     camera.position.set(0, 0.35, 1).setLength(PORTRAIT * star.girth);
+  } else if (real) {
+    const here = positionOf(system, home.body.id, 0);
+    const lamp = positionOf(system, sources[home.body.id][0] ?? star.body.id, 0);
+    camera.position
+      .set(lamp.x - here.x, lamp.y - here.y, lamp.z - here.z)
+      .normalize()
+      .applyAxisAngle(new Vector3(0, 1, 0), SUNLIT_TURN);
+    camera.position.y += SUNLIT_LIFT;
+    camera.position.setLength(HOME_VIEW);
   }
   for (const look of looks) {
     world.add(look.frame);
@@ -290,17 +305,37 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
       ? {}
       : { PACKED: "" };
 
+  const halves = Array.from({ length: ORBIT_STEPS }, (_, step) => {
+    const along = (2 * step) / ORBIT_STEPS - 1;
+    const half = (Math.PI / 2) * Math.sign(along) * Math.abs(along) ** ORBIT_CROWD;
+    return { sine: Math.sin(half), cosine: Math.cos(half) };
+  });
   const traced = (source: Body, share: number) => {
-    const loop: Vector3[] = [];
-    for (let step = 0; step < ORBIT_STEPS; step++) {
-      const at = courseOf(source, (2 * Math.PI * step) / ORBIT_STEPS);
-      loop.push(new Vector3(share * at.x, share * at.y, share * at.z));
-    }
+    const oval = source.physics.stretch;
+    const nearest = courseOf(source, 0);
+    const beside = courseOf(source, Math.PI / 2);
+    const major = new Vector3(nearest.x, nearest.y, nearest.z).multiplyScalar(share / (1 - oval));
+    const minor = new Vector3(beside.x, beside.y, beside.z)
+      .multiplyScalar(share)
+      .addScaledVector(major, oval);
+    const path = new BufferAttribute(new Float32Array(3 * ORBIT_STEPS), 3);
     const material = new LineBasicMaterial({ color: ORBIT, transparent: true, opacity: 0 });
-    const line = new LineLoop(new BufferGeometry().setFromPoints(loop), material);
+    const line = new LineLoop(new BufferGeometry().setAttribute("position", path), material);
     line.frustumCulled = false;
     world.add(line);
-    return { line, material, about: source.id, reach: Math.abs(share) * source.orbit };
+    return {
+      line,
+      material,
+      path,
+      major,
+      minor,
+      oval,
+      about: source.id,
+      reach: Math.abs(share) * source.orbit,
+      middle: new Vector3(),
+      anomaly: 0,
+      drawn: Number.NaN,
+    };
   };
   const tracks = looks.flatMap(({ body }) => {
     if (body.parent === null || body.shared !== null) {
@@ -320,8 +355,9 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
 
   let tick = 0;
   let pace = 0;
+  let weather: number | null = null;
   let since = performance.now();
-  let chart = 1;
+  let chart = real ? 0 : 1;
   let busy = () => false;
   const shift: Shift = { from: first.body.id, to: first.body.id, share: 1 };
   let glide: Glide | null = null;
@@ -400,7 +436,13 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
     }
     for (const track of tracks) {
       const middle = centreOf(system, track.about, shown);
-      track.line.position.set(middle.x, middle.y, middle.z);
+      const { shift: ahead } = poseOf(system, track.about, shown);
+      track.anomaly = anomalyOf(system.bodies[track.about], shown, ahead);
+      track.middle.set(middle.x, middle.y, middle.z);
+      track.line.position
+        .copy(track.middle)
+        .addScaledVector(track.major, Math.cos(track.anomaly) - track.oval)
+        .addScaledVector(track.minor, Math.sin(track.anomaly));
     }
     for (const belt of belts) {
       if (belt.about === null) {
@@ -420,7 +462,7 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
 
     const distance = camera.position.length();
     const near = RIG_BASE + RIG_PER_RADIUS * reach;
-    const away = ramp(distance, near, near * RIG_SPAN);
+    const away = real ? 1 : ramp(distance, near, near * RIG_SPAN);
     const loose = Math.min(outmost, Math.max(near * RIG_SPAN, RIG_CLEAR * spot.length()));
     const adrift = ramp(distance, loose / RIG_SPAN, loose);
     rig.copy(pose).slerp(still, away).invert();
@@ -431,7 +473,7 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
       .applyQuaternion(rig);
 
     const homeward = home === null ? 0 : to === home ? share : from === home ? 1 - share : 0;
-    chart = homeward * (1 - ramp(distance, CHART_FULL, CHART_GONE));
+    chart = real ? 0 : homeward * (1 - ramp(distance, CHART_FULL, CHART_GONE));
 
     if (glide?.toward && home !== null) {
       facing.copy(glide.toward).applyQuaternion(home.frame.quaternion).applyQuaternion(rig);
@@ -478,7 +520,7 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
           ray.set(0, 0, 0);
         }
       });
-      look.light(rays, look === home ? chart : 0, shown);
+      look.light(rays, look === home ? chart : 0, weather ?? shown);
       const here = truly[index];
       lent.forEach(({ source, seen, reach }, at) => {
         const there = truly[source];
@@ -529,11 +571,13 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
       });
     }
     looks.forEach((look, index) => {
-      spots.setXYZ(index, look.frame.position.x, look.frame.position.y, look.frame.position.z);
+      const at = look.frame.position;
+      spots.setXYZ(index, at.x - spot.x, at.y - spot.y, at.z - spot.z);
       girths.setX(index, look.detail() === 0 || tiny[index] ? look.body.radius : 0);
       const lamp = looks[sources[index][0] ?? index].frame.position;
-      lamps.setXYZ(index, lamp.x, lamp.y, lamp.z);
+      lamps.setXYZ(index, lamp.x - spot.x, lamp.y - spot.y, lamp.z - spot.z);
     });
+    dust.position.copy(spot);
     spots.needsUpdate = true;
     girths.needsUpdate = true;
     lamps.needsUpdate = true;
@@ -547,12 +591,32 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
       belt.turn(shown, dense, pixels * dense);
     }
     for (const track of tracks) {
-      const gap = track.line.getWorldPosition(seat).distanceTo(camera.position);
+      const gap = seat
+        .copy(track.middle)
+        .applyMatrix4(world.matrixWorld)
+        .distanceTo(camera.position);
       const size = (track.reach * pixels) / Math.max(gap, 1e-6);
       track.material.opacity = TRACK_SHADE * (1 - chart) * ramp(size, TRACK_GONE, TRACK_FULL);
       track.line.visible = track.material.opacity > 0;
+      if (track.line.visible && track.drawn !== track.anomaly) {
+        const sine = Math.sin(track.anomaly);
+        const cosine = Math.cos(track.anomaly);
+        const { major, minor, path } = track;
+        halves.forEach((half, step) => {
+          const along = -2 * half.sine * (sine * half.cosine + cosine * half.sine);
+          const across = 2 * half.sine * (cosine * half.cosine - sine * half.sine);
+          path.setXYZ(
+            step,
+            major.x * along + minor.x * across,
+            major.y * along + minor.y * across,
+            major.z * along + minor.z * across,
+          );
+        });
+        path.needsUpdate = true;
+        track.drawn = track.anomaly;
+      }
     }
-    camera.near = Math.max(0.02, Math.min(20, closest * 0.25));
+    camera.near = Math.max(real ? REAL_NEAR : NEAR_LEAST, Math.min(20, closest * 0.25));
     camera.far = (camera.position.distanceTo(world.position) + brim) * 1.2 + 50;
     camera.updateProjectionMatrix();
     sky.position.copy(camera.position);
@@ -586,6 +650,13 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
         look.halo > 0
           ? Math.abs(across) > NAME_WIDTH || Math.abs(down + sunk - disc) > NAME_HEIGHT
           : Math.hypot(across, down) > KIN_CLEARANCE;
+    }
+    if (shown && look.body.id !== shift.to) {
+      const front = places[shift.to];
+      seat.copy(places[index]).sub(camera.position).normalize();
+      const along = seat.dot(axis.copy(front).sub(camera.position));
+      const aside = front.distanceToSquared(camera.position) - along ** 2;
+      shown = along <= 0 || along >= gap || aside >= looks[shift.to].body.radius ** 2;
     }
     label.style.display = shown ? "" : "none";
     if (shown) {
@@ -733,9 +804,10 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
     chart: () => chart,
     size: () => ({ width: stage.clientWidth, height: stage.clientHeight }),
     invalidate,
-    clock(nextTick, nextPace) {
+    clock(nextTick, nextPace, nextWeather) {
       tick = nextTick;
       pace = nextPace;
+      weather = nextWeather ?? null;
       since = performance.now();
       stale = true;
     },

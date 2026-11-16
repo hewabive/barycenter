@@ -111,6 +111,10 @@ export interface Sketch {
   bodies: Body[];
 }
 
+export interface Survey extends Sketch {
+  unit: number;
+}
+
 export interface MapCell {
   id: number;
   position: Vector;

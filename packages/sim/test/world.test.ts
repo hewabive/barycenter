@@ -50,6 +50,7 @@ import {
   starHeat,
   stocked,
   strippedShare,
+  surveySystem,
   swayOf,
   swingOf,
   type Vector,
@@ -387,6 +388,65 @@ test("the drawn scale keeps the order and the nesting of the real one", () => {
         }
         if (other.parent === body.parent && other.physics.year > body.physics.year) {
           assert.ok(other.year >= body.year, label);
+        }
+      }
+    }
+  }
+});
+
+test("a survey is the same system on its real scale, with its clock in seconds", () => {
+  for (const seed of [1, 2, 26, 396]) {
+    for (const settled of [true, false]) {
+      const plan = { settled, star: null };
+      const drawn = sketchSystem(seed, plan);
+      const real = surveySystem(seed, plan);
+      const homeRadius =
+        drawn.home === null ? EARTH_RADIUS : drawn.bodies[drawn.home].physics.radius;
+      assert.equal(real.home, drawn.home);
+      assert.equal(real.unit, homeRadius);
+      assert.equal(real.bodies.length, drawn.bodies.length);
+      for (const body of real.bodies) {
+        const label = `seed ${seed} ${body.name}`;
+        const { physics } = body;
+        const sketched = drawn.bodies[body.id];
+        assert.deepEqual(physics, sketched.physics, label);
+        assert.equal(body.name, sketched.name, label);
+        assert.equal(body.phase, sketched.phase, label);
+        assert.ok(Math.abs((body.radius * real.unit) / physics.radius - 1) < 1e-12, label);
+        assert.equal(body.day, physics.day, label);
+        assert.equal(body.year, body.parent === null ? 0 : physics.year, label);
+        assert.equal(body.disks.length, physics.disks.length, label);
+        for (const [index, lane] of body.disks.entries()) {
+          const disk = physics.disks[index];
+          assert.ok(Math.abs((lane.outer * real.unit) / disk.outer - 1) < 1e-12, label);
+          assert.ok(lane.year > 0 && lane.inner < lane.outer, label);
+        }
+        if (body.shared !== null) {
+          assert.equal(body.shared.year, body.shared.chase, label);
+        }
+        const moment = 5e7 + 1e5 * seed;
+        const here = positionOf(real, body.id, moment);
+        const truly = positionOf(real, body.id, moment, true);
+        const far = Math.hypot(truly.x, truly.y, truly.z);
+        const off = Math.hypot(
+          here.x * real.unit - truly.x,
+          here.y * real.unit - truly.y,
+          here.z * real.unit - truly.z,
+        );
+        assert.ok(off <= 1e-9 * (far + 1), label);
+        const alone = !real.bodies.some((other) => other.shared?.with === body.id);
+        if (body.parent !== null && body.shared === null && alone) {
+          const from = (time: number) => {
+            const hub = hubOf(real, body.id, time, true);
+            const centre = centreOf(real, body.id, time, true);
+            return { x: hub.x - centre.x, y: hub.y - centre.y, z: hub.z - centre.z };
+          };
+          const start = from(moment);
+          const round = from(moment + physics.year);
+          const moved = Math.hypot(round.x - start.x, round.y - start.y, round.z - start.z);
+          assert.ok(moved < 1e-6 * physics.orbit, label);
+          const reach = Math.hypot(start.x, start.y, start.z);
+          assert.ok(reach <= physics.orbit * (1 + physics.stretch) * (1 + 1e-9), label);
         }
       }
     }

@@ -40,6 +40,7 @@ import {
   sketchSystem,
   starborn,
   starHeat,
+  surveySystem,
   swayOf,
   YEAR,
 } from "@barycenter/sim";
@@ -56,6 +57,17 @@ interface Moment {
 type Fact = [name: string, value: string | ((now: Moment) => string)] | string;
 
 const PACES = [0, 2, 16, 128, 1024];
+const RATES: [rate: number, label: string][] = [
+  [0, "Pause"],
+  [1, "1×"],
+  [60, "1 min/s"],
+  [HOUR, "1 h/s"],
+  [DAY, "1 d/s"],
+  [30 * DAY, "30 d/s"],
+  [YEAR, "1 y/s"],
+];
+const WEATHER_SPAN = 72;
+const WEATHER_MOST = 16;
 const LAMPS = 2;
 const HEAVY = 0.03;
 const ROCK_GRAIN = 3000;
@@ -67,22 +79,25 @@ const seed = Number.isFinite(asked) ? asked : Math.floor(Math.random() * 1e6);
 const settled = query.get("home") === "1";
 const given = Number.parseFloat(query.get("star") ?? "");
 const starMass = Number.isFinite(given) && given > 0 ? Math.min(3, Math.max(0.013, given)) : null;
+const real = query.get("scale") === "real";
 
-const address = (next: { seed: number; settled: boolean; star: number | null }) => {
+const address = (next: { seed: number; settled: boolean; star: number | null; real: boolean }) => {
   const search = new URLSearchParams({ seed: String(next.seed), home: next.settled ? "1" : "0" });
   if (next.star !== null) {
     search.set("star", String(next.star));
   }
+  if (next.real) {
+    search.set("scale", "real");
+  }
   return `?${search}`;
 };
-history.replaceState(null, "", address({ seed, settled, star: starMass }));
+history.replaceState(null, "", address({ seed, settled, star: starMass, real }));
 
-const system = sketchSystem(seed, {
-  settled,
-  star: starMass === null ? null : starMass * SUN_MASS,
-});
+const plan = { settled, star: starMass === null ? null : starMass * SUN_MASS };
+const system = real ? surveySystem(seed, plan) : sketchSystem(seed, plan);
 const star = system.bodies[0];
 
+const beat = real ? "seconds" : "ticks";
 const figure = (value: number, digits = 3): string => {
   if (value === 0) {
     return "0";
@@ -360,25 +375,37 @@ function factsOf(body: Body): Fact[] {
     ],
     ["Radius", figure(body.radius, 4)],
     ["Orbit", parent === null ? "none" : figure(body.orbit, 4)],
-    ["Year", parent === null ? "none" : `${body.year} ticks`],
-    ["Day", `${body.day} ticks`],
+    ["Year", parent === null ? "none" : `${figure(body.year, 5)} ${beat}`],
+    ["Day", `${figure(body.day, 5)} ${beat}`],
     ["Seed", String(body.seed)],
   );
   return facts;
 }
 
 const stage = required<HTMLElement>("#stage");
-const space = createSpace(stage, system);
+const space = createSpace(stage, system, real);
 
 let tick = 0;
 let pace = 0;
+let weather = 0;
 let refresh = () => {};
-const clock = el("span", { class: "clock" }, "tick 0");
-const speeds = PACES.map((rate, index) => {
-  const label = rate === 0 ? "Pause" : `${rate / PACES[1]}×`;
-  const control = button(label, rate === 0 ? "Stop time" : `${rate} ticks a second`, () => {
+const dial = () => {
+  if (!real) {
+    return `tick ${Math.floor(tick)}`;
+  }
+  const pair = (value: number) => String(Math.floor(value)).padStart(2, "0");
+  const rest = tick % DAY;
+  const days = Math.floor((tick % YEAR) / DAY);
+  return `${Math.floor(tick / YEAR)} y ${days} d ${pair(rest / HOUR)}:${pair((rest % HOUR) / 60)}:${pair(rest % 60)}`;
+};
+const clock = el("span", { class: "clock" }, dial());
+const paces: [rate: number, label: string, title: string][] = real
+  ? RATES.map(([rate, label]) => [rate, label, `${figure(rate)} seconds a second`])
+  : PACES.map((rate) => [rate, `${rate / PACES[1]}×`, `${rate} ticks a second`]);
+const speeds = paces.map(([rate, label, title], index) => {
+  const control = button(rate === 0 ? "Pause" : label, rate === 0 ? "Stop time" : title, () => {
     pace = rate;
-    space.clock(tick, pace);
+    space.clock(tick, pace, real ? weather : undefined);
     speeds.forEach((other, at) => {
       other.classList.toggle("active", at === index);
     });
@@ -389,8 +416,9 @@ const speeds = PACES.map((rate, index) => {
 space.onFrame((elapsed) => {
   if (pace > 0) {
     tick += elapsed * pace;
-    space.clock(tick, pace);
-    write(clock, `tick ${Math.floor(tick)}`);
+    weather += elapsed * Math.min(pace / WEATHER_SPAN, WEATHER_MOST);
+    space.clock(tick, pace, real ? weather : undefined);
+    write(clock, dial());
     refresh();
   }
 });
@@ -406,12 +434,13 @@ const starField = el("input", {
 });
 const homeField = el("input", { type: "checkbox" });
 homeField.checked = settled;
-const go = (next: number) => {
+const go = (next: number, scale = real) => {
   const mass = Number.parseFloat(starField.value);
   location.search = address({
     seed: next,
     settled: homeField.checked,
     star: Number.isFinite(mass) && mass > 0 ? mass : null,
+    real: scale,
   });
 };
 const read = () => {
@@ -440,6 +469,13 @@ required<HTMLElement>("#topbar").append(
     starField,
   ),
   el("label", { title: "Make the system around a living home, as a game does" }, homeField, "home"),
+  button(
+    real ? "Drawn scale" : "Real scale",
+    real
+      ? "Show the system on the scale of the game, squeezed to fit a screen"
+      : "Show the system in its real sizes and distances, with a clock in seconds",
+    () => go(read(), !real),
+  ),
   ...speeds,
   clock,
   el("a", { href: "atlas.html" }, "Atlas"),

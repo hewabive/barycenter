@@ -56,6 +56,7 @@ import {
   type Relief,
   type Sketch,
   type StarSystem,
+  type Survey,
   type Vector,
 } from "./types.ts";
 
@@ -809,6 +810,25 @@ function arranged(bodies: Body[], anchor: Anchor): Body[] {
   });
 }
 
+function measured(bodies: Body[], unit: number): Body[] {
+  return bodies.map((body) => {
+    const { physics, shared } = body;
+    return {
+      ...body,
+      shared: shared === null ? null : { ...shared, year: shared.chase },
+      radius: physics.radius / unit,
+      orbit: physics.orbit / unit,
+      year: body.parent === null ? 0 : physics.year,
+      day: physics.day,
+      disks: physics.disks.map((disk) => ({
+        inner: disk.inner / unit,
+        outer: disk.outer / unit,
+        year: yearOf((disk.inner + disk.outer) / 2, physics.mass),
+      })),
+    };
+  });
+}
+
 function trimmed(physics: Physics): Physics {
   return {
     mass: trim(physics.mass),
@@ -989,7 +1009,7 @@ function paced(drafts: Draft[]): void {
   }
 }
 
-export function sketchSystem(world: number, plan: Plan): Sketch {
+function laid(world: number, plan: Plan): { home: number | null; bodies: Body[]; anchor: Anchor } {
   const random = createRandom(world ^ SYSTEM_SALT);
   const taken = new Set<string>();
   const marks = createRandom(world ^ MARK_SALT);
@@ -1401,7 +1421,17 @@ export function sketchSystem(world: number, plan: Plan): Sketch {
           year: settledOn.year,
           day: settledOn.day,
         };
+  return { home, bodies, anchor };
+}
+
+export function sketchSystem(world: number, plan: Plan): Sketch {
+  const { home, bodies, anchor } = laid(world, plan);
   return { home, bodies: arranged(bodies, anchor) };
+}
+
+export function surveySystem(world: number, plan: Plan): Survey {
+  const { home, bodies, anchor } = laid(world, plan);
+  return { home, bodies: measured(bodies, anchor.radius), unit: anchor.radius };
 }
 
 interface Family {

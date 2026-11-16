@@ -96,6 +96,7 @@ export {
   type Site,
   sketchSystem,
   spinOf,
+  surveySystem,
   swayOf,
   weightOf,
 } from "./system.ts";
@@ -131,6 +132,7 @@ export {
   type StarSystem,
   type State,
   type StepResult,
+  type Survey,
   type Terrain,
   type Vector,
   type WorldMap,
