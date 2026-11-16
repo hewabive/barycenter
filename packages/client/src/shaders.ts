@@ -127,6 +127,7 @@ const ARCH_CAP = 0.04;
 const HALO_SOFT = 0.25;
 const HALO_WRAP = 2;
 const HALO_SHEET = 1.35;
+const BELT_COVER = 0.12;
 
 export const STORM_ROOM = 8;
 export const LAMP_ROOM = 2;
@@ -872,14 +873,20 @@ uniform float tick;
 uniform float year;
 uniform float middle;
 uniform float dense;
+uniform float scale;
+uniform float room;
 varying float vGlint;
 
 void main() {
   float turn = position.y + 6.2831853 * tick / (year * pow(position.x / middle, 1.5));
   vec3 at = position.x * vec3(cos(turn), position.z * sin(turn + 40.0 * grain), sin(turn));
+  vec4 placed = modelViewMatrix * vec4(at, 1.0);
+  float size = dense * (1.0 + grain * grain);
+  float span = scale / max(-placed.z, 1e-3);
+  float kept = ${real(BELT_COVER)} * room * span * span / (size * size);
   vGlint = 0.22 + 0.45 * grain;
-  gl_PointSize = dense * (1.0 + grain * grain);
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(at, 1.0);
+  gl_PointSize = size;
+  gl_Position = grain + kept < 1.0 ? vec4(2.0, 2.0, 2.0, 1.0) : projectionMatrix * placed;
 }
 `;
 

@@ -524,7 +524,7 @@ export function createSpace(stage: HTMLElement, system: Sketch): Space {
     speckMaterial.uniforms.scale.value = pixels * dense;
     speckMaterial.uniforms.least.value = SPECK_PIXELS * dense;
     for (const belt of belts) {
-      belt.turn(shown, dense);
+      belt.turn(shown, dense, pixels * dense);
     }
     camera.near = Math.max(0.02, Math.min(20, closest * 0.25));
     camera.far = farthest * 1.2 + 50;

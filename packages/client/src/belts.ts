@@ -4,7 +4,7 @@ import { BELT_FRAGMENT, BELT_VERTEX } from "./shaders.ts";
 
 export interface Belt {
   points: Points;
-  turn(tick: number, dense: number): void;
+  turn(tick: number, dense: number, scale: number): void;
 }
 
 const ROCK = 0x8a8076;
@@ -41,6 +41,8 @@ export function createBelt(
     year: { value: lane.year },
     middle: { value: (lane.inner + lane.outer) / 2 },
     dense: { value: 1 },
+    scale: { value: 1 },
+    room: { value: (Math.PI * (lane.outer ** 2 - lane.inner ** 2)) / count },
     tint: { value: new Color(ROCK).lerp(new Color(ICE), disk.ice) },
     shine: { value: shine },
   };
@@ -51,9 +53,10 @@ export function createBelt(
   points.frustumCulled = false;
   return {
     points,
-    turn(tick, dense) {
+    turn(tick, dense, scale) {
       uniforms.tick.value = tick;
       uniforms.dense.value = dense;
+      uniforms.scale.value = scale;
     },
   };
 }
