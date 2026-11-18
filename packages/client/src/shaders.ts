@@ -116,10 +116,18 @@ const GRAIN_SCALE = 36;
 const NET_SCALE = 9;
 const FILAMENT_SQUEEZE = 0.2;
 const FILAMENT_FLOW = 0.25;
+const FILAMENT_GIRTH = 0.25;
 const PENUMBRA = 1.3;
-const PORE = 0.012;
-const PLAGE = 24;
+const PORE = 0.003;
+const PLAGE = 0.6;
+const PLAGE_REACH = 6;
 const RAGGED = 0.3;
+const RAGGED_LEAST = 0.004;
+const FRAY_FINE = 4;
+const FRAY_GAIN = 1.6;
+const FRAY_FROM = 0.42;
+const FRAY_TO = 0.62;
+const FRAY_BARE = 0.6;
 const FACULAE = 1.2;
 const ARCH_SPAN = 3;
 const ARCH_RISE = 1.8;
@@ -132,7 +140,9 @@ const BELT_COVER = 0.12;
 export const STORM_ROOM = 8;
 export const LAMP_ROOM = 2;
 export const PALETTE_ROOM = 9;
-export const SPOT_ROOM = 16;
+export const REGION_ROOM = 16;
+export const MEMBER_ROOM = 6;
+export const SPOT_ROOM = REGION_ROOM * MEMBER_ROOM;
 export const SCREEN_ROOM = 6;
 export const LIMB = 0.28;
 export const LIMB_DEPTH = 0.4;
@@ -588,6 +598,8 @@ void main() {
 export const STAR_FRAGMENT = `
 ${SPIN}
 uniform samplerCube relief;
+uniform vec4 regions[${REGION_ROOM}];
+uniform float plages[${REGION_ROOM}];
 uniform vec4 spots[${SPOT_ROOM}];
 uniform vec4 boil;
 uniform vec2 flow;
@@ -604,21 +616,42 @@ void main() {
 
   float least = 1e9;
   vec4 core = vec4(0.0);
+  float fray = 0.0;
   float stir = 0.0;
-  for (int index = 0; index < ${SPOT_ROOM}; index++) {
-    vec4 spot = spots[index];
-    vec3 from = at - spot.xyz;
-    float reach = dot(from, from) / (spot.w * spot.w + 1e-9);
-    stir += exp(-reach / ${real(PLAGE)});
-    if (reach < least) {
-      least = reach;
-      core = spot;
+  for (int index = 0; index < ${REGION_ROOM}; index++) {
+    vec4 region = regions[index];
+    vec3 apart = at - region.xyz;
+    float span = dot(apart, apart) / (region.w * region.w + 1e-9);
+    if (span < ${real(PLAGE_REACH)}) {
+      stir += plages[index] * exp(-span / ${real(PLAGE)});
+    }
+    if (span < 1.0) {
+      vec3 first = normalize(cross(abs(region.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), region.xyz));
+      vec3 second = cross(region.xyz, first);
+      vec2 level = vec2(dot(apart, first), dot(apart, second));
+      for (int part = 0; part < ${MEMBER_ROOM}; part++) {
+        vec4 spot = spots[index * ${MEMBER_ROOM} + part];
+        vec2 off = level - spot.xy;
+        float reach = dot(off, off) / (spot.z * spot.z + 1e-9);
+        if (reach < least) {
+          least = reach;
+          core = vec4(
+            region.xyz * sqrt(max(1.0 - dot(spot.xy, spot.xy), 0.0)) + first * spot.x + second * spot.y,
+            spot.z
+          );
+          fray = spot.w;
+        }
+      }
     }
   }
   vec3 from = at - core.xyz;
-  float ragged = textureCube(relief, normalize(core.xyz + from * ${real(RAGGED)} / (core.w + 0.01))).b;
-  float rank = sqrt(least) / (0.6 + 0.8 * ragged);
-  float skirt = 1.0 + ${real(PENUMBRA)} * smoothstep(${real(PORE)}, ${real(2 * PORE)}, core.w);
+  float zoom = ${real(RAGGED)} * (1.0 + ${real(FRAY_FINE)} * fray) / (core.w + ${real(RAGGED_LEAST)});
+  float ragged = textureCube(relief, normalize(core.xyz + from * zoom)).b;
+  float lobe = (0.6 + 0.8 * ragged)
+    * mix(1.0, ${real(FRAY_GAIN)} * smoothstep(${real(FRAY_FROM)}, ${real(FRAY_TO)}, ragged), fray);
+  float rank = sqrt(least) / max(lobe, 1e-3);
+  float skirt = 1.0 + ${real(PENUMBRA)}
+    * smoothstep(${real(PORE)}, ${real(2 * PORE)}, core.w * (1.0 - ${real(FRAY_BARE)} * fray));
   float umbra = 1.0 - smoothstep(0.8, 1.0, rank);
   float fringe = (1.0 - smoothstep(skirt - 0.12, skirt, rank)) * (1.0 - umbra);
 
@@ -628,8 +661,9 @@ void main() {
     (skirt - inside * (${real(FILAMENT_SQUEEZE)} + ${real(FILAMENT_FLOW)} * (flow - 0.5))) / max(rank, 1e-3),
     step(rank, skirt)
   );
-  vec3 one = normalize(core.xyz + from * squeeze.x);
-  vec3 two = normalize(core.xyz + from * squeeze.y);
+  float fine = mix(1.0, max(1.0, ${real(FILAMENT_GIRTH)} / (core.w * skirt + 1e-4)), step(rank, skirt));
+  vec3 one = normalize(core.xyz + from * squeeze.x * fine);
+  vec3 two = normalize(core.xyz + from * squeeze.y * fine);
   float grain = (textureCube(relief, spun(one, boil.x)).r - ${real(GRAIN_MEAN)}) * boil.y
     + (textureCube(relief, spun(two.yzx, boil.z)).g - ${real(GRAIN_MEAN)}) * boil.w;
 
@@ -750,7 +784,7 @@ void main() {
 export const FLARE_FRAGMENT = `
 uniform mat4 modelViewMatrix;
 uniform mat4 projectionMatrix;
-uniform vec4 spots[${SPOT_ROOM}];
+uniform vec4 regions[${REGION_ROOM}];
 uniform vec4 screens[${SCREEN_ROOM}];
 uniform vec4 poles[${SCREEN_ROOM}];
 uniform vec3 rim;
@@ -801,9 +835,9 @@ void main() {
   vec3 outward = aside * turn;
   vec3 limb = normalize(outward - dot(outward, eye) * eye);
   float arch = 0.0;
-  for (int index = 0; index < ${SPOT_ROOM}; index += 2) {
-    vec4 spot = spots[index];
-    float size = min(spot.w, ${real(ARCH_CAP)});
+  for (int index = 0; index < ${REGION_ROOM}; index++) {
+    vec4 spot = regions[index];
+    float size = min(0.2 * spot.w, ${real(ARCH_CAP)});
     float depth = dot(spot.xyz, eye);
     float lift = (1.0 + ${real(ARCH_RISE)} * size) * sqrt(max(1.0 - depth * depth, 0.0)) - 1.0;
     vec3 foot = spot.xyz - depth * eye;

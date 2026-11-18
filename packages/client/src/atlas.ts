@@ -45,6 +45,8 @@ const seed = number("seed", 1);
 const side = number("size", 150);
 const detail = number("detail", 128);
 const tick = number("tick", 0);
+const view = number("view", VIEW);
+const turn = number("turn", 0);
 const age = GIGAYEAR * number("age", 4.5);
 
 const random = createRandom(seed);
@@ -118,9 +120,9 @@ const paint = (body: Body, column: number, row: number) => {
   const look = studio.shape(body, lit ? [{ seen, tint }] : []);
   look.refine(detail);
   const scene = new Scene();
-  look.frame.rotation.x = LEAN;
+  look.frame.rotation.set(LEAN, turn, 0);
   scene.add(look.frame);
-  camera.position.set(0, 0, VIEW * look.girth);
+  camera.position.set(0, 0, view * look.girth);
   camera.lookAt(0, 0, 0);
   scene.updateMatrixWorld(true);
   look.light(lit ? [sunward] : [], 0, tick);

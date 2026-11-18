@@ -38,7 +38,6 @@ import {
 } from "three";
 import {
   emberOf,
-  type Flame,
   familyOf,
   flameOf,
   flatnessOf,
@@ -72,11 +71,11 @@ import {
   SCREEN_ROOM,
   SHELL_FRAGMENT,
   SHELL_VERTEX,
-  SPOT_ROOM,
   STAR_BAKE_FRAGMENT,
   STAR_FRAGMENT,
   STORM_ROOM,
 } from "./shaders.ts";
+import { createActivity } from "./spots.ts";
 
 export interface Look {
   body: Body;
@@ -109,15 +108,6 @@ export interface Glare {
 export interface Studio {
   shineOf(source: Body): Color;
   shape(body: Body, lamps: Glare[], spare?: number): Look;
-}
-
-interface Region {
-  span: number;
-  shift: number;
-  cycle: number;
-  height: number;
-  turn: number;
-  girth: number;
 }
 
 interface Band {
@@ -157,7 +147,6 @@ const STORM_YEAR = 5000;
 const GRANULE_LIFE = 24;
 const GRANULE_CHURN = 0.02;
 const GOLDEN_TURN = 2.39996;
-const REGION_LIFE = 1400;
 const SHINE_PALE = 0.6;
 const DIM_PALE = 0.25;
 const SPECK_EMBER = 0.6;
@@ -166,14 +155,6 @@ const WARM_STEP = 0.5;
 const GLARE_STEP = 0.02;
 const DISC_STEPS = 16;
 const NOWHERE = new Vector3();
-
-function regionsOf(star: Body, flame: Flame): Region[] {
-  const random = createRandom(star.seed);
-  return Array.from({ length: Math.min(flame.regions, SPOT_ROOM / 2) }, () => {
-    const span = REGION_LIFE * (0.7 + 0.6 * random.next());
-    return { span, shift: span * random.next(), cycle: Number.NaN, height: 0, turn: 0, girth: 0 };
-  });
-}
 
 function bandsOf(body: Body, giant: Giant): Band[] {
   const random = createRandom(body.seed + 17);
@@ -554,8 +535,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
 
   const ignite = (body: Body): Look => {
     const flame = flameOf(body);
-    const regions = regionsOf(body, flame);
-    const spots = Array.from({ length: SPOT_ROOM }, () => new Vector4(0, 0, 0, 0));
+    const activity = createActivity(body.seed, flame);
     const boil = new Vector4(0, 1, 0, 0);
     const screens = Array.from({ length: SCREEN_ROOM }, () => new Vector4(0, 0, 0, 0));
     const poles = Array.from({ length: SCREEN_ROOM }, () => new Vector4(0, 0, 0, 0));
@@ -580,7 +560,9 @@ export function createStudio(renderer: WebGLRenderer): Studio {
     const ember = new Color(disc(tint.r, steep.x), disc(tint.g, steep.y), disc(tint.b, steep.z));
     const uniforms = {
       relief: { value: null as CubeTexture | null },
-      spots: { value: spots },
+      regions: { value: activity.regions },
+      plages: { value: activity.plages },
+      spots: { value: activity.spots },
       boil: { value: boil },
       flow: { value: flow },
       tint: { value: tint },
@@ -605,7 +587,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
         transparent: true,
         depthWrite: false,
         uniforms: {
-          spots: uniforms.spots,
+          regions: uniforms.regions,
           screens: { value: screens },
           poles: { value: poles },
           rim: { value: rim },
@@ -617,10 +599,6 @@ export function createStudio(renderer: WebGLRenderer): Studio {
     flare.frustumCulled = false;
     frame.add(flare);
 
-    const place = (spot: Vector4, height: number, turn: number, girth: number) => {
-      const level = Math.cos(height);
-      spot.set(level * Math.cos(turn), Math.sin(height), level * Math.sin(turn), girth);
-    };
     const beat = (age: number) => {
       const cycle = Math.floor(age);
       const share = age - cycle;
@@ -652,31 +630,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
         const whole = Math.hypot(one.weight, two.weight);
         boil.set(one.angle, one.weight / whole, two.angle, two.weight / whole);
         flow.set(one.share, two.share);
-        regions.forEach((region, index) => {
-          const age = (tick + region.shift) / region.span;
-          const cycle = Math.floor(age);
-          const share = age - cycle;
-          if (cycle !== region.cycle) {
-            const random = createRandom(body.seed + 7919 * (index + 1) + 104729 * cycle);
-            region.cycle = cycle;
-            region.height =
-              (random.next() < 0.5 ? -1 : 1) * flame.belt * (0.2 + 0.8 * random.next());
-            region.turn = 2 * Math.PI * random.next();
-            region.girth = flame.girth * (0.6 + 0.8 * random.next());
-          }
-          const lead =
-            MathUtils.smoothstep(share, 0, 0.12) * (1 - MathUtils.smoothstep(share, 0.5, 1));
-          const trail =
-            MathUtils.smoothstep(share, 0.04, 0.18) * (1 - MathUtils.smoothstep(share, 0.35, 0.8));
-          const gap = ((3 + 1.5 * share) * region.girth) / Math.cos(region.height);
-          place(spots[2 * index], region.height, region.turn, region.girth * Math.sqrt(lead));
-          place(
-            spots[2 * index + 1],
-            region.height + Math.sign(region.height) * 0.8 * region.girth,
-            region.turn + gap,
-            0.62 * region.girth * Math.sqrt(trail),
-          );
-        });
+        activity.turn(tick);
       },
       dispose() {
         release();
