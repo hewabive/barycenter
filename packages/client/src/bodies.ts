@@ -601,6 +601,8 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       regions: { value: activity.regions },
       plages: { value: activity.plages },
       spots: { value: activity.spots },
+      flash: { value: activity.flash },
+      burst: { value: 0 },
       boil: { value: boil },
       flow: { value: flow },
       tint: { value: tint },
@@ -691,6 +693,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
         boil.set(one.angle, one.weight / whole, two.angle, two.weight / whole);
         flow.set(one.share, two.share);
         activity.turn(tick);
+        uniforms.burst.value = activity.burst;
         prominences.turn(tick);
         drift.value = tick * PROMINENCE_DRIFT;
       },

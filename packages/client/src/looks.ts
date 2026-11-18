@@ -14,13 +14,14 @@ import {
   seaCover,
   shareOf,
   shownLight,
+  turnover,
   wrapped,
 } from "@barycenter/sim";
 import { Color } from "three";
 
 export type Family = "star" | "fluid" | "solid";
 
-export interface Flame {
+interface Fire {
   kelvin: number;
   tint: number;
   grain: number;
@@ -29,6 +30,11 @@ export interface Flame {
   regions: number;
   girth: number;
   belt: number;
+}
+
+export interface Flame extends Fire {
+  lively: number;
+  vigor: number;
 }
 
 export interface Brew {
@@ -202,7 +208,10 @@ export function flatnessOf(physics: Physics): number {
   return flat >= FLAT_LEAST && roughOf(physics) === 0 ? flat : 0;
 }
 
-const FLAMES: Flame[] = [
+const ROSSBY_QUIET = 3;
+const ROSSBY_SATURATED = 0.13;
+
+const FLAMES: Fire[] = [
   {
     kelvin: 2600,
     tint: 0xff5a1e,
@@ -210,7 +219,7 @@ const FLAMES: Flame[] = [
     chill: 0.85,
     poles: 0,
     regions: 16,
-    girth: 0.016,
+    girth: 0.011,
     belt: 1.2,
   },
   {
@@ -220,7 +229,7 @@ const FLAMES: Flame[] = [
     chill: 0.8,
     poles: 0,
     regions: 16,
-    girth: 0.015,
+    girth: 0.0105,
     belt: 1.1,
   },
   {
@@ -230,7 +239,7 @@ const FLAMES: Flame[] = [
     chill: 0.62,
     poles: 0,
     regions: 16,
-    girth: 0.0105,
+    girth: 0.0095,
     belt: 0.7,
   },
   {
@@ -239,13 +248,19 @@ const FLAMES: Flame[] = [
     grain: 0.07,
     chill: 0.58,
     poles: 0,
-    regions: 14,
+    regions: 16,
     girth: 0.0085,
     belt: 0.55,
   },
   { kelvin: 8200, tint: 0xccdeff, grain: 0, chill: 1, poles: 0.2, regions: 0, girth: 0, belt: 0 },
   { kelvin: 11000, tint: 0xb4c8ff, grain: 0, chill: 1, poles: 0.25, regions: 0, girth: 0, belt: 0 },
 ];
+
+export function livelyOf(physics: Physics): number {
+  const rossby = physics.day / turnover(physics.heat);
+  const share = Math.log(ROSSBY_QUIET / rossby) / Math.log(ROSSBY_QUIET / ROSSBY_SATURATED);
+  return Math.max(0, Math.min(1, share));
+}
 
 export function flameOf(star: Body): Flame {
   const kelvin = Math.max(
@@ -266,12 +281,11 @@ export function flameOf(star: Body): Flame {
     grain: mix(cool.grain, hot.grain),
     chill: mix(cool.chill, hot.chill),
     poles: mix(cool.poles, hot.poles),
-    regions: Math.min(
-      16,
-      Math.round(mix(cool.regions, hot.regions) * (0.6 + 0.6 * star.physics.vigor)),
-    ),
+    regions: Math.round(mix(cool.regions, hot.regions)),
     girth: mix(cool.girth, hot.girth),
     belt: mix(cool.belt, hot.belt),
+    lively: livelyOf(star.physics),
+    vigor: star.physics.vigor,
   };
 }
 

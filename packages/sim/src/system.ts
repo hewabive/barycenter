@@ -33,6 +33,7 @@ import {
   seaCover,
   seenGlow,
   starborn,
+  starDay,
   starGlow,
   starHeat,
   starRadius,
@@ -316,19 +317,20 @@ export function kindled(mass: number, age: number, random: Random): Physics {
   }
   const glow = starGlow(mass);
   const radius = starRadius(mass);
+  const heat = starHeat(glow, radius);
   return {
     mass,
     radius,
     ...shares,
-    heat: starHeat(glow, radius),
-    coldest: starHeat(glow, radius),
-    hottest: starHeat(glow, radius),
+    heat,
+    coldest: heat,
+    hottest: heat,
     glow,
     light: 0,
     air: 0,
     gases: [],
     ...rest,
-    day: DAY * between(random, 12, 40),
+    day: starDay(mass, heat, age, random.next()),
   };
 }
 

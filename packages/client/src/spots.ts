@@ -3,6 +3,26 @@ import type { Flame } from "./looks.ts";
 import { MEMBER_ROOM, REGION_ROOM, SPOT_ROOM } from "./shaders.ts";
 
 const REGION_LIFE = 1400;
+const CYCLE_LIFE = 60000;
+const CYCLE_RISE = 0.3;
+const CYCLE_FLOOR = 0.25;
+const IDLE = 0.4;
+const SUNLIKE = 0.134;
+const SWELL = 1.45;
+const GIRTH_MOST = 0.07;
+const LENGTH_MOST = 0.36;
+const STEADY_FROM = 0.45;
+const STEADY_TO = 0.9;
+const BELT_EARLY = 0.9;
+const BELT_LATE = 0.25;
+const BELT_SCATTER = 0.18;
+const CAP_FROM = 0.7;
+const CAP_BOTH = 0.85;
+const FLARE_SPAN = 150;
+const FLARE_MOST = 0.8;
+const FLARE_RISE = 1.5;
+const FLARE_FADE = 8;
+const FLARE_HEAT = 2.5;
 const SIZE_SPREAD = 0.65;
 const SIZE_LEAST = 0.36;
 const SIZE_MOST = 4.8;
@@ -14,7 +34,7 @@ const JOY = 0.5;
 const TILT_SCATTER = 0.2;
 const LEADER_LARGER = 0.72;
 const LONE = 0.08;
-const SKIRT = 4.2;
+const SKIRT = 4.6;
 const EMERGING = 0.12;
 const PEAK = 0.15;
 const SPREADING = 0.3;
@@ -35,6 +55,7 @@ interface Region {
   span: number;
   shift: number;
   cycle: number;
+  lasting: boolean;
   born: number;
   life: number;
   middle: Triple;
@@ -42,10 +63,18 @@ interface Region {
   members: Member[];
 }
 
+export interface Mood {
+  swell: number;
+  steady: number;
+  at(tick: number): { phase: number; level: number };
+}
+
 export interface Activity {
   regions: Float32Array;
   plages: Float32Array;
   spots: Float32Array;
+  flash: Float32Array;
+  burst: number;
   turn(tick: number): void;
 }
 
@@ -76,24 +105,59 @@ export function tangentsOf(middle: Triple): [Triple, Triple] {
   return [first, cross(middle, first)];
 }
 
-function emerge(random: Random, flame: Flame): Omit<Region, "span" | "shift" | "cycle"> {
-  const size = clamp(Math.exp(SIZE_SPREAD * bell(random)), SIZE_LEAST, SIZE_MOST);
-  const girth = flame.girth * size;
-  const height = (random.next() < 0.5 ? -1 : 1) * flame.belt * (0.2 + 0.8 * random.next());
+export function moodOf(seed: number, flame: Flame): Mood {
+  const random = createRandom(seed + 271);
+  const span = CYCLE_LIFE * (0.7 + 0.6 * random.next());
+  const start = random.next();
+  const steady = eased(flame.lively, STEADY_FROM, STEADY_TO);
+  const most = Math.min(1, clamp(IDLE + 5 * flame.lively, IDLE, 1) * (0.75 + 0.5 * flame.vigor));
+  return {
+    swell: Math.exp(SWELL * Math.max(flame.lively - SUNLIKE, 0)),
+    steady,
+    at(tick) {
+      const turns = start + tick / span;
+      const phase = turns - Math.floor(turns);
+      const wave = eased(phase, 0, CYCLE_RISE) * (1 - eased(phase, CYCLE_RISE, 1));
+      const cycled = CYCLE_FLOOR + (1 - CYCLE_FLOOR) * wave;
+      return { phase, level: most * (cycled + (1 - cycled) * steady) };
+    },
+  };
+}
+
+function frameAt(height: number, turn: number): { middle: Triple; ahead: Triple; upward: Triple } {
+  const level = Math.cos(height);
+  return {
+    middle: [level * Math.cos(turn), Math.sin(height), level * Math.sin(turn)],
+    ahead: [Math.sin(turn), 0, -Math.cos(turn)],
+    upward: [-Math.sin(height) * Math.cos(turn), level, -Math.sin(height) * Math.sin(turn)],
+  };
+}
+
+type Risen = Omit<Region, "span" | "shift" | "cycle" | "lasting">;
+
+function emerge(random: Random, flame: Flame, mood: Mood, phase: number): Risen {
+  const base = flame.girth * mood.swell;
+  const size = clamp(
+    Math.exp(SIZE_SPREAD * bell(random)),
+    SIZE_LEAST,
+    Math.min(SIZE_MOST, GIRTH_MOST / base),
+  );
+  const girth = base * size;
+  const belt =
+    flame.belt * (BELT_EARLY + (BELT_LATE - BELT_EARLY) * phase) * (1 - mood.steady) +
+    0.95 * mood.steady;
+  const scatter = BELT_SCATTER * flame.belt * (1 - mood.steady) + 0.35 * mood.steady;
+  const height = (random.next() < 0.5 ? -1 : 1) * clamp(belt + scatter * bell(random), 0.03, 1.35);
   const turn = 2 * Math.PI * random.next();
   const tilt = JOY * Math.abs(height) + (TILT_SCATTER / Math.sqrt(size)) * bell(random);
-  const length = flame.girth * (LENGTH_LEAST + LENGTH_GROWTH * size) * (0.75 + 0.5 * random.next());
+  const length = Math.min(
+    base * (LENGTH_LEAST + LENGTH_GROWTH * size) * (0.75 + 0.5 * random.next()),
+    LENGTH_MOST,
+  );
   const life = clamp(BRIEF + LASTING * size, BRIEF, 1);
   const born = (1 - life) * random.next();
 
-  const level = Math.cos(height);
-  const middle: Triple = [level * Math.cos(turn), Math.sin(height), level * Math.sin(turn)];
-  const ahead: Triple = [Math.sin(turn), 0, -Math.cos(turn)];
-  const upward: Triple = [
-    -Math.sin(height) * Math.cos(turn),
-    level,
-    -Math.sin(height) * Math.sin(turn),
-  ];
+  const { middle, ahead, upward } = frameAt(height, turn);
   const toward = -Math.sign(height) * Math.sin(tilt);
   const axis = ahead.map((part, at) => Math.cos(tilt) * part + toward * upward[at]) as Triple;
   const side = cross(middle, axis);
@@ -159,20 +223,45 @@ function emerge(random: Random, flame: Flame): Omit<Region, "span" | "shift" | "
       });
     }
   }
-  const reach = Math.max(
+  return { born, life, middle, reach: reachOf(members), members };
+}
+
+function reachOf(members: Member[]): number {
+  return Math.max(
     ...members.map((member) => Math.hypot(member.east, member.north) + SKIRT * member.girth),
   );
-  return { born, life, middle, reach, members };
+}
+
+function cap(random: Random, flame: Flame, mood: Mood, side: number): Risen {
+  const girth = Math.min(flame.girth * mood.swell * (1.6 + 1.2 * random.next()), GIRTH_MOST);
+  const { middle } = frameAt(side * (1.3 + 0.2 * random.next()), 2 * Math.PI * random.next());
+  const members: Member[] = Array.from({ length: MEMBER_ROOM }, (_, at) => {
+    const away = at === 0 ? 0 : girth * (1.5 + 2 * random.next());
+    const around = 2 * Math.PI * random.next();
+    return {
+      east: away * Math.cos(around),
+      north: away * Math.sin(around),
+      girth: girth * (at === 0 ? 1 : 0.35 + 0.4 * random.next()),
+      from: random.next(),
+      until: 1,
+      fray: at === 0 ? 0.2 + 0.3 * random.next() : 0.3 + 0.5 * random.next(),
+      wear: 0,
+    };
+  });
+  return { born: 0, life: 1, middle, reach: reachOf(members), members };
 }
 
 export function createActivity(seed: number, flame: Flame): Activity {
   const starts = createRandom(seed);
+  const mood = moodOf(seed, flame);
+  const caps = flame.lively > CAP_BOTH ? 2 : flame.lively > CAP_FROM ? 1 : 0;
   const regions: Region[] = Array.from({ length: Math.min(flame.regions, REGION_ROOM) }, () => {
     const span = REGION_LIFE * (0.6 + starts.next());
     return {
       span,
       shift: span * starts.next(),
       cycle: Number.NaN,
+      lasting: false,
       born: 0,
       life: 1,
       middle: [0, 1, 0],
@@ -180,10 +269,16 @@ export function createActivity(seed: number, flame: Flame): Activity {
       members: [],
     };
   });
+  regions.slice(0, caps).forEach((region, index) => {
+    const random = createRandom(seed + 5381 * (index + 1));
+    Object.assign(region, cap(random, flame, mood, index === 0 ? 1 : -1), { lasting: true });
+  });
   const activity: Activity = {
     regions: new Float32Array(4 * REGION_ROOM),
     plages: new Float32Array(REGION_ROOM),
     spots: new Float32Array(4 * SPOT_ROOM),
+    flash: new Float32Array(4),
+    burst: 0,
     turn(tick) {
       activity.regions.fill(0);
       activity.plages.fill(0);
@@ -191,12 +286,14 @@ export function createActivity(seed: number, flame: Flame): Activity {
       regions.forEach((region, index) => {
         const age = (tick + region.shift) / region.span;
         const cycle = Math.floor(age);
-        if (cycle !== region.cycle) {
+        if (!region.lasting && cycle !== region.cycle) {
           const random = createRandom(seed + 7919 * (index + 1) + 104729 * cycle);
-          Object.assign(region, emerge(random, flame), { cycle });
+          const { phase, level } = mood.at(cycle * region.span - region.shift);
+          const risen = emerge(random, flame, mood, phase);
+          Object.assign(region, risen, { cycle, life: random.next() < level ? risen.life : 0 });
         }
-        const lived = (age - cycle - region.born) / region.life;
-        if (lived <= 0 || lived >= 1) {
+        const lived = region.lasting ? 0.5 : (age - cycle - region.born) / region.life;
+        if (!(lived > 0 && lived < 1)) {
           return;
         }
         activity.regions[4 * index] = region.middle[0];
@@ -206,9 +303,10 @@ export function createActivity(seed: number, flame: Flame): Activity {
         activity.plages[index] = eased(lived, 0, 0.1) * (1 - eased(lived, 0.85, 1));
         const stretch = 0.45 + 0.55 * eased(lived, 0, SPREADING);
         region.members.forEach((member, part) => {
-          const area =
-            eased(lived, member.from, member.from + EMERGING) *
-            clamp((member.until - lived) / (member.until - member.from - PEAK), 0, 1);
+          const area = region.lasting
+            ? 0.7 + 0.3 * Math.sin(2 * Math.PI * (age + member.from))
+            : eased(lived, member.from, member.from + EMERGING) *
+              clamp((member.until - lived) / (member.until - member.from - PEAK), 0, 1);
           if (area <= 0) {
             return;
           }
@@ -219,6 +317,25 @@ export function createActivity(seed: number, flame: Flame): Activity {
           activity.spots[slot + 3] = clamp(member.fray + member.wear * lived, 0, 1);
         });
       });
+
+      activity.burst = 0;
+      const window = Math.floor(tick / FLARE_SPAN);
+      const random = createRandom(seed + 31337 + 15485863 * window);
+      const happens = random.next() < FLARE_MOST * flame.lively ** 2;
+      const since = tick - FLARE_SPAN * (window + 0.6 * random.next());
+      const at = 4 * Math.floor(random.next() * regions.length);
+      const power = clamp(0.2 * random.next() ** -0.6, 0.2, 1);
+      const reach = activity.regions[at + 3];
+      if (happens && since > 0 && reach > 0) {
+        activity.flash.set(activity.regions.subarray(at, at + 3));
+        activity.flash[3] = reach * (0.15 + 0.25 * random.next());
+        activity.burst =
+          FLARE_HEAT *
+          (0.3 + 0.7 * flame.lively) *
+          power *
+          Math.min(since / FLARE_RISE, 1) *
+          Math.exp(-Math.max(since - FLARE_RISE, 0) / FLARE_FADE);
+      }
     },
   };
   return activity;

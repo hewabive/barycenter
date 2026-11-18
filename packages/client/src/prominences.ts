@@ -1,6 +1,7 @@
 import { createRandom, type Random } from "@barycenter/sim";
 import type { Flame } from "./looks.ts";
 import { PROMINENCE_ROOM } from "./shaders.ts";
+import { type Mood, moodOf } from "./spots.ts";
 
 const PROMINENCE_LIFE = 2800;
 const QUIET = 0.55;
@@ -8,6 +9,8 @@ const LOW = 0.3;
 const ERUPTING = 0.35;
 const RISING = 0.12;
 const BURST = 0.3;
+const TALLER = 0.8;
+const SPARSE = 0.5;
 
 type Triple = [number, number, number];
 
@@ -44,7 +47,11 @@ const eased = (value: number, from: number, to: number) => {
 const bell = (random: Random) =>
   Math.sqrt(-2 * Math.log(1 - random.next())) * Math.cos(2 * Math.PI * random.next());
 
-function raise(random: Random, flame: Flame): Omit<Prominence, "span" | "shift" | "cycle"> {
+function raise(
+  random: Random,
+  flame: Flame,
+  mood: Mood,
+): Omit<Prominence, "span" | "shift" | "cycle"> {
   const kind = random.next();
   const side = random.next() < 0.5 ? -1 : 1;
   const turn = 2 * Math.PI * random.next();
@@ -98,7 +105,7 @@ function raise(random: Random, flame: Flame): Omit<Prominence, "span" | "shift" 
     seat,
     lean,
     reach: shape.reach,
-    height: shape.rise,
+    height: shape.rise * (1 + TALLER * mood.steady),
     legs: shape.legs,
     hollow: shape.hollow,
     erupts: random.next() < ERUPTING,
@@ -107,6 +114,7 @@ function raise(random: Random, flame: Flame): Omit<Prominence, "span" | "shift" 
 
 export function createProminences(seed: number, flame: Flame): Prominences {
   const starts = createRandom(seed + 613);
+  const mood = moodOf(seed, flame);
   const count = Math.min(flame.regions, PROMINENCE_ROOM);
   const all: Prominence[] = Array.from({ length: count }, () => {
     const span = PROMINENCE_LIFE * (0.6 + starts.next());
@@ -136,10 +144,13 @@ export function createProminences(seed: number, flame: Flame): Prominences {
         const cycle = Math.floor(age);
         if (cycle !== one.cycle) {
           const random = createRandom(seed + 15485863 + 7919 * (index + 1) + 104729 * cycle);
-          Object.assign(one, raise(random, flame), { cycle });
+          const risen = raise(random, flame, mood);
+          const { level } = mood.at(cycle * one.span - one.shift);
+          const shown = random.next() < SPARSE + (1 - SPARSE) * level;
+          Object.assign(one, risen, { cycle, life: shown ? risen.life : 0 });
         }
         const lived = (age - cycle - one.born) / one.life;
-        if (lived <= 0 || lived >= 1) {
+        if (!(lived > 0 && lived < 1)) {
           return;
         }
         const leaving = eased(lived, 1 - RISING, 1);

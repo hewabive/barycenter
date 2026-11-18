@@ -611,6 +611,8 @@ uniform samplerCube relief;
 uniform vec4 regions[${REGION_ROOM}];
 uniform float plages[${REGION_ROOM}];
 uniform vec4 spots[${SPOT_ROOM}];
+uniform vec4 flash;
+uniform float burst;
 uniform vec4 boil;
 uniform vec2 flow;
 uniform vec3 tint;
@@ -686,6 +688,11 @@ void main() {
   heat = mix(heat, (0.75 + 0.25 * chill) * (1.0 + 1.6 * traits.x * grain), fringe);
   heat = mix(heat, chill * (1.0 + 0.3 * traits.x * grain), umbra);
   heat *= pow(mix(${real(LIMB_DEPTH)}, 1.0, facing), ${real(LIMB)});
+  if (burst > 0.0) {
+    vec3 lit = at - flash.xyz;
+    float lanes = 0.2 + 0.8 * smoothstep(0.5, 0.15, wide.r);
+    heat *= 1.0 + burst * lanes * exp(-dot(lit, lit) / (flash.w * flash.w + 1e-9));
+  }
 
   vec3 glow = tint * pow(vec3(heat), steep);
   gl_FragColor = vec4(1.0 - exp(-${real(EXPOSURE)} * glow), 1.0);

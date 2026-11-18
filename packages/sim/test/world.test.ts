@@ -11,6 +11,7 @@ import {
   climateOf,
   columnOf,
   createWorld,
+  DAY,
   EARTH_AIR,
   EARTH_MASS,
   EARTH_RADIUS,
@@ -47,12 +48,14 @@ import {
   sketchSystem,
   slerp,
   starborn,
+  starDay,
   starHeat,
   stocked,
   strippedShare,
   surveySystem,
   swayOf,
   swingOf,
+  turnover,
   type Vector,
   weightOf,
   wrapped,
@@ -1242,4 +1245,22 @@ test("relief is the same at the same place and smooth between places", () => {
   assert.notEqual(elevationAt(home.seed + 1, home.relief, at), height);
   const beside = elevationAt(home.seed, home.relief, { x: 0.36, y: 0.4801, z: 0.8 });
   assert.ok(Math.abs(beside - height) < 0.01);
+});
+
+test("a star turns slower as it ages, a red dwarf later than a Sun, and a hot star stays fast", () => {
+  const day = (suns: number, age: number, luck = 0.5) => {
+    const mass = suns * SUN_MASS;
+    const heat = starHeat(starGlow(mass), starRadius(mass));
+    return { days: starDay(mass, heat, age * GIGAYEAR, luck) / DAY, heat };
+  };
+  const sun = day(1, 4.57);
+  assert.ok(sun.days > 24 && sun.days < 27, `the Sun turns in ${sun.days} days`);
+  assert.ok(Math.abs(turnover(sun.heat) / DAY - 12.9) < 0.3);
+  assert.ok(day(1, 0.1).days < 5);
+  assert.ok(day(1, 0.6).days > 7 && day(1, 0.6).days < 12);
+  assert.ok(day(1, 9).days < 1.15 * sun.days);
+  assert.ok(day(0.2, 0.6).days < day(1, 0.6).days);
+  assert.ok(day(0.2, 4.57).days > 80);
+  assert.ok(day(2, 4.57).days < 2 && day(2, 0.1).days < 2);
+  assert.ok(day(1, 4.57, 0).days < day(1, 4.57, 1).days);
 });

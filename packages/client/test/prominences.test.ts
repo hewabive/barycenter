@@ -13,12 +13,15 @@ const flame: Flame = {
   regions: 16,
   girth: 0.0085,
   belt: 0.55,
+  lively: 0.134,
+  vigor: 0.5,
 };
 
 test("a prominence stands on the surface along an arc of a sane size", () => {
   let seen = 0;
   for (let seed = 1; seed <= 30; seed++) {
-    const prominences = createProminences(seed * 7717, flame);
+    const given = seed % 2 === 0 ? flame : { ...flame, lively: 1 };
+    const prominences = createProminences(seed * 7717, given);
     for (let tick = 0; tick < 12000; tick += 173) {
       prominences.turn(tick);
       for (let index = 0; index < PROMINENCE_ROOM; index++) {
@@ -36,7 +39,7 @@ test("a prominence stands on the surface along an arc of a sane size", () => {
         assert.ok(Math.abs(dot) < 1e-5);
         assert.ok(strength > 0 && strength <= 1);
         assert.ok(prominences.seats[slot + 3] > 0.02 && prominences.seats[slot + 3] < 0.3);
-        assert.ok(prominences.leans[slot + 3] > 0.005 && prominences.leans[slot + 3] < 0.08);
+        assert.ok(prominences.leans[slot + 3] > 0.005 && prominences.leans[slot + 3] < 0.15);
         assert.ok(prominences.forms[slot + 3] >= 0 && prominences.forms[slot + 3] <= 0.3);
       }
     }

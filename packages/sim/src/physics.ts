@@ -45,6 +45,10 @@ const POROUS_SPAN = [18.5, 20.5];
 const ROUND_ROCK = 3e5;
 const ROUND_ICE = 2e5;
 const SUN_SPAN = 10 * GIGAYEAR;
+const SUN_AGE = 4.57 * GIGAYEAR;
+const SUN_ROSSBY = 2;
+const SPIN_SETTLED = 2.2;
+const SPIN_LATE = 0.8;
 const COOLING_HEAT = 100;
 const COOLING_AGE = 4.5 * GIGAYEAR;
 const COOLING_PACE = 0.3;
@@ -184,6 +188,16 @@ export function starHeat(glow: number, radius: number): number {
 
 export function starSpan(mass: number): number {
   return SUN_SPAN * (mass / SUN_MASS) ** -2.5;
+}
+
+export function turnover(heat: number): number {
+  return DAY * (314.24 * Math.exp(-heat / 1952.5 - (heat / 6250) ** 18) + 0.002);
+}
+
+export function starDay(mass: number, heat: number, age: number, luck: number): number {
+  const late = SPIN_LATE * (1 - smooth(0.2, 0.6, mass / SUN_MASS));
+  const rossby = Math.min(SUN_ROSSBY * (age / SUN_AGE) ** (0.5 + late), SPIN_SETTLED);
+  return Math.max(rossby * turnover(heat) * (0.75 + 0.5 * luck), DAY * (0.4 + 1.1 * luck));
 }
 
 export function glowOf(radius: number, heat: number): number {

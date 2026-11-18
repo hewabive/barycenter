@@ -42,10 +42,11 @@ import {
   starHeat,
   surveySystem,
   swayOf,
+  turnover,
   YEAR,
 } from "@barycenter/sim";
 import { button, el, required, write } from "./dom.ts";
-import { familyOf, flatnessOf, recipeOf, shownOf } from "./looks.ts";
+import { familyOf, flatnessOf, livelyOf, recipeOf, shownOf } from "./looks.ts";
 import { createSpace } from "./space.ts";
 
 interface Moment {
@@ -203,7 +204,12 @@ function factsOf(body: Body): Fact[] {
         ? "round"
         : `${share(rough)} of the way from round to a lump, too small to pull itself round`,
     ],
-    ["Activity", figure(physics.vigor)],
+    [
+      "Activity",
+      family === "star"
+        ? `${figure(livelyOf(physics))} · Rossby number ${figure(physics.day / turnover(physics.heat))}`
+        : figure(physics.vigor),
+    ],
   ];
   if (family === "star") {
     facts.push(
