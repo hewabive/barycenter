@@ -555,12 +555,20 @@ export function circling(
   );
 }
 
+export interface Drive {
+  force: number;
+  exhaust: number;
+  dry: number;
+  endless: boolean;
+}
+
 export interface Kick {
   time: number;
   along: number;
   north: number;
   out: number;
   about: number | null;
+  drive?: Drive | null;
 }
 
 export interface Forecast {
@@ -602,6 +610,12 @@ const AHEAD_REACH = 3;
 const AHEAD_LEGS = 4;
 const SPIN_AXIS = { x: 0, y: 1, z: 0 };
 
+export function burnFor(drive: Drive, mass: number, gain: number): number {
+  return drive.endless
+    ? (gain * mass) / drive.force
+    : (mass * (1 - Math.exp(-gain / drive.exhaust)) * drive.exhaust) / drive.force;
+}
+
 export function createForecast(
   rails: Rails,
   fly: Flyer,
@@ -637,10 +651,14 @@ export function createForecast(
   let hold = 0;
   let legs = AHEAD_LEGS;
   let closing = Number.POSITIVE_INFINITY;
+  let firing: { until: number; burn: Burn } | null = null;
+  let due: { index: number; time: number } | null = null;
 
-  const apart = (body: number): [number, number, number, number, number, number] => {
+  const apart = (
+    body: number,
+    state = flight.state,
+  ): [number, number, number, number, number, number] => {
     const base = 3 * body;
-    const { state } = flight;
     return [
       state[0] - at[base],
       state[1] - at[base + 1],
@@ -660,6 +678,10 @@ export function createForecast(
     forecast.holds[slot] = hold;
     forecast.legs[slot] = applied;
     forecast.count = slot + 1;
+    if (due !== null && flight.time >= due.time) {
+      forecast.marks[due.index] = slot;
+      due = null;
+    }
   };
   const ahead = (): number => {
     if (span !== null) {
@@ -674,8 +696,8 @@ export function createForecast(
     const edge = Number.isFinite(reach) ? reach : AHEAD_REACH * Math.hypot(rx, ry, rz);
     return flight.time + (AHEAD_REACH * edge) / Math.max(Math.hypot(vx, vy, vz), ROUND);
   };
-  const kick = (plan: Kick) => {
-    const [rx, ry, rz, vx, vy, vz] = apart(plan.about ?? hold);
+  const pushOf = (plan: Kick, state: Float64Array, held: number): number[] => {
+    const [rx, ry, rz, vx, vy, vz] = apart(plan.about ?? held, state);
     const swift = Math.hypot(vx, vy, vz);
     const nx = ry * vz - rz * vy;
     const ny = rz * vx - rx * vz;
@@ -687,17 +709,43 @@ export function createForecast(
     const bx = turn > 0 ? nx / turn : 0;
     const by = turn > 0 ? ny / turn : 1;
     const bz = turn > 0 ? nz / turn : 0;
-    const push = [
+    return [
       plan.along * ax + plan.north * bx + plan.out * (ay * bz - az * by),
       plan.along * ay + plan.north * by + plan.out * (az * bx - ax * bz),
       plan.along * az + plan.north * bz + plan.out * (ax * by - ay * bx),
     ];
+  };
+  const kick = (plan: Kick) => {
+    const push = pushOf(plan, flight.state, hold);
     forecast.pushes.set(push, 3 * applied);
     forecast.marks[applied] = forecast.count;
     flight.state[3] += push[0];
     flight.state[4] += push[1];
     flight.state[5] += push[2];
     applied += 1;
+  };
+  const light = (plan: Kick, drive: Drive) => {
+    const sight = createFlight(flight.time, flight.state);
+    while (sight.time < plan.time && sight.wrecked === null) {
+      fly(sight, plan.time, null, 64);
+    }
+    rails.place(sight.time, at, speed);
+    const push = pushOf(plan, sight.state, primaryOf(rails, at, sight.state));
+    const size = Math.hypot(push[0], push[1], push[2]);
+    forecast.pushes.set(push, 3 * applied);
+    due = { index: applied, time: plan.time };
+    applied += 1;
+    if (size > 0) {
+      firing = {
+        until: flight.time + burnFor(drive, flight.state[6], size),
+        burn: {
+          ...drive,
+          heading: "hold",
+          about: hold,
+          held: { x: push[0] / size, y: push[1] / size, z: push[2] / size },
+        },
+      };
+    }
   };
 
   record();
@@ -715,12 +763,40 @@ export function createForecast(
       const fine = (FINE_TURN * Math.hypot(rx, ry, rz)) / Math.max(Math.hypot(vx, vy, vz), ROUND);
       const next = applied < pending.length ? pending[applied] : null;
       const was = hold;
-      fly(flight, Math.min(next === null ? closing : next.time, flight.time + fine), null, 1);
+      const drive = next === null ? null : (next.drive ?? null);
+      const lit = firing;
+      const opens =
+        next === null || drive === null
+          ? Number.POSITIVE_INFINITY
+          : next.time -
+            burnFor(drive, flight.state[6], Math.hypot(next.along, next.north, next.out)) / 2;
+      const until =
+        lit !== null ? lit.until : next === null ? closing : drive === null ? next.time : opens;
+      if (lit === null && next !== null && drive !== null && flight.time >= opens) {
+        light(next, drive);
+        rails.place(flight.time, at, speed);
+        continue;
+      }
+      fly(flight, Math.min(until, flight.time + fine), lit === null ? null : lit.burn, 1);
       if (flight.wrecked !== null) {
         record();
         forecast.wrecked = flight.wrecked;
         forecast.done = true;
         break;
+      }
+      if (lit !== null) {
+        record();
+        if (flight.time >= lit.until) {
+          firing = null;
+          if (applied === pending.length) {
+            closing = ahead();
+          }
+        }
+        continue;
+      }
+      if (next !== null && drive !== null) {
+        record();
+        continue;
       }
       if (next !== null && flight.time >= next.time) {
         rails.place(flight.time, at, speed);

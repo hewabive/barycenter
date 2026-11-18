@@ -14,10 +14,12 @@ export {
 export {
   type Balance,
   type Burn,
+  burnFor,
   circling,
   createFlight,
   createFlyer,
   createForecast,
+  type Drive,
   type Flight,
   type Flyer,
   type Forecast,

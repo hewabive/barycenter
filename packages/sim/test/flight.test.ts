@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   type Burn,
+  burnFor,
   centreOf,
   circling,
   createFlight,
@@ -472,6 +473,61 @@ test("a planned push bends the forecast at its moment and not the flight", () =>
   assert.ok(Math.abs(across.pushes[2] - 100) < 1e-3);
   assert.ok(Math.abs(across.pushes[0] - 50) < 0.1);
   assert.equal(flight.state[4], swift);
+});
+
+test("a forecast flies a push as the engine will, half before its moment and half after", () => {
+  const rails = lone(EARTH_PULL, 6.371e6);
+  const fly = createFlyer(rails);
+  const speed = Math.sqrt(EARTH_PULL / 6.7e6);
+  const from = createFlight(0, [6.7e6, 0, 0, 0, 0, speed, 2e4]);
+  const drive = { force: 1e5, exhaust: 4500, dry: 4000, endless: false };
+  const kick = { time: 1500, along: 2000, north: 150, out: -80, about: null, drive };
+  const size = Math.hypot(kick.along, kick.north, kick.out);
+  const span = burnFor(drive, 2e4, size);
+  assert.ok(Math.abs(span - (2e4 * (1 - Math.exp(-size / 4500)) * 4500) / 1e5) < 1e-9);
+
+  const forecast = createForecast(rails, fly, from, [kick], 6000, 5000);
+  while (!forecast.done) {
+    forecast.extend(64);
+  }
+  const aim = [forecast.pushes[0] / size, forecast.pushes[1] / size, forecast.pushes[2] / size];
+  assert.ok(Math.abs(Math.hypot(...forecast.pushes) - size) < 1e-9);
+  const mark = forecast.marks[0];
+  assert.ok(forecast.times[mark] >= 1500 && forecast.times[mark - 1] < 1500);
+  assert.ok(forecast.legs[mark] === 1 && forecast.legs[0] === 0);
+
+  const flight = createFlight(0, from.state);
+  const burn: Burn = {
+    ...drive,
+    heading: "hold",
+    about: 0,
+    held: { x: aim[0], y: aim[1], z: aim[2] },
+  };
+  const until = (time: number, thrust: Burn | null) => {
+    while (flight.time < time) {
+      fly(flight, time, thrust, 64);
+    }
+  };
+  until(1500 - span / 2, null);
+  until(1500 + span / 2, burn);
+  const last = forecast.count - 1;
+  until(forecast.times[last], null);
+  for (let axis = 0; axis < 3; axis++) {
+    assert.ok(Math.abs(forecast.states[6 * last + axis] - flight.state[axis]) < 1);
+    assert.ok(Math.abs(forecast.states[6 * last + 3 + axis] - flight.state[3 + axis]) < 1e-3);
+  }
+  assert.ok(Math.abs(flight.state[6] - 2e4 * Math.exp(-size / 4500)) < 1e-6);
+
+  const sudden = createForecast(rails, fly, from, [{ ...kick, drive: null }], 6000, 5000);
+  while (!sudden.done) {
+    sudden.extend(64);
+  }
+  const apart = Math.hypot(
+    sudden.states[6 * (sudden.count - 1)] - flight.state[0],
+    sudden.states[6 * (sudden.count - 1) + 1] - flight.state[1],
+    sudden.states[6 * (sudden.count - 1) + 2] - flight.state[2],
+  );
+  assert.ok(apart > 1e5);
 });
 
 test("a forecast ends at the ground", () => {

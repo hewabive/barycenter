@@ -2,6 +2,7 @@ import "./style.css";
 import "./flight.css";
 import {
   type Burn,
+  burnFor,
   centreOf,
   circling,
   classOf,
@@ -9,6 +10,7 @@ import {
   createFlyer,
   createForecast,
   DAY,
+  type Drive,
   type Forecast,
   type Heading,
   HOUR,
@@ -426,12 +428,14 @@ const turn = (pitch: number, yaw: number, roll: number) => {
   dirty = true;
 };
 const sizeOf = (push: Push) => Math.hypot(push.along, push.north, push.out);
-const burnSpan = (gain: number, force: number): number => {
-  const mass = flight.state[6];
-  return engine.endless
-    ? (gain * mass) / force
-    : (mass * (1 - Math.exp(-gain / engine.exhaust)) * engine.exhaust) / force;
-};
+const driveNow = (): Drive => ({
+  force: engine.thrust,
+  exhaust: engine.exhaust,
+  dry: engine.dry,
+  endless: engine.endless,
+});
+const burnSpan = (gain: number, force: number): number =>
+  burnFor({ ...driveNow(), force }, flight.state[6], gain);
 const kicksNow = (): Kick[] =>
   plan.map((push) => ({
     time: Math.max(push.time, flight.time + 1e-3),
@@ -439,6 +443,7 @@ const kicksNow = (): Kick[] =>
     north: push.north * push.left,
     out: push.out * push.left,
     about: null,
+    drive: driveNow(),
   }));
 const order = () => plan.sort((left, right) => left.time - right.time);
 function replan(): void {
