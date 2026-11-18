@@ -35,14 +35,10 @@ export function createTumbler(
   pieces: (Place | string)[],
   grain: number,
   solid: number,
+  signed: boolean,
   onStep: (by: number) => void,
-  onFlip: (() => void) | null,
 ): Tumbler {
-  const sign =
-    onFlip === null
-      ? null
-      : el("button", { class: "sign", type: "button", title: "Turn it the other way" }, "+");
-  sign?.addEventListener("click", () => onFlip?.());
+  const sign = signed ? el("span", { class: "sign" }, "+") : null;
   const frame = el("span", { class: "tumbler" }, sign);
   const places: { place: Place; cell: HTMLElement }[] = [];
   for (const piece of pieces) {

@@ -35,6 +35,7 @@ import { createCourse, type Frame, type Sight } from "./course.ts";
 import { CRAFT_REACH, createCraft } from "./craft.ts";
 import { button, el, required, write } from "./dom.ts";
 import { type Glyph, glyph } from "./glyphs.ts";
+import { createLever } from "./lever.ts";
 import { BALL_SIZE, type Bearing, createNavball } from "./navball.ts";
 import {
   dayOf,
@@ -130,6 +131,18 @@ const HAUL_SLACK = 4;
 const HAUL_HUSH = 300;
 const LAY_BUDGET = 250;
 const RAIL_SHADE = 0.4;
+const LEVER_DECADES = 4.5;
+const LEVER_MARKS: [value: number, label: string][] = [
+  [-1e4, "−10k"],
+  [-1e3, "−1k"],
+  [-100, "−100"],
+  [-10, "−10"],
+  [0, "0"],
+  [10, "10"],
+  [100, "100"],
+  [1e3, "1k"],
+  [1e4, "10k"],
+];
 const SPEED_PLACES: (Place | string)[] = [
   { step: 1e4, within: Number.POSITIVE_INFINITY, title: "10 km/s a notch" },
   { step: 1e3, within: Number.POSITIVE_INFINITY, title: "1 km/s a notch" },
@@ -1279,28 +1292,30 @@ function listPlan(): void {
       sinceReadout = Number.POSITIVE_INFINITY;
     };
     const part = (label: string, tone: string, title: string, key: Part) => {
-      const wheel = createTumbler(
-        SPEED_PLACES,
-        0.1,
-        1,
-        (by) => {
-          push[key] += by;
-          push.left = 1;
-          told();
-        },
-        () => {
-          push[key] = -push[key];
-          push.left = 1;
-          told();
-        },
+      const set = (value: number) => {
+        push[key] = value;
+        push.left = 1;
+        told();
+      };
+      const wheel = createTumbler(SPEED_PLACES, 0.1, 1, true, (by) => set(push[key] + by));
+      const lever = createLever(
+        LEVER_DECADES,
+        LEVER_MARKS,
+        "A rough setting on a scale of tenfold steps; the digits above finish it",
+        set,
       );
-      shows.push(() => wheel.show(push[key]));
+      shows.push(() => {
+        wheel.show(push[key]);
+        lever.show(push[key]);
+      });
       const row = el(
         "div",
         { class: "part", title },
         el("span", { class: "name" }, label),
         wheel.frame,
         el("span", { class: "unit" }, "m/s"),
+        button("0", "Back to nothing", () => set(0)),
+        lever.frame,
       );
       row.style.setProperty("--tone", tone);
       return row;
@@ -1319,7 +1334,7 @@ function listPlan(): void {
         move(by * year);
       }
     };
-    const moment = createTumbler(TIME_PLACES, 1, 1, move, null);
+    const moment = createTumbler(TIME_PLACES, 1, 1, false, move);
     shows.push(() => moment.show(push.time - flight.time));
     const sum = el("span", {}, "");
     frame.append(
@@ -1328,8 +1343,9 @@ function listPlan(): void {
         { class: "part", title: "The moment of the push, counted from now" },
         el("span", { class: "name" }, "In"),
         moment.frame,
-        button("− orbit", "One turn of the present orbit earlier", () => turns(-1)),
-        button("+ orbit", "One turn of the present orbit later", () => turns(1)),
+        button("−", "One turn of the present orbit earlier", () => turns(-1)),
+        el("span", { class: "unit" }, "orbit"),
+        button("+", "One turn of the present orbit later", () => turns(1)),
       ),
       part(
         "Along",
@@ -1918,7 +1934,7 @@ function refresh(): void {
     planHint,
     plan.length === 0
       ? "Click the path ahead, or one of its marks, to plan a push there."
-      : "Scroll over a digit, drag it, or click its upper or lower half. Drag a push along the path to move it.",
+      : "A lever sets a part roughly. Its digits finish it: scroll over one, drag it or click its upper or lower half. Drag a push along the path to move it.",
   );
   for (const { push, name, when, size, sum, shows } of planRows) {
     const whole = sizeOf(push);
