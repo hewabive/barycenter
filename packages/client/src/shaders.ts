@@ -129,9 +129,18 @@ const FRAY_FROM = 0.42;
 const FRAY_TO = 0.62;
 const FRAY_BARE = 0.6;
 const FACULAE = 1.2;
-const ARCH_SPAN = 3;
-const ARCH_RISE = 1.8;
-const ARCH_CAP = 0.04;
+const HYDROGEN = "vec3(1.0, 0.25, 0.2)";
+const FUZZ_REACH = 0.05;
+const FUZZ_RISE = 0.005;
+const FUZZ_GLOW = 0.5;
+const SWAY = 0.15;
+const SWAY_WAVES = 5;
+const SWAY_STEEP = 0.6;
+const THICK = 0.18;
+const LUMPS = 4;
+const THREADS = 9;
+const THREAD_RISE = 1.2;
+const PROMINENCE_DEPTH = 0.9;
 const HALO_SOFT = 0.25;
 const HALO_WRAP = 2;
 const HALO_SHEET = 1.35;
@@ -143,6 +152,7 @@ export const PALETTE_ROOM = 9;
 export const REGION_ROOM = 16;
 export const MEMBER_ROOM = 6;
 export const SPOT_ROOM = REGION_ROOM * MEMBER_ROOM;
+export const PROMINENCE_ROOM = 16;
 export const SCREEN_ROOM = 6;
 export const LIMB = 0.28;
 export const LIMB_DEPTH = 0.4;
@@ -784,12 +794,13 @@ void main() {
 export const FLARE_FRAGMENT = `
 uniform mat4 modelViewMatrix;
 uniform mat4 projectionMatrix;
-uniform vec4 regions[${REGION_ROOM}];
+uniform samplerCube relief;
 uniform vec4 screens[${SCREEN_ROOM}];
 uniform vec4 poles[${SCREEN_ROOM}];
 uniform vec3 rim;
 uniform float reach;
 uniform float girth;
+uniform float fuzz;
 varying vec3 vSight;
 varying vec3 vMiddle;
 
@@ -830,26 +841,93 @@ void main() {
   vec4 clip = projectionMatrix * vec4(ray * rest, 1.0);
   gl_FragDepth = 0.5 + 0.5 * clip.z / clip.w;
   float glare = 0.5 * exp(-rise / 0.04) + 0.12 / (1.0 + 12.0 * rise * rise);
-  mat3 turn = mat3(modelViewMatrix);
-  vec3 eye = normalize(-vMiddle) * turn;
-  vec3 outward = aside * turn;
-  vec3 limb = normalize(outward - dot(outward, eye) * eye);
-  float arch = 0.0;
-  for (int index = 0; index < ${REGION_ROOM}; index++) {
-    vec4 spot = regions[index];
-    float size = min(0.2 * spot.w, ${real(ARCH_CAP)});
-    float depth = dot(spot.xyz, eye);
-    float lift = (1.0 + ${real(ARCH_RISE)} * size) * sqrt(max(1.0 - depth * depth, 0.0)) - 1.0;
-    vec3 foot = spot.xyz - depth * eye;
-    vec3 from = limb - foot / max(length(foot), 1e-4);
-    float span = ${real(ARCH_SPAN)} * size + 1e-5;
-    float ring = length(vec2(length(from) / span, rise / max(lift, 1e-5)));
-    float band = (ring - 1.0) / 0.2;
-    arch += step(1e-5, lift) * (exp(-band * band) + 0.25 * exp(-1.5 * ring * ring));
+  float blades = 0.0;
+  if (rise < ${real(FUZZ_REACH)}) {
+    mat3 turn = mat3(modelViewMatrix);
+    vec3 eye = normalize(-vMiddle) * turn;
+    vec3 outward = aside * turn;
+    vec3 limb = normalize(outward - dot(outward, eye) * eye);
+    blades = fuzz * exp(-rise / (${real(FUZZ_RISE)} * (0.4 + 1.2 * textureLod(relief, limb, 2.0).r)));
   }
   float fade = 1.0 - smoothstep(0.6, 1.0, miss / reach);
-  vec3 lit = rim * glare * fade + vec3(1.0, 0.25, 0.2) * min(arch, 1.0) * (0.15 + 0.5 * rim.r);
+  vec3 lit = rim * glare * fade + ${HYDROGEN} * blades * ${real(FUZZ_GLOW)} * (0.15 + 0.5 * rim.r);
   gl_FragColor = vec4(lit * max(until - before, 0.0), 1.0);
+  #include <colorspace_fragment>
+}
+`;
+
+export const PROMINENCE_VERTEX = `
+uniform vec4 seats[${PROMINENCE_ROOM}];
+uniform vec4 leans[${PROMINENCE_ROOM}];
+uniform vec4 forms[${PROMINENCE_ROOM}];
+varying vec2 vPart;
+varying vec4 vForm;
+varying vec4 vSeat;
+varying vec4 vLean;
+varying vec3 vPlace;
+varying float vLane;
+
+void main() {
+  int slot = int(position.z + 0.01);
+  vec4 seat = seats[slot];
+  vec4 lean = leans[slot];
+  vec4 form = forms[slot];
+  vLane = floor(4.0 * fract(position.z) + 0.5) - 1.0;
+  float angle = position.x * seat.w;
+  vec3 aside = cross(seat.xyz, lean.xyz);
+  float wave = ${real(Math.PI * SWAY_WAVES)} / seat.w;
+  float swing = wave * angle + dot(seat.xyz, vec3(12.9, 78.2, 37.7)) + 2.1 * vLane;
+  float sway = min(${real(SWAY)} * lean.w, ${real(SWAY_STEEP)} / wave);
+  vec3 foot = normalize(
+    seat.xyz * cos(angle) + lean.xyz * sin(angle)
+      + aside * (${real(THICK)} * lean.w * vLane + sway * sin(swing))
+  );
+  float lift = form.w * (1.0 - position.x * position.x);
+  vec4 placed = modelMatrix * vec4(foot * (1.0 + lift + position.y * lean.w * (1.0 + 4.0 * form.w)), 1.0);
+  vPart = position.xy;
+  vForm = form;
+  vSeat = seat;
+  vLean = lean;
+  vPlace = placed.xyz;
+
+  gl_Position = form.x > 0.0 ? projectionMatrix * viewMatrix * placed : vec4(2.0, 2.0, 2.0, 1.0);
+}
+`;
+
+export const PROMINENCE_FRAGMENT = `
+uniform samplerCube relief;
+uniform mat4 modelMatrix;
+uniform vec3 tint;
+uniform float drift;
+varying vec2 vPart;
+varying vec4 vForm;
+varying vec4 vSeat;
+varying vec4 vLean;
+varying vec3 vPlace;
+varying float vLane;
+
+void main() {
+  vec3 aside = cross(vSeat.xyz, vLean.xyz);
+  float along = vPart.x * vSeat.w;
+  float shift = drift + 0.07 * vLane;
+  float lumps = textureCube(relief, normalize(vSeat.xyz + vLean.xyz * (along * ${real(LUMPS)}) + aside * shift)).b;
+  float crown = pow(max(1.0 - vPart.x * vPart.x, 0.0), 0.35) * clamp(0.55 + 1.8 * (lumps - 0.5), 0.15, 1.0);
+  float arch = pow(abs(sin(1.5708 * vForm.y * (vPart.x + 1.0))), 0.7);
+  float base = vForm.z * crown * arch * step(0.5, vForm.y);
+  float body = smoothstep(base - 0.06, base + 0.06, vPart.y) * (1.0 - smoothstep(0.75 * crown, crown, vPart.y));
+  float threads = textureCube(relief, normalize(
+    vSeat.xyz + vLean.xyz * (along * ${real(THREADS)}) + aside * (vPart.y * vLean.w * ${real(THREAD_RISE)} + shift)
+  )).r;
+
+  vec3 heart = modelMatrix[3].xyz;
+  float girth = length(modelMatrix[0].xyz);
+  vec3 ray = normalize(vPlace - cameraPosition);
+  vec3 toward = heart - cameraPosition;
+  float miss = length(toward - ray * dot(toward, ray));
+  float clear = smoothstep(0.996 * girth, 1.002 * girth, miss);
+
+  float dense = vForm.x * body * (0.15 + 0.85 * smoothstep(0.15, 0.8, threads)) * clear;
+  gl_FragColor = vec4(tint, 1.0 - exp(-${real(PROMINENCE_DEPTH)} * dense));
   #include <colorspace_fragment>
 }
 `;

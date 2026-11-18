@@ -11,10 +11,12 @@ import {
 import {
   AdditiveBlending,
   BackSide,
+  BufferGeometry,
   Color,
   type CubeTexture,
   DataTexture,
   DoubleSide,
+  Float32BufferAttribute,
   Group,
   HalfFloatType,
   IcosahedronGeometry,
@@ -50,6 +52,7 @@ import {
   WAVES,
   WIEN,
 } from "./looks.ts";
+import { createProminences } from "./prominences.ts";
 import {
   BAKE_FRAGMENT,
   BAKE_VERTEX,
@@ -66,6 +69,9 @@ import {
   LIMB_DEPTH,
   LUMP_VERTEX,
   PALETTE_ROOM,
+  PROMINENCE_FRAGMENT,
+  PROMINENCE_ROOM,
+  PROMINENCE_VERTEX,
   RING_FRAGMENT,
   RING_VERTEX,
   SCREEN_ROOM,
@@ -154,7 +160,36 @@ const RING_GLEAM = 0.25;
 const WARM_STEP = 0.5;
 const GLARE_STEP = 0.02;
 const DISC_STEPS = 16;
+const RIBBON_STEPS = 48;
+const RIBBON_ROWS = 3;
+const RIBBON_LANES = 3;
+const PROMINENCE_DRIFT = 0.00004;
 const NOWHERE = new Vector3();
+
+function ribbonsOf(): BufferGeometry {
+  const places: number[] = [];
+  const corners: number[] = [];
+  for (let sheet = 0; sheet < PROMINENCE_ROOM * RIBBON_LANES; sheet++) {
+    const first = places.length / 3;
+    const mark = Math.floor(sheet / RIBBON_LANES) + (sheet % RIBBON_LANES) / 4;
+    for (let row = 0; row <= RIBBON_ROWS; row++) {
+      for (let step = 0; step <= RIBBON_STEPS; step++) {
+        places.push((2 * step) / RIBBON_STEPS - 1, row / RIBBON_ROWS, mark);
+      }
+    }
+    for (let row = 0; row < RIBBON_ROWS; row++) {
+      for (let step = 0; step < RIBBON_STEPS; step++) {
+        const low = first + row * (RIBBON_STEPS + 1) + step;
+        const high = low + RIBBON_STEPS + 1;
+        corners.push(low, low + 1, high, high, low + 1, high + 1);
+      }
+    }
+  }
+  const ribbons = new BufferGeometry();
+  ribbons.setAttribute("position", new Float32BufferAttribute(places, 3));
+  ribbons.setIndex(corners);
+  return ribbons;
+}
 
 function bandsOf(body: Body, giant: Giant): Band[] {
   const random = createRandom(body.seed + 17);
@@ -372,6 +407,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
   const defines: Record<string, string> = packed ? { PACKED: "" } : {};
   const ball = new IcosahedronGeometry(1, 20);
   const sheet = new PlaneGeometry(2, 2);
+  const ribbons = ribbonsOf();
 
   const press = new ShaderMaterial({
     vertexShader: BAKE_VERTEX,
@@ -536,6 +572,8 @@ export function createStudio(renderer: WebGLRenderer): Studio {
   const ignite = (body: Body): Look => {
     const flame = flameOf(body);
     const activity = createActivity(body.seed, flame);
+    const prominences = createProminences(body.seed, flame);
+    const drift = { value: 0 };
     const boil = new Vector4(0, 1, 0, 0);
     const screens = Array.from({ length: SCREEN_ROOM }, () => new Vector4(0, 0, 0, 0));
     const poles = Array.from({ length: SCREEN_ROOM }, () => new Vector4(0, 0, 0, 0));
@@ -575,9 +613,30 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       new ShaderMaterial({ vertexShader: BODY_VERTEX, fragmentShader: STAR_FRAGMENT, uniforms }),
     );
     globe.visible = false;
-    const { release, ...surface } = baked(body, uniforms.relief, [globe]);
+    const plumes = new Mesh(
+      ribbons,
+      new ShaderMaterial({
+        vertexShader: PROMINENCE_VERTEX,
+        fragmentShader: PROMINENCE_FRAGMENT,
+        transparent: true,
+        depthWrite: false,
+        side: DoubleSide,
+        uniforms: {
+          relief: uniforms.relief,
+          seats: { value: prominences.seats },
+          leans: { value: prominences.leans },
+          forms: { value: prominences.forms },
+          tint: { value: new Color(1, 0.25, 0.25).multiplyScalar(0.55 + 0.45 * rim.r) },
+          drift,
+        },
+      }),
+    );
+    plumes.visible = false;
+    plumes.frustumCulled = false;
+    const { release, ...surface } = baked(body, uniforms.relief, [globe, plumes]);
     globe.scale.setScalar(body.radius);
-    frame.add(globe);
+    plumes.scale.setScalar(body.radius);
+    frame.add(globe, plumes);
     const flare = new Mesh(
       sheet,
       new ShaderMaterial({
@@ -587,7 +646,8 @@ export function createStudio(renderer: WebGLRenderer): Studio {
         transparent: true,
         depthWrite: false,
         uniforms: {
-          regions: uniforms.regions,
+          relief: uniforms.relief,
+          fuzz: { value: Math.min(1, flame.grain / 0.02) },
           screens: { value: screens },
           poles: { value: poles },
           rim: { value: rim },
@@ -631,10 +691,13 @@ export function createStudio(renderer: WebGLRenderer): Studio {
         boil.set(one.angle, one.weight / whole, two.angle, two.weight / whole);
         flow.set(one.share, two.share);
         activity.turn(tick);
+        prominences.turn(tick);
+        drift.value = tick * PROMINENCE_DRIFT;
       },
       dispose() {
         release();
         globe.material.dispose();
+        plumes.material.dispose();
         flare.material.dispose();
       },
     };
