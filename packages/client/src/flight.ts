@@ -131,19 +131,19 @@ const HAUL_SLACK = 4;
 const HAUL_HUSH = 300;
 const LAY_BUDGET = 250;
 const RAIL_SHADE = 0.4;
-const LEVER_DECADES = 4.5;
+const LEVER_DECADES = 6;
 const LEVER_MARKS: [value: number, label: string][] = [
+  [-1e6, "−1M"],
   [-1e4, "−10k"],
-  [-1e3, "−1k"],
   [-100, "−100"],
-  [-10, "−10"],
   [0, "0"],
-  [10, "10"],
   [100, "100"],
-  [1e3, "1k"],
   [1e4, "10k"],
+  [1e6, "1M"],
 ];
 const SPEED_PLACES: (Place | string)[] = [
+  { step: 1e6, within: Number.POSITIVE_INFINITY, title: "1,000 km/s a notch" },
+  { step: 1e5, within: Number.POSITIVE_INFINITY, title: "100 km/s a notch" },
   { step: 1e4, within: Number.POSITIVE_INFINITY, title: "10 km/s a notch" },
   { step: 1e3, within: Number.POSITIVE_INFINITY, title: "1 km/s a notch" },
   { step: 100, within: Number.POSITIVE_INFINITY, title: "100 m/s a notch" },
@@ -1946,10 +1946,15 @@ function refresh(): void {
     }
     if (sum !== null) {
       const span = burnSpan(push.left * whole, engine.thrust);
+      const short =
+        !engine.endless && push.left * whole > engine.exhaust * Math.log(mass / engine.dry);
       write(
         sum,
-        `${push.left < 1 ? `${speedOf(push.left * whole)} left of ${speedOf(whole)} · ` : ""}a burn of ${spanOf(span)} at full thrust`,
+        short
+          ? "more than the tanks hold"
+          : `${push.left < 1 ? `${speedOf(push.left * whole)} left of ${speedOf(whole)} · ` : ""}a burn of ${spanOf(span)} at full thrust`,
       );
+      sum.classList.toggle("alert", short);
     }
   }
   const next = plan.length > 0 ? plan[0] : null;
