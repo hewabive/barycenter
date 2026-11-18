@@ -18,6 +18,7 @@ import {
   hubOf,
   type Kick,
   lagrangeOf,
+  type Outcome,
   orbitOf,
   passesOf,
   poleOf,
@@ -25,6 +26,7 @@ import {
   railsOf,
   STANDARD_GRAVITY,
   SUN_MASS,
+  seek,
   seenGlow,
   shownLight,
   starborn,
@@ -129,6 +131,8 @@ const TOUCH_REACH = 26;
 const MAP_FIT = 4.2;
 const DECK_LIFT = 0.11;
 const OPEN_FIT = 3;
+const QUEST_LEAD = 600;
+const QUEST_BUDGET = 6;
 const HAUL_SLACK = 4;
 const HAUL_HUSH = 300;
 const LAY_BUDGET = 250;
@@ -336,6 +340,7 @@ const course = createCourse(space.world, system, unit);
 const rail = createCourse(space.world, system, unit, RAIL_SHADE);
 const foresee = createFlyer(rails);
 const forelay = createFlyer(rails);
+const seeker = createFlyer(rails);
 const ball = createNavball();
 space.fore.add(craft.frame, craft.lights);
 const tag = el("button", { class: "label craft", type: "button" }, "Ship");
@@ -672,6 +677,7 @@ space.onFrame((elapsed) => {
   const tick = Math.min(elapsed, LONGEST_FRAME);
   steer(tick);
   chase();
+  think();
   if (toast !== null) {
     toast.left -= tick;
     if (toast.left <= 0) {
@@ -1712,6 +1718,140 @@ const lists = card(
   "lists",
   "Bodies",
   el("table", { class: "bodies" }, shipRow, ...rows.map(({ row }) => row)),
+  el(
+    "div",
+    { class: "strip" },
+    el("a", { href: `generator.html?${search}&scale=real` }, "The whole system and its numbers"),
+  ),
+);
+
+let quest: { run: Generator<number, Outcome, void>; target: number } | null = null;
+let opening: number | null = null;
+const questNote = el(
+  "div",
+  { class: "hint" },
+  "Name a body and how high to pass it, and a push that takes the ship there is worked out and set into the plan.",
+);
+const questField = choice("The body to fly to", named, () => {});
+questField.value = String(
+  bodies.find((body) => body.parent === first)?.id ?? bodies.find((body) => body.id !== first)?.id,
+);
+const passField = el("input", {
+  type: "number",
+  min: "1",
+  step: "10",
+  placeholder: "low",
+  title: "Height of the pass above the body in kilometers; empty for a low pass",
+});
+const openingButton = button("Run time to it", "Speed time up until that window opens", () => {
+  if (opening !== null) {
+    runTo(opening - QUEST_LEAD);
+  }
+});
+openingButton.hidden = true;
+const ask = () => {
+  if (flight.wrecked !== null || burning()) {
+    write(questNote, "A way is worked out for a ship that coasts.");
+    return;
+  }
+  const to = Number(questField.value);
+  const typed = Number.parseFloat(passField.value);
+  const kicks = kicksNow();
+  const since = kicks.reduce((latest, kick) => Math.max(latest, kick.time), flight.time);
+  pick(Math.min(level, AUTO_LEVEL));
+  opening = null;
+  openingButton.hidden = true;
+  aimAt(to);
+  quest = {
+    target: to,
+    run: seek({
+      rails,
+      fly: seeker,
+      flight: createFlight(flight.time, flight.state),
+      plan: kicks,
+      kick: {
+        time: since + QUEST_LEAD,
+        along: 0,
+        north: 0,
+        out: 0,
+        about: null,
+        drive: driveNow(),
+      },
+      target: to,
+      height: Number.isFinite(typed) && typed > 0 ? typed * 1000 : lowOver(to),
+    }),
+  };
+  write(questNote, "Thinking");
+};
+const answer = (to: number, { way, opening: later, trouble }: Outcome) => {
+  const { name } = bodies[to];
+  const lines: string[] = [];
+  if (trouble === "same") {
+    lines.push(`The ship already circles ${name}.`);
+  } else if (trouble === "nested") {
+    lines.push(
+      `No way is worked out from a moon to a body beyond its planet. Leave ${bodies[about].name} first.`,
+    );
+  } else if (way === null || !way.settled) {
+    lines.push(`No way to ${name} was found from here for now.`);
+  } else {
+    const { kick, approach, cost } = way;
+    pushes += 1;
+    plan.push({
+      id: pushes,
+      time: kick.time,
+      along: kick.along,
+      north: kick.north,
+      out: kick.out,
+      left: 1,
+    });
+    replan();
+    choose(pushes);
+    lines.push(
+      `A push of ${speedOf(cost)} in ${spanOf(kick.time - flight.time)} is set into the plan. It passes ${lengthOf(approach.gap - rails.radii[to])} over ${name} ${spanOf(approach.time - kick.time)} later, at ${speedOf(approach.speed)}.`,
+    );
+  }
+  if (later !== null) {
+    opening = later.time;
+    lines.push(
+      `A ${way?.settled ? "cheaper " : ""}window opens in ${spanOf(later.time - flight.time)}: about ${speedOf(later.cost)}.`,
+    );
+  }
+  openingButton.hidden = later === null;
+  write(questNote, lines.join(" "));
+};
+function think(): void {
+  if (quest === null) {
+    return;
+  }
+  const started = performance.now();
+  do {
+    const step = quest.run.next();
+    if (step.done) {
+      const { target: to } = quest;
+      quest = null;
+      answer(to, step.value);
+      return;
+    }
+    write(questNote, `Thinking: ${step.value} paths flown`);
+  } while (performance.now() - started < QUEST_BUDGET);
+}
+const quests = card(
+  "quests",
+  "Transfer",
+  el(
+    "table",
+    { class: "facts" },
+    el("tr", {}, el("td", {}, "To"), el("td", {}, questField)),
+    el("tr", {}, el("td", {}, "Pass"), el("td", {}, el("label", {}, passField, " km over it"))),
+  ),
+  el(
+    "div",
+    { class: "strip" },
+    button("Find a way", "Work out a push that takes the ship past that body", ask),
+    openingButton,
+  ),
+  questNote,
 );
 const helps = card(
   "helps",
@@ -1741,6 +1881,7 @@ const sees = el(
   ),
 );
 const drawers: [string, Card, string][] = [
+  ["Transfer", quests, "A push that takes the ship to another body"],
   ["Path", paths, "How the path ahead is drawn"],
   ["Ship", ships, "The engine and the tanks"],
   ["Bodies", lists, "Every body of the system"],
@@ -1795,7 +1936,6 @@ hud.append(
       { class: "tabs" },
       button("Map", "The whole orbit, and back to the ship (M)", () => chart()),
       ...tabs.map(({ tab }) => tab),
-      el("a", { href: `generator.html?${search}&scale=real`, title: "The whole system" }, "System"),
     ),
     sees,
     ...drawers.map(([, drawer]) => drawer.frame),

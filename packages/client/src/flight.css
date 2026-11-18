@@ -338,8 +338,14 @@ body.flight {
   font-size: 12px;
 }
 
-.strip input[type="number"] {
+.strip input[type="number"],
+.quests input[type="number"] {
   width: 62px;
+}
+
+.strip a {
+  font-size: 12px;
+  color: var(--accent);
 }
 
 .dial {

@@ -128,6 +128,17 @@ export {
   swayOf,
   weightOf,
 } from "./system.ts";
+export {
+  type Approach,
+  approachOf,
+  lambert,
+  type Opening,
+  type Outcome,
+  type Quest,
+  seek,
+  type Trouble,
+  type Way,
+} from "./transfer.ts";
 export { retune } from "./tune.ts";
 export {
   type Body,
