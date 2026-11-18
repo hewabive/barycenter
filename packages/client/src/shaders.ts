@@ -156,7 +156,8 @@ export const REGION_ROOM = 16;
 export const MEMBER_ROOM = 6;
 export const SPOT_ROOM = REGION_ROOM * MEMBER_ROOM;
 export const PROMINENCE_ROOM = 16;
-export const GRAIN_CELLS = 16;
+const GRAIN_BITS = 4;
+export const GRAIN_CELLS = 1 << GRAIN_BITS;
 export const SCREEN_ROOM = 6;
 export const LIMB = 0.28;
 export const LIMB_DEPTH = 0.4;
@@ -207,8 +208,8 @@ void main() {
 }
 `;
 
-const CELLS = `
-vec3 nearest(vec3 at, uint salt, int lap) {
+const cells = (seat: string) => `
+vec3 nearest(vec3 at, uint salt) {
   vec3 cell = floor(at);
   vec3 inside = at - cell;
   ivec3 base = ivec3(cell);
@@ -219,11 +220,7 @@ vec3 nearest(vec3 at, uint salt, int lap) {
     for (int y = -1; y <= 1; y++) {
       for (int z = -1; z <= 1; z++) {
         ivec3 step = ivec3(x, y, z);
-        ivec3 seat = base + step;
-        if (lap > 0) {
-          seat = ((seat % lap) + lap) % lap;
-        }
-        uint mixed = scramble(seat, salt);
+        uint mixed = scramble(${seat}, salt);
         vec3 site = vec3(step) - inside
           + vec3(mixed & 1023u, (mixed >> 10) & 1023u, (mixed >> 20) & 1023u) / 1023.0;
         float away = dot(site, site);
@@ -240,8 +237,8 @@ vec3 nearest(vec3 at, uint salt, int lap) {
   return vec3(sqrt(first), sqrt(second), mark);
 }
 
-float granules(vec3 at, uint salt, int lap, float lanes) {
-  vec3 found = nearest(at, salt, lap);
+float granules(vec3 at, uint salt, float lanes) {
+  vec3 found = nearest(at, salt);
   return (1.0 - exp(-lanes * (found.y - found.x))) * (0.7 + 0.3 * found.z);
 }
 `;
@@ -249,13 +246,13 @@ float granules(vec3 at, uint salt, int lap, float lanes) {
 export const STAR_BAKE_FRAGMENT = `
 ${FIELD}
 ${HEADING}
-${CELLS}
+${cells("base + step")}
 
 void main() {
   vec3 at = normalize(heading());
-  vec3 net = nearest(at * ${real(NET_SCALE)}, seed + 31u, 0);
+  vec3 net = nearest(at * ${real(NET_SCALE)}, seed + 31u);
   gl_FragColor = vec4(
-    granules(at * ${real(CELL_SCALE)}, seed + 11u, 0, ${real(CELL_LANES)}),
+    granules(at * ${real(CELL_SCALE)}, seed + 11u, ${real(CELL_LANES)}),
     0.0,
     clamp(0.5 + 0.45 * layered(at * 3.0, seed + 5u, 4), 0.0, 1.0),
     1.0 - smoothstep(0.0, 0.1, net.y - net.x)
@@ -265,13 +262,13 @@ void main() {
 
 export const GRAIN_BAKE_FRAGMENT = `
 ${FIELD}
-${CELLS}
+${cells(`(base + step) & ${GRAIN_CELLS - 1}`)}
 uniform float size;
 uniform float layer;
 
 void main() {
   vec3 at = vec3(gl_FragCoord.xy / size, layer) * ${real(GRAIN_CELLS)};
-  gl_FragColor = vec4(granules(at, 11u, ${GRAIN_CELLS}, ${real(GRAIN_LANES)}), 0.0, 0.0, 1.0);
+  gl_FragColor = vec4(granules(at, 11u, ${real(GRAIN_LANES)}), 0.0, 0.0, 1.0);
 }
 `;
 
