@@ -11,6 +11,9 @@ import {
   roughOf,
   type Shown,
   STAR_LEAST,
+  SUN_HEAT,
+  SUN_MASS,
+  SUN_RADIUS,
   seaCover,
   shareOf,
   shownLight,
@@ -35,6 +38,7 @@ interface Fire {
 export interface Flame extends Fire {
   lively: number;
   vigor: number;
+  cells: number;
 }
 
 export interface Brew {
@@ -210,12 +214,14 @@ export function flatnessOf(physics: Physics): number {
 
 const ROSSBY_QUIET = 3;
 const ROSSBY_SATURATED = 0.13;
+const SUN_CELLS = 500;
+const CELL_HEAT = 1.3;
 
 const FLAMES: Fire[] = [
   {
     kelvin: 2600,
     tint: 0xff5a1e,
-    grain: 0.02,
+    grain: 0.026,
     chill: 0.85,
     poles: 0,
     regions: 16,
@@ -225,7 +231,7 @@ const FLAMES: Fire[] = [
   {
     kelvin: 3400,
     tint: 0xff6f2c,
-    grain: 0.03,
+    grain: 0.04,
     chill: 0.8,
     poles: 0,
     regions: 16,
@@ -235,7 +241,7 @@ const FLAMES: Fire[] = [
   {
     kelvin: 4700,
     tint: 0xff9545,
-    grain: 0.055,
+    grain: 0.07,
     chill: 0.62,
     poles: 0,
     regions: 16,
@@ -245,7 +251,7 @@ const FLAMES: Fire[] = [
   {
     kelvin: 5800,
     tint: 0xffb663,
-    grain: 0.07,
+    grain: 0.09,
     chill: 0.58,
     poles: 0,
     regions: 16,
@@ -260,6 +266,12 @@ export function livelyOf(physics: Physics): number {
   const rossby = physics.day / turnover(physics.heat);
   const share = Math.log(ROSSBY_QUIET / rossby) / Math.log(ROSSBY_QUIET / ROSSBY_SATURATED);
   return Math.max(0, Math.min(1, share));
+}
+
+export function cellsOf(physics: Physics): number {
+  const gravity = physics.mass / SUN_MASS / (physics.radius / SUN_RADIUS) ** 2;
+  const width = (physics.heat / SUN_HEAT) ** CELL_HEAT / gravity / (physics.radius / SUN_RADIUS);
+  return SUN_CELLS / width;
 }
 
 export function flameOf(star: Body): Flame {
@@ -286,6 +298,7 @@ export function flameOf(star: Body): Flame {
     belt: mix(cool.belt, hot.belt),
     lively: livelyOf(star.physics),
     vigor: star.physics.vigor,
+    cells: cellsOf(star.physics),
   };
 }
 

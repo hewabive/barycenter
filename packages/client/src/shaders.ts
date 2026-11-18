@@ -111,12 +111,15 @@ const LAVA_SPAN = 2;
 const CRUST_GLOW = 0.04;
 const SHORE_GLOW = 0.3;
 
-const GRAIN_MEAN = 0.52;
-const GRAIN_SCALE = 36;
-const NET_SCALE = 9;
-const FILAMENT_SQUEEZE = 0.2;
-const FILAMENT_FLOW = 0.25;
-const FILAMENT_GIRTH = 0.25;
+const GRAIN_MEAN = 0.446;
+const GRAIN_LANES = 5;
+const CELL_SCALE = 36;
+const CELL_LANES = 7;
+const NET_SCALE = 23;
+const FILAMENT_SQUEEZE = 0.1;
+const FILAMENT_FLOW = 1;
+const FILAMENT_FINE = 3;
+const GRAIN_MIDDLE = 0.3;
 const PENUMBRA = 1.3;
 const PORE = 0.003;
 const PLAGE = 0.6;
@@ -153,6 +156,7 @@ export const REGION_ROOM = 16;
 export const MEMBER_ROOM = 6;
 export const SPOT_ROOM = REGION_ROOM * MEMBER_ROOM;
 export const PROMINENCE_ROOM = 16;
+export const GRAIN_CELLS = 16;
 export const SCREEN_ROOM = 6;
 export const LIMB = 0.28;
 export const LIMB_DEPTH = 0.4;
@@ -203,11 +207,8 @@ void main() {
 }
 `;
 
-export const STAR_BAKE_FRAGMENT = `
-${FIELD}
-${HEADING}
-
-vec3 nearest(vec3 at, uint salt) {
+const CELLS = `
+vec3 nearest(vec3 at, uint salt, int lap) {
   vec3 cell = floor(at);
   vec3 inside = at - cell;
   ivec3 base = ivec3(cell);
@@ -218,7 +219,11 @@ vec3 nearest(vec3 at, uint salt) {
     for (int y = -1; y <= 1; y++) {
       for (int z = -1; z <= 1; z++) {
         ivec3 step = ivec3(x, y, z);
-        uint mixed = scramble(base + step, salt);
+        ivec3 seat = base + step;
+        if (lap > 0) {
+          seat = ((seat % lap) + lap) % lap;
+        }
+        uint mixed = scramble(seat, salt);
         vec3 site = vec3(step) - inside
           + vec3(mixed & 1023u, (mixed >> 10) & 1023u, (mixed >> 20) & 1023u) / 1023.0;
         float away = dot(site, site);
@@ -235,20 +240,38 @@ vec3 nearest(vec3 at, uint salt) {
   return vec3(sqrt(first), sqrt(second), mark);
 }
 
-float granules(vec3 at, uint salt) {
-  vec3 found = nearest(at, salt);
-  return (1.0 - exp(-7.0 * (found.y - found.x))) * (0.7 + 0.3 * found.z);
+float granules(vec3 at, uint salt, int lap, float lanes) {
+  vec3 found = nearest(at, salt, lap);
+  return (1.0 - exp(-lanes * (found.y - found.x))) * (0.7 + 0.3 * found.z);
 }
+`;
+
+export const STAR_BAKE_FRAGMENT = `
+${FIELD}
+${HEADING}
+${CELLS}
 
 void main() {
   vec3 at = normalize(heading());
-  vec3 net = nearest(at * ${real(NET_SCALE)}, seed + 31u);
+  vec3 net = nearest(at * ${real(NET_SCALE)}, seed + 31u, 0);
   gl_FragColor = vec4(
-    granules(at * ${real(GRAIN_SCALE)}, seed + 11u),
-    granules(at * ${real(GRAIN_SCALE)}, seed + 23u),
+    granules(at * ${real(CELL_SCALE)}, seed + 11u, 0, ${real(CELL_LANES)}),
+    0.0,
     clamp(0.5 + 0.45 * layered(at * 3.0, seed + 5u, 4), 0.0, 1.0),
     1.0 - smoothstep(0.0, 0.1, net.y - net.x)
   );
+}
+`;
+
+export const GRAIN_BAKE_FRAGMENT = `
+${FIELD}
+${CELLS}
+uniform float size;
+uniform float layer;
+
+void main() {
+  vec3 at = vec3(gl_FragCoord.xy / size, layer) * ${real(GRAIN_CELLS)};
+  gl_FragColor = vec4(granules(at, 11u, ${GRAIN_CELLS}, ${real(GRAIN_LANES)}), 0.0, 0.0, 1.0);
 }
 `;
 
@@ -606,8 +629,9 @@ void main() {
 }
 
 export const STAR_FRAGMENT = `
-${SPIN}
 uniform samplerCube relief;
+uniform highp sampler3D granules;
+uniform vec2 pitch;
 uniform vec4 regions[${REGION_ROOM}];
 uniform float plages[${REGION_ROOM}];
 uniform vec4 spots[${SPOT_ROOM}];
@@ -670,14 +694,19 @@ void main() {
   float inside = max(skirt - rank, 0.0);
   vec2 squeeze = mix(
     vec2(1.0),
-    (skirt - inside * (${real(FILAMENT_SQUEEZE)} + ${real(FILAMENT_FLOW)} * (flow - 0.5))) / max(rank, 1e-3),
+    (skirt - inside * (${real(FILAMENT_SQUEEZE)} + ${real(FILAMENT_FLOW)} * (flow - ${real(GRAIN_MIDDLE)})))
+      / max(rank, 1e-3),
     step(rank, skirt)
   );
-  float fine = mix(1.0, max(1.0, ${real(FILAMENT_GIRTH)} / (core.w * skirt + 1e-4)), step(rank, skirt));
+  float fine = mix(1.0, ${real(FILAMENT_FINE)}, step(rank, skirt));
   vec3 one = normalize(core.xyz + from * squeeze.x * fine);
   vec3 two = normalize(core.xyz + from * squeeze.y * fine);
-  float grain = (textureCube(relief, spun(one, boil.x)).r - ${real(GRAIN_MEAN)}) * boil.y
-    + (textureCube(relief, spun(two.yzx, boil.z)).g - ${real(GRAIN_MEAN)}) * boil.w;
+  vec3 fore = pitch.x * (1.0 + pitch.y * (flow.x - ${real(GRAIN_MIDDLE)})) * one
+    + boil.x * vec3(0.37, 0.61, 0.83);
+  vec3 hind = pitch.x * (1.0 + pitch.y * (flow.y - ${real(GRAIN_MIDDLE)})) * two.yzx
+    + boil.z * vec3(0.71, 0.43, 0.59);
+  float grain = (texture(granules, fore).r - ${real(GRAIN_MEAN)}) * boil.y
+    + (texture(granules, hind).r - ${real(GRAIN_MEAN)}) * boil.w;
 
   vec3 round = normalize(mat3(modelMatrix) * at);
   float facing = max(dot(round, normalize(cameraPosition - vPlace)), 0.0);

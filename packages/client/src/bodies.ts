@@ -14,6 +14,7 @@ import {
   BufferGeometry,
   Color,
   type CubeTexture,
+  type Data3DTexture,
   DataTexture,
   DoubleSide,
   Float32BufferAttribute,
@@ -28,6 +29,8 @@ import {
   OrthographicCamera,
   PlaneGeometry,
   Quaternion,
+  RedFormat,
+  RepeatWrapping,
   RingGeometry,
   Scene,
   ShaderMaterial,
@@ -35,6 +38,7 @@ import {
   Vector2,
   Vector3,
   Vector4,
+  WebGL3DRenderTarget,
   WebGLCubeRenderTarget,
   type WebGLRenderer,
 } from "three";
@@ -64,6 +68,8 @@ import {
   GAS_BAKE_FRAGMENT,
   GAS_STEP_FRAGMENT,
   GAS_STEPS,
+  GRAIN_BAKE_FRAGMENT,
+  GRAIN_CELLS,
   LAMP_ROOM,
   LIMB,
   LIMB_DEPTH,
@@ -150,8 +156,10 @@ const RING_STEPS = 512;
 const RING_EDGE = 0.004;
 const RING_VIEW = 0.7;
 const STORM_YEAR = 5000;
-const GRANULE_LIFE = 24;
-const GRANULE_CHURN = 0.02;
+const GRAIN_LIFE = 480;
+const GRAIN_FADE = 0.1;
+const GRANULE_PACE = 0.125;
+const GRAIN_SIZE = 128;
 const GOLDEN_TURN = 2.39996;
 const SHINE_PALE = 0.6;
 const DIM_PALE = 0.25;
@@ -448,6 +456,17 @@ export function createStudio(renderer: WebGLRenderer): Studio {
         prior: { value: null as CubeTexture | null },
       },
     });
+  const mill = new ShaderMaterial({
+    vertexShader: BAKE_VERTEX,
+    fragmentShader: GRAIN_BAKE_FRAGMENT,
+    depthTest: false,
+    depthWrite: false,
+    uniforms: {
+      seed: { value: 0 },
+      size: { value: GRAIN_SIZE },
+      layer: { value: 0 },
+    },
+  });
   const stir = tools(GAS_STEP_FRAGMENT);
   const churn = tools(GAS_BAKE_FRAGMENT);
   const plate = new Mesh(sheet, press);
@@ -466,6 +485,41 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       renderer.render(bench, lens);
     }
   };
+  let grain: WebGL3DRenderTarget | null = null;
+  const grind = (target: WebGL3DRenderTarget) => {
+    const before = renderer.getRenderTarget();
+    plate.material = mill;
+    for (let layer = 0; layer < GRAIN_SIZE; layer++) {
+      mill.uniforms.layer.value = (layer + 0.5) / GRAIN_SIZE;
+      mill.uniformsNeedUpdate = true;
+      renderer.setRenderTarget(target, layer);
+      target.texture.generateMipmaps = layer === GRAIN_SIZE - 1;
+      renderer.render(bench, lens);
+    }
+    renderer.setRenderTarget(before);
+  };
+  const grainOf = (): Data3DTexture => {
+    if (grain === null) {
+      grain = new WebGL3DRenderTarget(GRAIN_SIZE, GRAIN_SIZE, GRAIN_SIZE, {
+        format: RedFormat,
+        type: UnsignedByteType,
+        generateMipmaps: true,
+        minFilter: LinearMipmapLinearFilter,
+        magFilter: LinearFilter,
+        depthBuffer: false,
+      });
+      grain.texture.wrapS = RepeatWrapping;
+      grain.texture.wrapT = RepeatWrapping;
+      grain.texture.wrapR = RepeatWrapping;
+      grind(grain);
+    }
+    return grain.texture;
+  };
+  renderer.domElement.addEventListener("webglcontextrestored", () => {
+    if (grain !== null) {
+      grind(grain);
+    }
+  });
   const fill = (target: WebGLCubeRenderTarget, body: Body) => {
     const before = renderer.getRenderTarget();
     const family = familyOf(body.physics);
@@ -572,6 +626,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
   const ignite = (body: Body): Look => {
     const flame = flameOf(body);
     const activity = createActivity(body.seed, flame);
+    const shuffle = 2 * Math.PI * createRandom(body.seed + 97).next();
     const prominences = createProminences(body.seed, flame);
     const drift = { value: 0 };
     const boil = new Vector4(0, 1, 0, 0);
@@ -598,6 +653,10 @@ export function createStudio(renderer: WebGLRenderer): Studio {
     const ember = new Color(disc(tint.r, steep.x), disc(tint.g, steep.y), disc(tint.b, steep.z));
     const uniforms = {
       relief: { value: null as CubeTexture | null },
+      granules: { value: grainOf() },
+      pitch: {
+        value: new Vector2(flame.cells / GRAIN_CELLS, (GRANULE_PACE * GRAIN_LIFE) / flame.cells),
+      },
       regions: { value: activity.regions },
       plages: { value: activity.plages },
       spots: { value: activity.spots },
@@ -665,8 +724,10 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       const cycle = Math.floor(age);
       const share = age - cycle;
       return {
-        angle: ((cycle * GOLDEN_TURN) % (2 * Math.PI)) + (share - 0.5) * GRANULE_CHURN,
-        weight: 1 - Math.abs(2 * share - 1),
+        shift: (cycle * GOLDEN_TURN + shuffle) % (2 * Math.PI),
+        weight:
+          MathUtils.clamp(share / GRAIN_FADE, 0, 1) *
+          MathUtils.clamp((0.5 + GRAIN_FADE - share) / GRAIN_FADE, 0, 1),
         share,
       };
     };
@@ -687,10 +748,9 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       ...surface,
       warm: () => false,
       light(_rays, _chart, tick) {
-        const one = beat(tick / GRANULE_LIFE);
-        const two = beat(tick / GRANULE_LIFE + 0.5);
-        const whole = Math.hypot(one.weight, two.weight);
-        boil.set(one.angle, one.weight / whole, two.angle, two.weight / whole);
+        const one = beat(tick / GRAIN_LIFE);
+        const two = beat(tick / GRAIN_LIFE + 0.5);
+        boil.set(one.shift, one.weight, two.shift, two.weight);
         flow.set(one.share, two.share);
         activity.turn(tick);
         uniforms.burst.value = activity.burst;

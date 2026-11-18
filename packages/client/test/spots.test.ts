@@ -15,6 +15,7 @@ const flame: Flame = {
   belt: 0.55,
   lively: 0.134,
   vigor: 0.5,
+  cells: 500,
 };
 
 const young: Flame = { ...flame, lively: 0.6, vigor: 0.9 };

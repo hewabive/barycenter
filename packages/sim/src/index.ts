@@ -81,6 +81,7 @@ export {
   SKY_LIGHT,
   STAR_LEAST,
   SUN_GLOW,
+  SUN_HEAT,
   SUN_MASS,
   SUN_RADIUS,
   seaCover,
