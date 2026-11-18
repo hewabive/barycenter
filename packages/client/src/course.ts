@@ -7,6 +7,7 @@ import {
   LineBasicMaterial,
   LineSegments,
   Matrix4,
+  type PerspectiveCamera,
   Quaternion,
   Vector3,
 } from "three";
@@ -16,10 +17,25 @@ export interface Frame {
   turning: boolean;
 }
 
+export interface Spot {
+  time: number;
+  slot: number;
+  share: number;
+}
+
+export interface Sight {
+  camera: PerspectiveCamera;
+  width: number;
+  height: number;
+  seen(spot: Vector3): boolean;
+}
+
 export interface Course {
   show(forecast: Forecast | null, frame: Frame): void;
   place(now: number, at: Float64Array, ship: Float64Array): void;
   spot(slot: number, share: number, into: Vector3): boolean;
+  find(time: number): Spot | null;
+  near(sight: Sight, x: number, y: number, reach: number, now: number): Spot | null;
   pole(body: number): Vector3;
 }
 
@@ -61,6 +77,9 @@ export function createCourse(world: Group, system: Sketch, unit: number): Course
   const back = new Quaternion();
   const point = new Vector3();
   const next = new Vector3();
+  const head = new Vector3();
+  const tail = new Vector3();
+  const depth = new Vector3();
 
   const axes = (body: number, at: ArrayLike<number>, base: number, into: Quaternion) => {
     const { parent } = bodies[body];
@@ -93,6 +112,26 @@ export function createCourse(world: Group, system: Sketch, unit: number): Course
       axes(body, forecast.places, base, back);
       into.applyQuaternion(back.invert());
     }
+  };
+  const spot = (slot: number, share: number, into: Vector3): boolean => {
+    const forecast = shown;
+    if (forecast === null || slot < 0 || slot >= forecast.count) {
+      return false;
+    }
+    const body = frame.body ?? forecast.holds[slot];
+    seat(slot, body, into);
+    if (share > 0 && slot + 1 < forecast.count) {
+      seat(slot + 1, body, next);
+      into.lerp(next, share);
+    }
+    if (frame.turning) {
+      axes(body, places, 0, turn);
+      into.applyQuaternion(turn);
+    }
+    into
+      .add(point.set(places[3 * body], places[3 * body + 1], places[3 * body + 2]))
+      .divideScalar(unit);
+    return true;
   };
   const clear = () => {
     for (const strand of strands) {
@@ -193,25 +232,76 @@ export function createCourse(world: Group, system: Sketch, unit: number): Course
         }
       }
     },
-    spot(slot, share, into) {
+    spot,
+    find(time) {
       const forecast = shown;
-      if (forecast === null || slot < 0 || slot >= forecast.count) {
-        return false;
+      if (forecast === null || forecast.count < 2) {
+        return null;
       }
-      const body = frame.body ?? forecast.holds[slot];
-      seat(slot, body, into);
-      if (share > 0 && slot + 1 < forecast.count) {
-        seat(slot + 1, body, next);
-        into.lerp(next, share);
+      const { times, count } = forecast;
+      if (!(time >= times[0] && time <= times[count - 1])) {
+        return null;
       }
-      if (frame.turning) {
-        axes(body, places, 0, turn);
-        into.applyQuaternion(turn);
+      let low = 0;
+      let high = count - 1;
+      while (high - low > 1) {
+        const middle = (low + high) >> 1;
+        if (times[middle] <= time) {
+          low = middle;
+        } else {
+          high = middle;
+        }
       }
-      into
-        .add(point.set(places[3 * body], places[3 * body + 1], places[3 * body + 2]))
-        .divideScalar(unit);
-      return true;
+      const span = times[high] - times[low];
+      return { time, slot: low, share: span > 0 ? (time - times[low]) / span : 0 };
+    },
+    near(sight, x, y, reach, now) {
+      const forecast = shown;
+      if (forecast === null) {
+        return null;
+      }
+      const { camera, width, height } = sight;
+      const cast = (slot: number, into: Vector3): boolean => {
+        spot(slot, 0, into);
+        into.applyMatrix4(world.matrixWorld);
+        if (depth.copy(into).applyMatrix4(camera.matrixWorldInverse).z >= 0) {
+          return false;
+        }
+        into.project(camera);
+        into.set((into.x * 0.5 + 0.5) * width, (0.5 - into.y * 0.5) * height, 0);
+        return true;
+      };
+      let best = reach;
+      let found: Spot | null = null;
+      for (const strand of strands) {
+        if (!strand.line.visible) {
+          continue;
+        }
+        for (const slot of strand.slots) {
+          if (forecast.times[slot + 1] < now || !cast(slot, head) || !cast(slot + 1, tail)) {
+            continue;
+          }
+          tail.sub(head);
+          const long = tail.lengthSq();
+          const share =
+            long > 0
+              ? Math.max(0, Math.min(1, ((x - head.x) * tail.x + (y - head.y) * tail.y) / long))
+              : 0;
+          const gap = Math.hypot(head.x + share * tail.x - x, head.y + share * tail.y - y);
+          if (gap >= best) {
+            continue;
+          }
+          spot(slot, share, depth);
+          if (!sight.seen(depth)) {
+            continue;
+          }
+          const from = forecast.times[slot];
+          const time = Math.max(now, from + share * (forecast.times[slot + 1] - from));
+          best = gap;
+          found = { time, slot, share };
+        }
+      }
+      return found;
     },
   };
 }

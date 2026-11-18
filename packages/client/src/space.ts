@@ -68,7 +68,8 @@ export interface Space {
   onTap(listener: (at: Vector3 | null) => void): void;
   onFocus(listener: (id: number) => void): void;
   onArrange(listener: (shown: number) => void): void;
-  focus(id: number): void;
+  onClaim(listener: (x: number, y: number) => boolean): void;
+  focus(id: number, reach?: number): void;
   probe(radius: number): Probe;
   depth(near: number, far: number): void;
   visit(toward: Vector3): void;
@@ -379,13 +380,14 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
   const tapListeners: ((at: Vector3 | null) => void)[] = [];
   const focusListeners: ((id: number) => void)[] = [];
   const arrangeListeners: ((shown: number) => void)[] = [];
+  const claimListeners: ((x: number, y: number) => boolean)[] = [];
   const eye = new Vector3();
   const probes: { frame: Group; radius: number }[] = [];
   const lookOf = (id: number): Look | null => (id < looks.length ? looks[id] : null);
   const frameOf = (id: number) => lookOf(id)?.frame ?? probes[id - looks.length].frame;
   const girthOf = (id: number) => lookOf(id)?.body.radius ?? probes[id - looks.length].radius;
 
-  const attend = (id: number) => {
+  const attend = (id: number, reach?: number) => {
     const look = lookOf(id);
     if (id !== shift.to) {
       const left = lookOf(shift.to);
@@ -400,12 +402,14 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
         listener(id);
       }
     }
-    const wanted =
+    const usual =
       look === null
         ? PORTRAIT * girthOf(id)
         : id === system.home
           ? HOME_VIEW
           : PORTRAIT * look.girth;
+    const wanted =
+      reach === undefined ? usual : Math.min(outmost, Math.max(APPROACH * girthOf(id), reach));
     const turned = look !== null && id !== system.home && look.body.parent !== null;
     glide = {
       from: camera.position.length(),
@@ -743,6 +747,9 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
     }
   };
   const tap = (x: number, y: number) => {
+    if (claimListeners.some((claim) => claim(x, y))) {
+      return;
+    }
     const bounds = renderer.domElement.getBoundingClientRect();
     pointer.set(
       ((x - bounds.left) / bounds.width) * 2 - 1,
@@ -862,6 +869,7 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
     onTap: (listener) => tapListeners.push(listener),
     onFocus: (listener) => focusListeners.push(listener),
     onArrange: (listener) => arrangeListeners.push(listener),
+    onClaim: (listener) => claimListeners.push(listener),
     focus: attend,
     probe(radius) {
       const frame = new Group();
