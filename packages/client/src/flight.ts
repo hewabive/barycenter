@@ -48,6 +48,7 @@ import {
   speedOf,
 } from "./readout.ts";
 import { createSpace } from "./space.ts";
+import { createTumbler, type Place } from "./tumbler.ts";
 
 type Steering = Heading | "plan";
 type Part = "along" | "north" | "out";
@@ -67,11 +68,15 @@ interface Pin {
   slot: number;
   share: number;
   act: ((x: number, y: number) => void) | null;
+  grab: number | null;
 }
 
-interface Jog {
-  field: HTMLInputElement;
-  apply(pull: number, elapsed: number): void;
+interface Haul {
+  id: number;
+  pointer: number;
+  x: number;
+  y: number;
+  moved: boolean;
 }
 
 interface Card {
@@ -121,8 +126,32 @@ const TOUCH_REACH = 26;
 const MAP_FIT = 4.2;
 const DECK_LIFT = 0.11;
 const OPEN_FIT = 3;
-const JOG_SPEED = 4;
-const JOG_TIME = 3;
+const HAUL_SLACK = 4;
+const HAUL_HUSH = 300;
+const LAY_BUDGET = 250;
+const RAIL_SHADE = 0.4;
+const SPEED_PLACES: (Place | string)[] = [
+  { step: 1e4, within: Number.POSITIVE_INFINITY, title: "10 km/s a notch" },
+  { step: 1e3, within: Number.POSITIVE_INFINITY, title: "1 km/s a notch" },
+  { step: 100, within: Number.POSITIVE_INFINITY, title: "100 m/s a notch" },
+  { step: 10, within: Number.POSITIVE_INFINITY, title: "10 m/s a notch" },
+  { step: 1, within: Number.POSITIVE_INFINITY, title: "1 m/s a notch" },
+  ".",
+  { step: 0.1, within: Number.POSITIVE_INFINITY, title: "0.1 m/s a notch" },
+];
+const TIME_PLACES: (Place | string)[] = [
+  { step: 10 * DAY, within: Number.POSITIVE_INFINITY, title: "Ten days a notch" },
+  { step: DAY, within: Number.POSITIVE_INFINITY, title: "A day a notch" },
+  " d ",
+  { step: 10 * HOUR, within: DAY, title: "Ten hours a notch" },
+  { step: HOUR, within: DAY, title: "An hour a notch" },
+  ":",
+  { step: 600, within: HOUR, title: "Ten minutes a notch" },
+  { step: 60, within: HOUR, title: "A minute a notch" },
+  ":",
+  { step: 10, within: 60, title: "Ten seconds a notch" },
+  { step: 1, within: 60, title: "A second a notch" },
+];
 const TOAST_SPAN = 5;
 const NARROW = 760;
 const TONES = {
@@ -196,6 +225,8 @@ const KEYS: [keys: string, deed: string][] = [
   ["/", "time back to its real speed"],
   ["Space", "pause"],
   ["click the path", "plan a push there or run time to it"],
+  ["scroll a digit", "change that place of a number in the plan"],
+  ["drag a push", "move it along the path"],
   ["Enter", "run time to the next push"],
   ["Delete", "drop the chosen push"],
   ["M", "the whole orbit and back to the ship"],
@@ -287,7 +318,9 @@ const space = createSpace(stage, system, true);
 const probe = space.probe(CRAFT_REACH / unit);
 const craft = createCraft(unit);
 const course = createCourse(space.world, system, unit);
+const rail = createCourse(space.world, system, unit, RAIL_SHADE);
 const foresee = createFlyer(rails);
+const forelay = createFlyer(rails);
 const ball = createNavball();
 space.fore.add(craft.frame, craft.lights);
 const tag = el("button", { class: "label craft", type: "button" }, "Ship");
@@ -561,7 +594,6 @@ const chase = () => {
   level = burning() ? Math.min(rung, AUTO_LEVEL) : rung;
 };
 
-let jogs: Jog[] = [];
 const sky = new Vector3();
 const north = new Vector3();
 const scratch = new Float64Array(3);
@@ -621,12 +653,6 @@ const instrument = () => {
 space.onFrame((elapsed) => {
   const tick = Math.min(elapsed, LONGEST_FRAME);
   steer(tick);
-  for (const jog of jogs) {
-    const pull = Number(jog.field.value);
-    if (pull !== 0) {
-      jog.apply(pull, tick);
-    }
-  }
   chase();
   if (toast !== null) {
     toast.left -= tick;
@@ -777,13 +803,23 @@ space.onClaim((x, y) => {
 
 const pinLabels: HTMLButtonElement[] = [];
 const pinActs: (Pin["act"] | undefined)[] = [];
+const pinGrabs: (number | null)[] = [];
 const pinSpots: [number, number][] = [];
+let haul: Haul | null = null;
+let hauledAt = Number.NEGATIVE_INFINITY;
 const pinAt = new Vector3();
 const arm = new Vector3();
 const heart = new Vector3();
 const shares = new Map<number, ReturnType<typeof lagrangeOf>>();
 let pinned = 0;
-const pin = (text: string, tone: string, where: Vector3, act: Pin["act"], bright = false) => {
+const pin = (
+  text: string,
+  tone: string,
+  where: Vector3,
+  act: Pin["act"],
+  grab: number | null = null,
+  bright = false,
+) => {
   const { world, camera } = space;
   if (!sight.seen(where)) {
     return;
@@ -795,7 +831,18 @@ const pin = (text: string, tone: string, where: Vector3, act: Pin["act"], bright
   if (pinned === pinLabels.length) {
     const index = pinLabels.length;
     const made = el("button", { class: "label pin", type: "button" }, "");
-    made.addEventListener("click", () => pinActs[index]?.(...pinSpots[index]));
+    made.addEventListener("click", () => {
+      if (performance.now() - hauledAt > HAUL_HUSH) {
+        pinActs[index]?.(...pinSpots[index]);
+      }
+    });
+    made.addEventListener("pointerdown", (event) => {
+      const id = pinGrabs[index];
+      if (id !== null && id !== undefined && event.button === 0) {
+        event.preventDefault();
+        haul = { id, pointer: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
+      }
+    });
     space.labels.append(made);
     pinLabels.push(made);
     pinSpots.push([0, 0]);
@@ -805,11 +852,13 @@ const pin = (text: string, tone: string, where: Vector3, act: Pin["act"], bright
   const x = (projected.x * 0.5 + 0.5) * stage.clientWidth;
   const y = (0.5 - projected.y * 0.5) * stage.clientHeight;
   pinActs[pinned] = act;
+  pinGrabs[pinned] = grab;
   pinSpots[pinned] = [x, y];
   pinned += 1;
   write(label, text);
   label.dataset.tone = tone;
   label.classList.toggle("live", act !== null);
+  label.classList.toggle("grab", grab !== null);
   label.classList.toggle("lit", bright);
   label.style.display = "";
   const lift = tone === "turn" ? "30%" : "-130%";
@@ -845,6 +894,9 @@ space.onPresent(() => {
   const { world, camera } = space;
   const { state } = flight;
   course.place(flight.time, at, state);
+  if (haul?.moved) {
+    rail.place(flight.time, at, state);
+  }
   shipAt.copy(probe.frame.position).applyMatrix4(world.matrixWorld);
   const gap = shipAt.distanceTo(camera.position);
   eyeAt.copy(camera.position);
@@ -901,7 +953,8 @@ space.onPresent(() => {
     for (const each of pins) {
       const late = forecast.times[Math.min(each.slot + 1, forecast.count - 1)] >= flight.time;
       if (late && course.spot(each.slot, each.share, pinAt)) {
-        pin(each.text, each.tone, pinAt, each.act, each.tone === "push" && each.text === litPin);
+        const bright = each.tone === "push" && each.text === litPin;
+        pin(each.text, each.tone, pinAt, each.act, each.grab, bright);
       }
     }
   }
@@ -961,7 +1014,7 @@ function study(): void {
       return;
     }
     const text = `Push ${place + 1}`;
-    pins.push({ text, tone: "push", slot: mark, share: 0, act: () => choose(id) });
+    pins.push({ text, tone: "push", slot: mark, share: 0, act: () => choose(id), grab: id });
     if (id === selected) {
       litPin = text;
     }
@@ -993,6 +1046,7 @@ function study(): void {
       slot: low.index,
       share: low.share,
       act: (x, y) => offer(low.time, x, y),
+      grab: null,
     });
   }
   if (high !== null) {
@@ -1002,6 +1056,7 @@ function study(): void {
       slot: high.index,
       share: high.share,
       act: (x, y) => offer(high.time, x, y),
+      grab: null,
     });
   }
   passAhead = {
@@ -1021,6 +1076,7 @@ function study(): void {
         slot: nearest.index,
         share: nearest.share,
         act: (x, y) => offer(nearest.time, x, y),
+        grab: null,
       });
       passNear = { gap, time: nearest.time };
     }
@@ -1032,6 +1088,7 @@ function study(): void {
       slot: count - 1,
       share: 0,
       act: null,
+      grab: null,
     });
   }
 }
@@ -1174,13 +1231,9 @@ let planRows: {
   when: HTMLElement;
   size: HTMLElement;
   sum: HTMLElement | null;
-  fields: [Part, HTMLInputElement][];
+  shows: (() => void)[];
 }[] = [];
 const turnNow = () => orbitOf(rails.pulls[about], ...relative(about), poleOf(bodies[about]));
-const degree = () => {
-  const { year } = turnNow();
-  return Number.isFinite(year) ? Math.max(1, year / 360) : 60;
-};
 function choose(id: number | null): void {
   selected = id;
   listPlan();
@@ -1206,31 +1259,8 @@ const runToPush = () => {
     runTo(push.time - burnSpan(push.left * sizeOf(push), engine.thrust) / 2 - PUSH_LEAD);
   }
 };
-const spring = (title: string, apply: Jog["apply"], settle: () => void): HTMLInputElement => {
-  const field = el("input", {
-    type: "range",
-    class: "jog",
-    min: "-1",
-    max: "1",
-    step: "0.001",
-    value: "0",
-    title,
-  });
-  const rest = () => {
-    if (field.value !== "0") {
-      field.value = "0";
-      settle();
-    }
-  };
-  for (const kind of ["pointerup", "pointercancel", "change", "blur", "keyup"]) {
-    field.addEventListener(kind, rest);
-  }
-  jogs.push({ field, apply });
-  return field;
-};
 function listPlan(): void {
   planList.replaceChildren();
-  jogs = [];
   planRows = plan.map((push) => {
     const open = push.id === selected;
     const name = el("strong", {}, "");
@@ -1241,81 +1271,65 @@ function listPlan(): void {
     const frame = el("div", { class: open ? "push open" : "push" }, head);
     planList.append(frame);
     if (!open) {
-      return { push, name, when, size, sum: null, fields: [] };
+      return { push, name, when, size, sum: null, shows: [] };
     }
-    const step = (label: string, title: string, act: () => void) => {
-      const control = button(label, title, () => {
-        act();
-        touch();
-      });
-      control.classList.add("step");
-      return control;
+    const shows: (() => void)[] = [];
+    const told = () => {
+      touch();
+      sinceReadout = Number.POSITIVE_INFINITY;
     };
-    const shift = (degrees: number) => {
-      push.time = Math.max(flight.time + 1, push.time + degrees * degree());
-    };
-    const fields: [Part, HTMLInputElement][] = [];
     const part = (label: string, tone: string, title: string, key: Part) => {
-      const field = el("input", { type: "number", step: "1", value: push[key].toFixed(1), title });
-      const change = (by: number) => {
-        push[key] += by;
-        push.left = 1;
-      };
-      field.addEventListener("input", () => {
-        const typed = Number.parseFloat(field.value);
-        push[key] = Number.isFinite(typed) ? typed : 0;
-        push.left = 1;
-        touch();
-      });
-      fields.push([key, field]);
+      const wheel = createTumbler(
+        SPEED_PLACES,
+        0.1,
+        1,
+        (by) => {
+          push[key] += by;
+          push.left = 1;
+          told();
+        },
+        () => {
+          push[key] = -push[key];
+          push.left = 1;
+          told();
+        },
+      );
+      shows.push(() => wheel.show(push[key]));
       const row = el(
         "div",
-        { class: "part" },
+        { class: "part", title },
         el("span", { class: "name" }, label),
-        step("−", "One meter a second less", () => change(-1)),
-        spring(
-          `${title}: pull and hold, the farther the faster`,
-          (pull, elapsed) => {
-            change(Math.sign(pull) * (10 ** (JOG_SPEED * Math.abs(pull)) - 1) * elapsed);
-            touch();
-          },
-          () => {},
-        ),
-        step("+", "One meter a second more", () => change(1)),
-        field,
+        wheel.frame,
+        el("span", { class: "unit" }, "m/s"),
       );
       row.style.setProperty("--tone", tone);
-      row.addEventListener(
-        "wheel",
-        (event) => {
-          event.preventDefault();
-          change(-Math.sign(event.deltaY) * (event.shiftKey ? 10 : 1));
-          touch();
-        },
-        { passive: false },
-      );
       return row;
     };
-    const sum = el("div", { class: "hint" }, "");
+    const move = (by: number) => {
+      const place = plan.indexOf(push);
+      push.time = Math.max(flight.time + 1, push.time + by);
+      told();
+      if (plan.indexOf(push) !== place) {
+        listPlan();
+      }
+    };
+    const turns = (by: number) => {
+      const { year } = turnNow();
+      if (Number.isFinite(year)) {
+        move(by * year);
+      }
+    };
+    const moment = createTumbler(TIME_PLACES, 1, 1, move, null);
+    shows.push(() => moment.show(push.time - flight.time));
+    const sum = el("span", {}, "");
     frame.append(
       el(
         "div",
-        { class: "part" },
-        el("span", { class: "name" }, "When"),
-        step("−", "A degree of the orbit earlier", () => shift(-1)),
-        spring(
-          "The moment of the push: pull and hold, the farther the faster",
-          (pull, elapsed) => {
-            const { year } = turnNow();
-            const turnSpan = Number.isFinite(year) ? year : 6 * HOUR;
-            const rate = ((10 ** (JOG_TIME * Math.abs(pull)) - 1) / 999) * turnSpan;
-            push.time = Math.max(flight.time + 1, push.time + Math.sign(pull) * rate * elapsed);
-            touch();
-          },
-          listPlan,
-        ),
-        step("+", "A degree of the orbit later", () => shift(1)),
-        button("Drop", "Take this push out of the plan (Delete)", () => drop(push)),
+        { class: "part", title: "The moment of the push, counted from now" },
+        el("span", { class: "name" }, "In"),
+        moment.frame,
+        button("− orbit", "One turn of the present orbit earlier", () => turns(-1)),
+        button("+ orbit", "One turn of the present orbit later", () => turns(1)),
       ),
       part(
         "Along",
@@ -1325,11 +1339,73 @@ function listPlan(): void {
       ),
       part("North", TONES.north, "Meters a second across the plane of the orbit", "north"),
       part("Out", TONES.out, "Meters a second outward, or inward when negative", "out"),
-      sum,
+      el(
+        "div",
+        { class: "foot" },
+        sum,
+        button("Drop", "Take this push out of the plan (Delete)", () => drop(push)),
+      ),
     );
-    return { push, name, when, size, sum, fields };
+    return { push, name, when, size, sum, shows };
   });
 }
+const lay = (id: number) => {
+  const index = plan.findIndex((push) => push.id === id);
+  if (index < 0) {
+    return;
+  }
+  if (selected !== id) {
+    choose(id);
+  }
+  const before = kicksNow().slice(0, index);
+  const ghost = createForecast(rails, forelay, flight, before, lookahead, FORECAST_ROOM);
+  const started = performance.now();
+  while (!ghost.done && performance.now() - started < LAY_BUDGET) {
+    ghost.extend(16);
+  }
+  rail.show(ghost, frame);
+};
+const tow = (id: number, x: number, y: number) => {
+  const index = plan.findIndex((push) => push.id === id);
+  if (index < 0) {
+    return;
+  }
+  const bounds = stage.getBoundingClientRect();
+  const from = Math.max(flight.time, index > 0 ? plan[index - 1].time : 0) + 1;
+  const until = index + 1 < plan.length ? plan[index + 1].time - 1 : Number.POSITIVE_INFINITY;
+  const found = rail.near(sight, x - bounds.left, y - bounds.top, Number.POSITIVE_INFINITY, from);
+  if (found !== null) {
+    plan[index].time = Math.min(until, Math.max(from, found.time));
+    touch();
+    sinceReadout = Number.POSITIVE_INFINITY;
+  }
+};
+window.addEventListener("pointermove", (event) => {
+  if (haul === null || haul.pointer !== event.pointerId) {
+    return;
+  }
+  if (!haul.moved) {
+    if (Math.hypot(event.clientX - haul.x, event.clientY - haul.y) < HAUL_SLACK) {
+      return;
+    }
+    haul.moved = true;
+    lay(haul.id);
+  }
+  tow(haul.id, event.clientX, event.clientY);
+});
+const letGo = (event: PointerEvent) => {
+  if (haul === null || haul.pointer !== event.pointerId) {
+    return;
+  }
+  if (haul.moved) {
+    hauledAt = performance.now();
+    rail.show(null, frame);
+    space.invalidate();
+  }
+  haul = null;
+};
+window.addEventListener("pointerup", letGo);
+window.addEventListener("pointercancel", letGo);
 function add(time: number): void {
   if (!Number.isFinite(time) || time <= flight.time) {
     return;
@@ -1842,17 +1918,15 @@ function refresh(): void {
     planHint,
     plan.length === 0
       ? "Click the path ahead, or one of its marks, to plan a push there."
-      : "Pull a slider and hold it: the farther, the faster the number runs.",
+      : "Scroll over a digit, drag it, or click its upper or lower half. Drag a push along the path to move it.",
   );
-  for (const { push, name, when, size, sum, fields } of planRows) {
+  for (const { push, name, when, size, sum, shows } of planRows) {
     const whole = sizeOf(push);
     write(name, `Push ${plan.indexOf(push) + 1}`);
     write(when, `in ${spanOf(push.time - flight.time)}`);
     write(size, speedOf(push.left * whole));
-    for (const [key, field] of fields) {
-      if (document.activeElement !== field) {
-        field.value = push[key].toFixed(1);
-      }
+    for (const show of shows) {
+      show();
     }
     if (sum !== null) {
       const span = burnSpan(push.left * whole, engine.thrust);

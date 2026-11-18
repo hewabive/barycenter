@@ -478,88 +478,132 @@ body.flight {
 }
 
 .part {
-  display: grid;
-  grid-template-columns: 40px 20px minmax(0, 1fr) 20px 76px;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  --tone: var(--muted);
+  gap: 2px 6px;
+  min-height: 32px;
+  padding: 0 8px;
+  --tone: var(--text);
 }
 
 .part .name {
+  width: 40px;
   font-size: 12px;
   color: var(--tone);
 }
 
-.part .step {
+.part .unit {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.part button {
   min-height: 0;
-  padding: 0;
-  line-height: 18px;
+  padding: 1px 6px;
+  font-size: 11px;
+  white-space: nowrap;
 }
 
-.part input[type="number"] {
-  width: 100%;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
+.part button:first-of-type {
+  margin-left: auto;
 }
 
-.part > button:last-child {
-  padding: 1px 0;
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 8px 0;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.foot button {
+  min-height: 0;
+  padding: 1px 8px;
   font-size: 12px;
 }
 
-.jog {
-  width: 100%;
-  min-width: 0;
-  height: 18px;
-  margin: 0;
+.tumbler {
+  display: inline-flex;
+  align-items: center;
+  color: var(--tone);
+  font-variant-numeric: tabular-nums;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: none;
+}
+
+.tumbler .digit {
+  position: relative;
+  width: 14px;
+  height: 22px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 22px;
+  text-align: center;
+  border-radius: 3px;
+  cursor: ns-resize;
+}
+
+.tumbler .digit.lead {
+  opacity: 0.35;
+}
+
+.tumbler .gap {
+  padding: 0 1px;
+  color: var(--muted);
+  white-space: pre;
+}
+
+.tumbler .sign {
+  width: 14px;
+  min-height: 0;
+  padding: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 22px;
+  color: inherit;
   background: none;
-  -webkit-appearance: none;
-  appearance: none;
-  accent-color: var(--tone);
-}
-
-.jog::-webkit-slider-runnable-track {
-  height: 4px;
-  background: linear-gradient(
-    90deg,
-    var(--tone),
-    rgb(126 160 214 / 25%) 45%,
-    rgb(126 160 214 / 25%) 55%,
-    var(--tone)
-  );
-  border-radius: 2px;
-}
-
-.jog::-moz-range-track {
-  height: 4px;
-  background: linear-gradient(
-    90deg,
-    var(--tone),
-    rgb(126 160 214 / 25%) 45%,
-    rgb(126 160 214 / 25%) 55%,
-    var(--tone)
-  );
-  border-radius: 2px;
-}
-
-.jog::-webkit-slider-thumb {
-  width: 12px;
-  height: 16px;
-  margin-top: -6px;
-  background: var(--text);
   border: 0;
-  border-radius: 3px;
-  -webkit-appearance: none;
-  appearance: none;
 }
 
-.jog::-moz-range-thumb {
-  width: 12px;
-  height: 16px;
-  background: var(--text);
-  border: 0;
-  border-radius: 3px;
+@media (hover: hover) {
+  .tumbler .digit:hover {
+    background: rgb(126 160 214 / 26%);
+    opacity: 1;
+  }
+
+  .tumbler .digit:hover::before,
+  .tumbler .digit:hover::after {
+    position: absolute;
+    right: 0;
+    left: 0;
+    font-size: 9px;
+    line-height: 6px;
+    color: var(--text);
+  }
+
+  .tumbler .digit:hover::before {
+    content: "▴";
+    top: -5px;
+  }
+
+  .tumbler .digit:hover::after {
+    content: "▾";
+    bottom: -5px;
+  }
+}
+
+@media (pointer: coarse) {
+  .tumbler .digit,
+  .tumbler .sign {
+    width: 22px;
+    height: 36px;
+    font-size: 18px;
+    line-height: 36px;
+  }
 }
 
 .wreck {
@@ -733,6 +777,11 @@ body.flight {
 .label.pin.live {
   pointer-events: auto;
   cursor: pointer;
+}
+
+.label.pin.grab {
+  cursor: grab;
+  touch-action: none;
 }
 
 @media (hover: hover) {

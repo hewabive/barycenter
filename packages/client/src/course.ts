@@ -50,7 +50,7 @@ interface Strand {
 const TONES = [0x7fd4ff, 0xffb347, 0xff7ab8, 0xb7f27a, 0xc9a3ff];
 const SHADE = 0.9;
 
-export function createCourse(world: Group, system: Sketch, unit: number): Course {
+export function createCourse(world: Group, system: Sketch, unit: number, shade = SHADE): Course {
   const { bodies } = system;
   const crowd = bodies.length;
   const poles = bodies.map((body) => {
@@ -63,7 +63,7 @@ export function createCourse(world: Group, system: Sketch, unit: number): Course
       .cross(new Vector3(beside.x, beside.y, beside.z))
       .normalize();
   });
-  const material = new LineBasicMaterial({ vertexColors: true, transparent: true, opacity: SHADE });
+  const material = new LineBasicMaterial({ vertexColors: true, transparent: true, opacity: shade });
   const tones = TONES.map((tone) => new Color(tone));
   let strands: Strand[] = [];
   let shown: Forecast | null = null;
