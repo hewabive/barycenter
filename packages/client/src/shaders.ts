@@ -144,6 +144,8 @@ const LUMPS = 4;
 const THREADS = 9;
 const THREAD_RISE = 1.2;
 const PROMINENCE_DEPTH = 0.9;
+const PROMINENCE_SHADE = 0.6;
+const PROMINENCE_DUSK = 0.3;
 const HALO_SOFT = 0.25;
 const HALO_RIM = 0.5;
 const HALO_WIDE = 0.12;
@@ -1006,6 +1008,7 @@ void main() {
   float miss = length(toward - ray * dot(toward, ray));
   float clear = smoothstep(0.996 * girth, 1.002 * girth, miss);
   vec3 sight = mat3(viewMatrix) * ray;
+  float sky = 1.0;
   for (int index = 0; index < ${SCREEN_ROOM}; index++) {
     vec4 screen = screens[index];
     if (screen.w <= 0.0) {
@@ -1013,12 +1016,16 @@ void main() {
     }
     float ahead = dot(screen.xyz, sight);
     if (suns[index] > 0.5 && ahead > 0.0) {
-      clear *= smoothstep(screen.w, 1.004 * screen.w, length(screen.xyz - sight * ahead));
+      sky *= smoothstep(screen.w, 1.004 * screen.w, length(screen.xyz - sight * ahead));
     }
   }
 
   float dense = vForm.x * body * (0.15 + 0.85 * smoothstep(0.15, 0.8, threads)) * clear;
-  gl_FragColor = vec4(tint, 1.0 - exp(-${real(PROMINENCE_DEPTH)} * dense));
+  float thick = 1.0 - exp(-${real(PROMINENCE_DEPTH)} * dense);
+  gl_FragColor = vec4(
+    tint * mix(${real(PROMINENCE_DUSK)}, 1.0, sky),
+    thick * mix(${real(PROMINENCE_SHADE)}, 1.0, sky)
+  );
   #include <colorspace_fragment>
 }
 `;

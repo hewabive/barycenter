@@ -34,6 +34,7 @@ import {
   RingGeometry,
   Scene,
   ShaderMaterial,
+  Sphere,
   UnsignedByteType,
   Vector2,
   Vector3,
@@ -197,6 +198,7 @@ function ribbonsOf(): BufferGeometry {
   const ribbons = new BufferGeometry();
   ribbons.setAttribute("position", new Float32BufferAttribute(places, 3));
   ribbons.setIndex(corners);
+  ribbons.boundingSphere = new Sphere(new Vector3(), 2);
   return ribbons;
 }
 
@@ -676,32 +678,6 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       new ShaderMaterial({ vertexShader: BODY_VERTEX, fragmentShader: STAR_FRAGMENT, uniforms }),
     );
     globe.visible = false;
-    const plumes = new Mesh(
-      ribbons,
-      new ShaderMaterial({
-        vertexShader: PROMINENCE_VERTEX,
-        fragmentShader: PROMINENCE_FRAGMENT,
-        transparent: true,
-        depthWrite: false,
-        side: DoubleSide,
-        uniforms: {
-          relief: uniforms.relief,
-          seats: { value: prominences.seats },
-          leans: { value: prominences.leans },
-          forms: { value: prominences.forms },
-          screens: { value: screens },
-          suns: { value: suns },
-          tint: { value: new Color(1, 0.25, 0.25).multiplyScalar(0.55 + 0.45 * rim.r) },
-          drift,
-        },
-      }),
-    );
-    plumes.visible = false;
-    plumes.frustumCulled = false;
-    const { release, ...surface } = baked(body, uniforms.relief, [globe, plumes]);
-    globe.scale.setScalar(body.radius);
-    plumes.scale.setScalar(body.radius);
-    frame.add(globe, plumes);
     const flare = new Mesh(
       sheet,
       new ShaderMaterial({
@@ -723,7 +699,32 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       }),
     );
     flare.frustumCulled = false;
-    frame.add(flare);
+    const plumes = new Mesh(
+      ribbons,
+      new ShaderMaterial({
+        vertexShader: PROMINENCE_VERTEX,
+        fragmentShader: PROMINENCE_FRAGMENT,
+        transparent: true,
+        depthWrite: false,
+        side: DoubleSide,
+        uniforms: {
+          relief: uniforms.relief,
+          seats: { value: prominences.seats },
+          leans: { value: prominences.leans },
+          forms: { value: prominences.forms },
+          screens: { value: screens },
+          suns: { value: suns },
+          tint: { value: new Color(1, 0.25, 0.25).multiplyScalar(rim.r) },
+          drift,
+        },
+      }),
+    );
+    plumes.visible = false;
+    plumes.frustumCulled = false;
+    const { release, ...surface } = baked(body, uniforms.relief, [globe, plumes]);
+    globe.scale.setScalar(body.radius);
+    plumes.scale.setScalar(body.radius);
+    frame.add(globe, flare, plumes);
 
     const beat = (age: number) => {
       const cycle = Math.floor(age);
