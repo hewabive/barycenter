@@ -689,6 +689,8 @@ export function createStudio(renderer: WebGLRenderer): Studio {
           seats: { value: prominences.seats },
           leans: { value: prominences.leans },
           forms: { value: prominences.forms },
+          screens: { value: screens },
+          suns: { value: suns },
           tint: { value: new Color(1, 0.25, 0.25).multiplyScalar(0.55 + 0.45 * rim.r) },
           drift,
         },

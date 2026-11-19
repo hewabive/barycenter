@@ -145,6 +145,9 @@ const THREADS = 9;
 const THREAD_RISE = 1.2;
 const PROMINENCE_DEPTH = 0.9;
 const HALO_SOFT = 0.25;
+const HALO_RIM = 0.5;
+const HALO_WIDE = 0.12;
+const HALO_PEAK = HALO_RIM + HALO_WIDE;
 const HALO_WRAP = 2;
 const HALO_SHEET = 1.35;
 const BELT_COVER = 0.12;
@@ -838,6 +841,21 @@ uniform float fuzz;
 varying vec3 vSight;
 varying vec3 vMiddle;
 
+float glared(float miss, float ball, float span) {
+  float rise = max(miss / ball - 1.0, 0.0);
+  return (${real(HALO_RIM)} * exp(-rise / 0.04) + ${real(HALO_WIDE)} / (1.0 + 12.0 * rise * rise))
+    * (1.0 - smoothstep(0.6, 1.0, miss / span));
+}
+
+float unveiled(float along, float miss, float ball, float nearest) {
+  float soft = ${real(HALO_SOFT)} * ball + max(miss - ball, 0.0);
+  float before = 0.5 - 0.5 * along / length(vec2(along, soft));
+  float until = nearest > 0.0
+    ? 0.5 + 0.5 * (nearest - along) / length(vec2(nearest - along, soft))
+    : 1.0;
+  return max(until - before, 0.0);
+}
+
 void main() {
   vec3 ray = normalize(vSight);
   float along = dot(vMiddle, ray);
@@ -873,12 +891,8 @@ void main() {
       }
     }
   }
-  float soft = ${real(HALO_SOFT)} * girth + max(miss - girth, 0.0);
-  float before = 0.5 - 0.5 * along / length(vec2(along, soft));
-  float until = 1.0;
   float rest = max(along + girth, 1e-3);
   if (nearest > 0.0) {
-    until = 0.5 + 0.5 * (nearest - along) / length(vec2(nearest - along, soft));
     rest = nearest * 0.999;
   }
   if (blaze > 0.0 && (nearest <= 0.0 || blaze < nearest)) {
@@ -886,7 +900,24 @@ void main() {
   }
   vec4 clip = projectionMatrix * vec4(ray * rest, 1.0);
   gl_FragDepth = 0.5 + 0.5 * clip.z / clip.w;
-  float glare = 0.5 * exp(-rise / 0.04) + 0.12 / (1.0 + 12.0 * rise * rise);
+  float bare = unveiled(along, miss, girth, nearest);
+  float mine = glared(miss, girth, reach) * bare;
+  float total = mine;
+  float room = 1.0 - mine / ${real(HALO_PEAK)};
+  for (int index = 0; index < ${SCREEN_ROOM}; index++) {
+    vec4 screen = screens[index];
+    if (screen.w <= 0.0) {
+      break;
+    }
+    if (suns[index] > 0.5) {
+      float ahead = dot(screen.xyz, ray);
+      float wide = length(ray * ahead - screen.xyz);
+      float theirs = glared(wide, screen.w, screen.w * reach / girth)
+        * unveiled(ahead, wide, screen.w, nearest);
+      total += theirs;
+      room *= 1.0 - theirs / ${real(HALO_PEAK)};
+    }
+  }
   float blades = 0.0;
   if (rise < ${real(FUZZ_REACH)}) {
     mat3 turn = mat3(modelViewMatrix);
@@ -895,10 +926,11 @@ void main() {
     vec3 limb = normalize(outward - dot(outward, eye) * eye);
     blades = fuzz * exp(-rise / (${real(FUZZ_RISE)} * (0.4 + 1.2 * textureLod(relief, limb, 2.0).r)));
   }
-  float fade = 1.0 - smoothstep(0.6, 1.0, miss / reach);
-  vec3 lit = rim * glare * fade + ${HYDROGEN} * blades * ${real(FUZZ_GLOW)} * (0.15 + 0.5 * rim.r);
-  gl_FragColor = vec4(lit * max(until - before, 0.0), 1.0);
+  vec3 lit = rim * ${real(HALO_PEAK)} * (1.0 - room)
+    + ${HYDROGEN} * blades * ${real(FUZZ_GLOW)} * (0.15 + 0.5 * rim.r) * bare;
+  gl_FragColor = vec4(lit, 1.0);
   #include <colorspace_fragment>
+  gl_FragColor.rgb *= mine / max(total, 1e-6);
 }
 `;
 
@@ -943,6 +975,8 @@ void main() {
 export const PROMINENCE_FRAGMENT = `
 uniform samplerCube relief;
 uniform mat4 modelMatrix;
+uniform vec4 screens[${SCREEN_ROOM}];
+uniform float suns[${SCREEN_ROOM}];
 uniform vec3 tint;
 uniform float drift;
 varying vec2 vPart;
@@ -971,6 +1005,17 @@ void main() {
   vec3 toward = heart - cameraPosition;
   float miss = length(toward - ray * dot(toward, ray));
   float clear = smoothstep(0.996 * girth, 1.002 * girth, miss);
+  vec3 sight = mat3(viewMatrix) * ray;
+  for (int index = 0; index < ${SCREEN_ROOM}; index++) {
+    vec4 screen = screens[index];
+    if (screen.w <= 0.0) {
+      break;
+    }
+    float ahead = dot(screen.xyz, sight);
+    if (suns[index] > 0.5 && ahead > 0.0) {
+      clear *= smoothstep(screen.w, 1.004 * screen.w, length(screen.xyz - sight * ahead));
+    }
+  }
 
   float dense = vForm.x * body * (0.15 + 0.85 * smoothstep(0.15, 0.8, threads)) * clear;
   gl_FragColor = vec4(tint, 1.0 - exp(-${real(PROMINENCE_DEPTH)} * dense));
