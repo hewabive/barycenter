@@ -830,6 +830,7 @@ uniform mat4 projectionMatrix;
 uniform samplerCube relief;
 uniform vec4 screens[${SCREEN_ROOM}];
 uniform vec4 poles[${SCREEN_ROOM}];
+uniform float suns[${SCREEN_ROOM}];
 uniform vec3 rim;
 uniform float reach;
 uniform float girth;
@@ -847,6 +848,8 @@ void main() {
   }
   float rise = max(miss / girth - 1.0, 0.0);
   float nearest = 0.0;
+  float blaze = 0.0;
+  float past = 0.0;
   for (int index = 0; index < ${SCREEN_ROOM}; index++) {
     vec4 screen = screens[index];
     if (screen.w <= 0.0) {
@@ -860,7 +863,14 @@ void main() {
     float inside = toward * toward - steep * (dot(heart, heart) - screen.w * screen.w);
     float entry = (toward - sqrt(max(inside, 0.0))) / steep;
     if (inside > 0.0 && entry > 0.0) {
-      nearest = nearest > 0.0 ? min(nearest, entry) : entry;
+      if (suns[index] > 0.5) {
+        if (blaze <= 0.0 || entry < blaze) {
+          blaze = entry;
+          past = 2.0 * toward / steep - entry;
+        }
+      } else {
+        nearest = nearest > 0.0 ? min(nearest, entry) : entry;
+      }
     }
   }
   float soft = ${real(HALO_SOFT)} * girth + max(miss - girth, 0.0);
@@ -870,6 +880,9 @@ void main() {
   if (nearest > 0.0) {
     until = 0.5 + 0.5 * (nearest - along) / length(vec2(nearest - along, soft));
     rest = nearest * 0.999;
+  }
+  if (blaze > 0.0 && (nearest <= 0.0 || blaze < nearest)) {
+    rest = max(rest, past * 1.001);
   }
   vec4 clip = projectionMatrix * vec4(ray * rest, 1.0);
   gl_FragDepth = 0.5 + 0.5 * clip.z / clip.w;

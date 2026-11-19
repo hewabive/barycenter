@@ -98,6 +98,7 @@ export interface Look {
   halo: number;
   screens: Vector4[];
   poles: Vector4[];
+  suns: number[];
   tone: Color;
   ember: Color;
   shine: Color;
@@ -632,6 +633,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
     const boil = new Vector4(0, 1, 0, 0);
     const screens = Array.from({ length: SCREEN_ROOM }, () => new Vector4(0, 0, 0, 0));
     const poles = Array.from({ length: SCREEN_ROOM }, () => new Vector4(0, 0, 0, 0));
+    const suns = Array.from({ length: SCREEN_ROOM }, () => 0);
     const flow = new Vector2();
     const tint = new Color(flame.tint);
     const steep = new Vector3(...WAVES.map((wave) => WIEN / (wave * flame.kelvin)));
@@ -711,6 +713,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
           fuzz: { value: Math.min(1, flame.grain / 0.02) },
           screens: { value: screens },
           poles: { value: poles },
+          suns: { value: suns },
           rim: { value: rim },
           reach: { value: body.radius * FLARE_REACH },
           girth: { value: body.radius },
@@ -741,6 +744,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       halo: body.radius * FLARE_REACH,
       screens,
       poles,
+      suns,
       tone: tint,
       ember,
       shine: new Color(0, 0, 0),
@@ -989,6 +993,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       halo: 0,
       screens: [],
       poles: [],
+      suns: [],
       tone,
       ember,
       shine: shines[0],

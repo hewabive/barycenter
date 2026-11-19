@@ -580,13 +580,17 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
       const within = looks
         .filter((look) => look !== glare)
         .map((look) => ({ look, apart: places[look.body.id].distanceTo(middle) }))
-        .filter(({ look, apart }) => apart < HALO_SLACK * glare.halo + BALL_SLACK * look.ball)
+        .filter(
+          ({ look, apart }) =>
+            look.halo > 0 || apart < HALO_SLACK * glare.halo + BALL_SLACK * look.ball,
+        )
         .sort((left, right) => left.apart - right.apart);
       glare.screens.forEach((screen, at) => {
         const look = within[at]?.look;
         if (look === undefined) {
           screen.set(0, 0, 0, 0);
           glare.poles[at].set(0, 0, 0, 0);
+          glare.suns[at] = 0;
           return;
         }
         seat.copy(places[look.body.id]).applyMatrix4(camera.matrixWorldInverse);
@@ -596,6 +600,7 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
           .applyQuaternion(look.frame.getWorldQuaternion(stance))
           .transformDirection(camera.matrixWorldInverse);
         glare.poles[at].set(axis.x, axis.y, axis.z, 1 / look.flat - 1);
+        glare.suns[at] = look.halo > 0 ? 1 : 0;
       });
     }
     looks.forEach((look, index) => {
