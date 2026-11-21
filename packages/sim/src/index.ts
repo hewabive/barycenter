@@ -40,9 +40,24 @@ export {
 } from "./flight.ts";
 export type { Duty, Muster, Route } from "./muster.ts";
 export {
+  assemble,
+  evolve,
+  type Jacobi,
+  jacobiOf,
+  ladderOf,
+  type Member,
+  MISHAPS,
+  type Mishap,
+  type MishapKind,
+  type Run,
+  type Track,
+  type Watch,
+} from "./nbody.ts";
+export {
   ASTRONOMICAL_UNIT,
   BROWN_LEAST,
   balanceHeat,
+  bulgeOf,
   type Climate,
   classOf,
   clearOf,
@@ -70,6 +85,7 @@ export {
   innerHeat,
   JUPITER_MASS,
   LUMENS,
+  laplaceOf,
   lightAt,
   moltenOf,
   nestOf,
@@ -105,6 +121,16 @@ export { createRandom, type Random } from "./random.ts";
 export { elevationAt, RELIEF_SHAPE } from "./relief.ts";
 export { type ForceReport, forceReportFor } from "./report.ts";
 export { circumcenter, hullFaces } from "./sphere.ts";
+export {
+  CAUSES,
+  type Cause,
+  gapOf,
+  type Loss,
+  type Standing,
+  standingsOf,
+  type Trial,
+  trial,
+} from "./stability.ts";
 export { cloneState, issue, step } from "./step.ts";
 export {
   anomalyOf,

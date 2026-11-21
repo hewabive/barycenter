@@ -32,6 +32,12 @@ Run one bot match and print its timeline, or a series with rotating seats and a 
 
 Add `--set name=value,name=value` to try other constants on a match or a series.
 
+Let every body of made star systems pull on every other, and print how many systems lose a body and why:
+
+    pnpm stability --seed 1 --systems 100 --turns 10000
+
+Add `--home yes` or `--home no` for systems with a home only or without one, `--jobs` for the number of processes and `--list` to name every loss.
+
 ## Playing
 
 Build the client once and start the server, then open `http://127.0.0.1:8787`:

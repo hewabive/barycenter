@@ -16,6 +16,7 @@
     "format": "biome check --write .",
     "test": "pnpm -r --if-present run test",
     "match": "pnpm --filter @barycenter/bots run match",
+    "stability": "pnpm --filter @barycenter/sim run stability",
     "serve": "pnpm --filter @barycenter/server run serve",
     "dev": "pnpm --parallel --filter @barycenter/server --filter @barycenter/client run dev",
     "build": "pnpm --filter @barycenter/client run build"

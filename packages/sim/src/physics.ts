@@ -22,6 +22,10 @@ export const GRAVITY = 6.674e-11;
 const FROST_LINE = 2.7 * ASTRONOMICAL_UNIT;
 const RADIATION = 5.67e-8;
 const HOLD_LEAST = 0.02;
+const LOVE_STAR = 0.03;
+const LOVE_FLUID = 0.4;
+const LOVE_SOLID = 0.93;
+const SPIN_MOST = 0.3;
 const BOLTZMANN = 1.381e-23;
 const DALTON = 1.661e-27;
 const EARTH_DENSITY = 5514;
@@ -315,6 +319,25 @@ export function yearOf(orbit: number, around: number): number {
 
 export function hillOf(orbit: number, mass: number, around: number): number {
   return orbit * Math.cbrt(mass / (3 * around));
+}
+
+export function bulgeOf(
+  physics: Pick<Physics, "mass" | "radius" | "gas" | "iron" | "rock" | "ice" | "day">,
+): number {
+  const spin =
+    (((2 * Math.PI) / physics.day) ** 2 * physics.radius ** 3) / (GRAVITY * physics.mass);
+  const love = starborn(physics) ? LOVE_STAR : wrapped(physics) ? LOVE_FLUID : LOVE_SOLID;
+  return (love / 3) * Math.min(SPIN_MOST, spin) * physics.radius ** 2;
+}
+
+export function laplaceOf(
+  bulge: number,
+  orbit: number,
+  stretch: number,
+  mass: number,
+  around: number,
+): number {
+  return ((bulge * orbit ** 3 * (1 - stretch ** 2) ** 1.5 * mass) / around) ** 0.2;
 }
 
 export function holdOf(share: number, stretch: number): number {
