@@ -118,7 +118,20 @@ export {
   YEAR,
 } from "./physics.ts";
 export { createRandom, type Random } from "./random.ts";
-export { elevationAt, RELIEF_SHAPE } from "./relief.ts";
+export {
+  bowlOf,
+  cratersOf,
+  elevationAt,
+  GRAIN_SHAPE,
+  GROUND_GRAIN,
+  groundAt,
+  heightOf,
+  PIT_SHAPE,
+  type Pits,
+  pitsAt,
+  pitsOf,
+  RELIEF_SHAPE,
+} from "./relief.ts";
 export { type ForceReport, forceReportFor } from "./report.ts";
 export { circumcenter, hullFaces } from "./sphere.ts";
 export {

@@ -47,7 +47,7 @@ import {
   yearOf,
 } from "./physics.ts";
 import { createRandom, type Random } from "./random.ts";
-import { elevationAt } from "./relief.ts";
+import { cratersOf, elevationAt, heightOf } from "./relief.ts";
 import { scatter } from "./sphere.ts";
 import {
   type Body,
@@ -298,7 +298,15 @@ const MAX_TILT = 0.45;
 const SHORE_POINTS = 240;
 const HIGH_SHARE = 0.82;
 const HOME_SHAPE = { frequency: 1.2, warp: 0.5, ridge: 0.45 };
-const FLUID_RELIEF: Relief = { frequency: 2, warp: 0.7, ridge: 0, sea: null, peak: 0.5 };
+const FLUID_RELIEF: Relief = {
+  frequency: 2,
+  warp: 0.7,
+  ridge: 0,
+  sea: null,
+  peak: 0.5,
+  height: 0,
+  craters: 0,
+};
 
 const OPENINGS = ["Ta", "Ke", "Mo", "Vi", "Su", "Ar", "El", "No", "Ri", "Ze", "Ha", "Ol"];
 const MIDDLES = ["ra", "li", "no", "ve", "tu", "sha", "mi", "do", ""];
@@ -833,13 +841,17 @@ function tipped(
   };
 }
 
+function stirOf(physics: Physics): [small: number, lively: number] {
+  const small = 1 - smooth(-2, 0, Math.log10(physics.mass / EARTH_MASS));
+  return [small, physics.vigor * (1 - small)];
+}
+
 export function reliefOf(physics: Physics, seed: number): Relief {
   if (wrapped(physics)) {
     return FLUID_RELIEF;
   }
   const random = createRandom(seed + 71);
-  const small = 1 - smooth(-2, 0, Math.log10(physics.mass / EARTH_MASS));
-  const lively = physics.vigor * (1 - small);
+  const [small, lively] = stirOf(physics);
   const shape =
     physics.life > 0
       ? HOME_SHAPE
@@ -847,16 +859,22 @@ export function reliefOf(physics: Physics, seed: number): Relief {
         ? { frequency: 1.6 + 0.4 * random.next(), warp: 0.55, ridge: 0.7 }
         : { frequency: 1.3 + 1.1 * small, warp: 0.25 + 0.3 * lively, ridge: 0.2 + 0.45 * lively };
   const cover = seaCover(physics);
+  const dry = {
+    ...shape,
+    sea: null,
+    peak: 0.5,
+    height: heightOf(physics, lively),
+    craters: cratersOf(physics, lively, seed),
+  };
   if (cover === 0) {
-    return { ...shape, sea: null, peak: 0.5 };
+    return dry;
   }
-  const dry = { ...shape, sea: null, peak: 0.5 };
   const heights = scatter(SHORE_POINTS, random)
     .map((at) => elevationAt(seed, dry, at))
     .sort((left, right) => left - right);
   const level = (share: number) =>
     heights[Math.min(heights.length - 1, Math.floor(share * heights.length))];
-  return { ...shape, sea: level(cover), peak: level(cover + HIGH_SHARE * (1 - cover)) };
+  return { ...dry, sea: level(cover), peak: level(cover + HIGH_SHARE * (1 - cover)) };
 }
 
 function arranged(bodies: Body[], anchor: Anchor): Body[] {
@@ -1644,7 +1662,16 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       swing: around === null ? 0 : trim(draft.tilt === null ? turned : swing),
       day: 0,
       disks: [],
-      relief: id === home ? { ...HOME_SHAPE, sea: null, peak: 0.5 } : reliefOf(physics, own),
+      relief:
+        id === home
+          ? {
+              ...HOME_SHAPE,
+              sea: null,
+              peak: 0.5,
+              height: heightOf(physics, stirOf(physics)[1]),
+              craters: 0,
+            }
+          : reliefOf(physics, own),
       shared,
     });
   }

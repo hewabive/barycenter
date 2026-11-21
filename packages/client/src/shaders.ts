@@ -1,7 +1,8 @@
-import { RELIEF_SHAPE } from "@barycenter/sim";
+import { PIT_SHAPE, RELIEF_SHAPE } from "@barycenter/sim";
 
 const real = (value: number) => (Number.isInteger(value) ? `${value}.0` : String(value));
 const shape = RELIEF_SHAPE;
+const pit = PIT_SHAPE;
 
 const FIELD = `
 uniform uint seed;
@@ -85,6 +86,75 @@ float elevation(vec3 at) {
   float ridges = crested(warped * ${real(shape.ridgeScale)}, seed + ${shape.ridgeSeed}u, ${shape.ridgeOctaves})
     / ${real(shape.ridgeWeight)};
   return base + shape.z * ridges * smoothstep(${real(shape.ridgeFrom)}, ${real(shape.ridgeTo)}, base);
+}
+`;
+
+const PIT_LAYERS = 8;
+const PIT_EMBOSS = 45;
+
+const PITS = `
+uniform vec4 pits;
+uniform float grain;
+
+vec2 dent(float share, float radius) {
+  float wide = max(1.0, radius / pits.y);
+  float least = min(radius, pits.y);
+  float depth = ${real(pit.depth)} * least * pow(wide, ${real(pit.deepen)});
+  float rim = ${real(pit.rim)} * least * pow(wide, ${real(pit.raise)});
+  if (share < 1.0) {
+    float steep = min(${real(pit.steepest)}, 2.0 + log2(wide));
+    float risen = (depth + rim) * pow(share, steep - 1.0);
+    return vec2(risen * share - depth, steep * risen);
+  }
+  float past = (share - 1.0) / ${real(pit.reach - 1)};
+  float faded = 1.0 - past * past * (3.0 - 2.0 * past);
+  float cube = share * share * share;
+  return vec2(
+    rim * faded / cube,
+    rim * (-3.0 * faded / (cube * share) - 6.0 * past * (1.0 - past) / (${real(pit.reach - 1)} * cube))
+  );
+}
+
+vec4 pitted(vec3 at) {
+  vec4 total = vec4(0.0);
+  float pitch = ${real(pit.pitch)};
+  float blurFrom = ${real(pit.blurFrom)} * grain;
+  float blurTo = ${real(pit.blurTo)} * grain;
+  for (int layer = 0; layer < ${PIT_LAYERS}; layer++) {
+    if (${real(pit.most)} * pitch <= blurFrom) {
+      break;
+    }
+    uint salt = seed + ${pit.seed}u + uint(layer);
+    ivec3 base = ivec3(floor(at / pitch));
+    for (int x = -1; x <= 1; x++) {
+      for (int y = -1; y <= 1; y++) {
+        for (int z = -1; z <= 1; z++) {
+          ivec3 cell = base + ivec3(x, y, z);
+          uint mixed = scramble(cell, salt);
+          vec3 site = (vec3(cell) + vec3(mixed & 1023u, (mixed >> 10) & 1023u, (mixed >> 20) & 1023u) / 1024.0)
+            * pitch;
+          float span = length(site);
+          float kept = 1.0 - smoothstep(${real(pit.shell)}, 1.0, abs(span - 1.0) / (0.5 * pitch));
+          if (kept > 0.0) {
+            uint more = scramble(cell, salt ^ ${pit.twin}u);
+            float radius = pitch * mix(${real(pit.least)}, ${real(pit.most)}, float(more & 65535u) / 65536.0);
+            float fresh = clamp((pits.x - float(more >> 16) / 65536.0) / ${real(pit.soft)}, 0.0, 1.0);
+            float strength = kept * fresh * smoothstep(blurFrom, blurTo, radius);
+            vec3 from = at - site / span;
+            float away = length(from);
+            float share = away / radius;
+            if (strength > 0.0 && share < ${real(pit.reach)}) {
+              vec2 found = dent(share, radius);
+              vec3 along = (from - at * dot(from, at)) / max(away, 1e-9);
+              total += strength * vec4(found.y / radius * along, found.x);
+            }
+          }
+        }
+      }
+    }
+    pitch *= 0.5;
+  }
+  return total;
 }
 `;
 
@@ -193,6 +263,7 @@ vec3 heading() {
 export const BAKE_FRAGMENT = `
 ${FIELD}
 ${HEADING}
+${PITS}
 uniform float sea;
 
 void main() {
@@ -205,6 +276,10 @@ void main() {
   float ahead = elevation(normalize(at + first * reach));
   float aside = elevation(normalize(at + second * reach));
   vec3 slope = ((ahead - here) * first + (aside - here) * second) / reach;
+  if (pits.x > 0.0) {
+    vec4 dug = pitted(at);
+    slope += ${real(PIT_EMBOSS)} * dug.xyz + at * (pits.z * dug.w);
+  }
   vec4 survey = vec4(slope, here - sea);
 #ifdef PACKED
   survey = vec4(slope / ${real(SLOPE_RANGE)} + 0.5, (here - sea) / ${real(HEIGHT_RANGE)} + 0.5);
@@ -424,10 +499,11 @@ uniform float relish;
 
 const SOLID = `
   vec4 ground = survey(at);
-  float height = ground.a;
+  float sunk = marks.w * dot(ground.rgb, at);
+  float height = ground.a + sunk;
   float other = survey(at.zxy).a;
   float edge = fwidth(height) + 1e-4;
-  slope = ground.rgb;
+  slope = ground.rgb - at * sunk;
   float rise = (height - ramp.x) / ramp.y;
   float cold = smoothstep(clime.x - 0.045, clime.x + 0.045, abs(at.y) + clime.y * rise + 0.05 * other);
   vec3 land = mix(palette[2], palette[3], smoothstep(0.0, 0.45, rise));

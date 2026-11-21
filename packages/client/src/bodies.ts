@@ -3,6 +3,7 @@ import {
   createRandom,
   type Lamp,
   lampsOf,
+  pitsOf,
   type Sketch,
   seaCover,
   seenGlow,
@@ -430,6 +431,8 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       seed: { value: 0 },
       shape: { value: new Vector3() },
       sea: { value: 0 },
+      pits: { value: new Vector4(0, 1, 0, 0) },
+      grain: { value: 1 },
       size: { value: 1 },
       face: { value: 0 },
     },
@@ -554,8 +557,11 @@ export function createStudio(renderer: WebGLRenderer): Studio {
         draft.dispose();
       }
     } else {
+      const pits = pitsOf(body);
       press.uniforms.shape.value.set(body.relief.frequency, body.relief.warp, body.relief.ridge);
       press.uniforms.sea.value = body.relief.sea ?? 0;
+      press.uniforms.pits.value.set(pits.cover, pits.bowl, pits.lift, 0);
+      press.uniforms.grain.value = Math.PI / 2 / target.width;
       stamp(target, press, body);
     }
     renderer.setRenderTarget(before);
@@ -869,7 +875,14 @@ export function createStudio(renderer: WebGLRenderer): Studio {
                 : new Vector2(skin.low, skin.span),
             },
             clime: { value: clime },
-            marks: { value: new Vector4(skin.patch, skin.belted, skin.cracks, 0) },
+            marks: {
+              value: new Vector4(
+                skin.patch,
+                skin.belted,
+                skin.cracks,
+                body.relief.craters > 0 ? 1 : 0,
+              ),
+            },
             deck: { value: new Vector2(skin.clouds, skin.shroud) },
             relish: { value: skin.bump },
           }),

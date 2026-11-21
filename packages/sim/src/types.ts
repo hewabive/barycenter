@@ -17,6 +17,8 @@ export interface Relief {
   ridge: number;
   sea: number | null;
   peak: number;
+  height: number;
+  craters: number;
 }
 
 export const GASES = [
