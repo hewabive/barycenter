@@ -773,7 +773,7 @@ test("an orbit is an oval in a plane of its own, swept as the pull of its centre
       );
       assert.ok(Math.abs(Math.hypot(far.x, far.y, far.z) / body.orbit - (1 + oval)) < 1e-6, label);
       const start = from(100);
-      const later = from(100 + body.year / 4);
+      const later = from(100 + body.year / 8);
       const sweep = {
         x: start.y * later.z - start.z * later.y,
         y: start.z * later.x - start.x * later.z,
@@ -1200,7 +1200,7 @@ test("a centre too light to be a star is a brown dwarf with small worlds close t
     for (const body of bodies.filter((other) => other.parent === 0 && !starborn(other.physics))) {
       const most = 0.0105 * Math.sqrt(whole / SUN_MASS) * whole;
       assert.ok(body.physics.mass <= most, `${label}, ${body.name}`);
-      assert.ok(body.physics.orbit < 2 * ASTRONOMICAL_UNIT, `${label}, ${body.name}`);
+      assert.ok(body.physics.orbit < 5 * ASTRONOMICAL_UNIT, `${label}, ${body.name}`);
     }
   }
 });

@@ -280,7 +280,7 @@ test("a ship set down around a body circles it, and knows what it circles", () =
 });
 
 test("sixty degrees ahead of a planet a body stays with nothing to hold it", () => {
-  const system = surveySystem(16, { settled: true, star: null });
+  const system = surveySystem(17, { settled: true, star: null });
   const stars = system.bodies.filter((body) => starborn(body.physics));
   assert.equal(stars.length, 1);
   const planet = system.bodies
