@@ -8,7 +8,7 @@ import type {
   View,
 } from "@barycenter/sim";
 
-export const PROTOCOL = 24;
+export const PROTOCOL = 25;
 export const SPEEDS = [1, 2, 4, 8];
 export const ROOM_NAME = /^[a-z0-9-]{1,32}$/;
 export const MAX_ORDERS = 256;
