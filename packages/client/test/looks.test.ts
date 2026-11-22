@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { type Body, createRandom, GIGAYEAR, kindled, SUN_MASS } from "@barycenter/sim";
-import { cellsOf, flameOf, flatnessOf, holeOf, livelyOf } from "../src/looks.ts";
+import {
+  type Body,
+  createRandom,
+  GIGAYEAR,
+  kindled,
+  SUN_MASS,
+  surveySystem,
+} from "@barycenter/sim";
+import { cellsOf, flameOf, flatnessOf, holeOf, hoopOf, livelyOf } from "../src/looks.ts";
 
 const star = (suns: number, age: number) =>
   kindled(suns * SUN_MASS, age * GIGAYEAR, { next: () => 0.5 });
@@ -50,4 +57,33 @@ test("a star is drawn by what its life has made of it", () => {
   assert.equal(holeOf(star(30, 0.01)), true);
   assert.equal(flatnessOf(star(30, 0.01)), 0);
   assert.equal(holeOf(star(15, 0.0175)) || holeOf(star(1, 12.5)) || holeOf(star(1, 4.57)), false);
+});
+
+test("a ring breaks into narrower and fainter bands as it thins", () => {
+  const ringed = surveySystem(1, { settled: true, star: null }).bodies.find(
+    (body) => body.parent !== null && body.physics.disks.some((disk) => disk.lasts > 0),
+  );
+  assert.ok(ringed !== undefined);
+  const [ring] = ringed.physics.disks;
+  const thinned = (depth: number): Body => ({
+    ...ringed,
+    physics: { ...ringed.physics, disks: [{ ...ring, depth }] },
+  });
+  const looks = [2, 0.5, 0.05, 0.005].map((depth) => hoopOf(thinned(depth)));
+  const [heavy, broad, thin, faint] = looks.map((hoop) => hoop?.parts ?? []);
+  assert.ok(broad.length >= 3 && looks.every((hoop) => hoop?.parts.length === broad.length));
+  const laden = (parts: typeof broad) =>
+    parts.reduce((sum, [from, to, dense]) => sum + (to - from) * dense, 0);
+  const wide = (parts: typeof broad) => parts.reduce((sum, [from, to]) => sum + to - from, 0);
+  assert.ok(Math.abs(laden(heavy) / laden(broad) - 4) < 1e-9);
+  assert.ok(Math.abs(laden(thin) / laden(broad) - 0.1) < 1e-9);
+  assert.ok(Math.abs(laden(faint) / laden(broad) - 0.01) < 1e-9);
+  assert.equal(wide(heavy), wide(broad));
+  assert.ok(wide(thin) < 0.4 * wide(broad) && wide(faint) < 0.5 * wide(thin));
+  broad.forEach(([from, to, dense], at) => {
+    assert.ok(thin[at][0] >= from - 1e-12 && thin[at][1] <= to + 1e-12);
+    assert.ok(thin[at][2] < dense && faint[at][2] < thin[at][2]);
+  });
+  const gassy = { ...ring, gas: 1, lasts: 0 };
+  assert.equal(hoopOf({ ...ringed, physics: { ...ringed.physics, disks: [gassy] } }), null);
 });

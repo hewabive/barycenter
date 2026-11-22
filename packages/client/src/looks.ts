@@ -685,6 +685,8 @@ export function giantOf(body: Body, seen: number[], spare = 0): Giant {
 
 const DUST = 0x6b6258;
 const FROST = 0xe9e1d0;
+const HOOP_BROAD = 0.5;
+const HOOP_LEAST = 0.06;
 
 export function hoopOf(body: Body): Hoop | null {
   const { disks, radius } = body.physics;
@@ -693,36 +695,27 @@ export function hoopOf(body: Body): Hoop | null {
     return null;
   }
   const random = createRandom(body.seed + 97);
+  const loose = createRandom(body.seed + 98);
   const from = ring.inner / radius;
   const to = ring.outer / radius;
   const span = to - from;
+  const kept = Math.max(HOOP_LEAST, Math.min(1, (ring.depth / HOOP_BROAD) ** 0.5));
+  const count = 3 + Math.floor(3 * random.next());
+  const shares = Array.from({ length: count }, () => 0.4 + random.next());
+  const whole = shares.reduce((sum, share) => sum + share, 0);
+  const chief = 1 + Math.floor((count - 1) * random.next());
   const parts: Hoop["parts"] = [];
-  if (ring.depth >= 0.5) {
-    const count = 3 + Math.floor(3 * random.next());
-    const shares = Array.from({ length: count }, () => 0.4 + random.next());
-    const whole = shares.reduce((sum, share) => sum + share, 0);
-    const chief = 1 + Math.floor((count - 1) * random.next());
-    let at = from;
-    shares.forEach((share, index) => {
-      const width = (span * share) / whole;
-      const gap = index === count - 1 ? 0 : width * 0.12 * random.next() ** 2;
-      const dense =
-        index === chief ? 1 : index === 0 ? 0.15 + 0.2 * random.next() : 0.3 + 0.5 * random.next();
-      parts.push([at, at + width - gap, ring.depth * dense]);
-      at += width;
-    });
-  } else {
-    const count = 3 + Math.floor(4 * random.next());
-    for (let index = 0; index < count; index++) {
-      const at = from + (span * (index + 0.2 + 0.6 * random.next())) / count;
-      const width = span * (0.02 + 0.03 * random.next());
-      parts.push([
-        at,
-        Math.min(to, at + width),
-        Math.min(1, 2 * ring.depth * (0.6 + 0.4 * random.next())),
-      ]);
-    }
-  }
+  let at = from;
+  shares.forEach((share, index) => {
+    const width = (span * share) / whole;
+    const gap = index === count - 1 ? 0 : width * 0.12 * random.next() ** 2;
+    const dense =
+      index === chief ? 1 : index === 0 ? 0.15 + 0.2 * random.next() : 0.3 + 0.5 * random.next();
+    const band = (width - gap) * kept;
+    const inset = (width - gap - band) * loose.next();
+    parts.push([at + inset, at + inset + band, (ring.depth * dense) / kept]);
+    at += width;
+  });
   return { tint: tone(DUST, FROST, ring.ice), parts };
 }
 
