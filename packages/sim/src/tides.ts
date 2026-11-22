@@ -1,3 +1,4 @@
+import { spreadOf } from "./disks.ts";
 import { densityOf, GRAVITY } from "./physics.ts";
 
 const TIDE_FLUID = 1e-6;
@@ -15,6 +16,9 @@ const RIGID = 1.44;
 export const PLUNGE = 1.02;
 const IN_STEP = 2 ** (2 / 3);
 const WEDGE_MOST = 0.9;
+export const GATHERED = 0.2;
+const TURNS_MOST = 16;
+const SYNC_SHY = 0.9;
 
 export const MOONS_APART = 5;
 
@@ -51,6 +55,24 @@ export interface Rider {
 
 export interface Fate extends Tide {
   lost: boolean;
+}
+
+export interface Feed {
+  at: number;
+  mass: number;
+}
+
+export interface Sprung {
+  mass: number;
+  orbit: number;
+}
+
+export interface Rim {
+  edge: number;
+  torn: number;
+  far: number;
+  turn: number;
+  wear: number;
 }
 
 export function syncOf(mass: number, day: number): number {
@@ -208,4 +230,39 @@ export function trainOf(riders: Rider[], around: number): Fate[] {
     fates[at] = { orbit: fell ? torn : orbit, day: tide.day, fell, fall, held, lost };
   }
   return fates.map((fate, at) => fate ?? { ...riders[at].tide, lost: false });
+}
+
+export function cycleOf(
+  host: Turner,
+  first: Feed,
+  rim: Rim,
+  tied: number,
+  age: number,
+): { feeds: Feed[]; moon: Sprung | null } {
+  const feeds: Feed[] = [];
+  const reach = { torn: rim.torn, born: rim.edge, far: rim.far };
+  const never = Number.POSITIVE_INFINITY;
+  let { at, mass } = first;
+  for (let turn = 0; turn < TURNS_MOST && at <= age; turn++) {
+    feeds.push({ at, mass });
+    const spread = spreadOf(mass, host.mass, rim.turn);
+    if (spread > rim.wear || rim.torn <= PLUNGE * host.radius) {
+      break;
+    }
+    const born = at + spread;
+    const even = born >= tied ? never : syncOf(host.mass, host.day);
+    const orbit = even > rim.edge ? Math.min(IN_STEP * rim.edge, SYNC_SHY * even) : rim.edge;
+    const moon = { mass: GATHERED * mass, orbit: Math.max(orbit, rim.edge) };
+    if (born > age || moon.orbit > rim.far) {
+      break;
+    }
+    const last = tideOf(host, moon, reach, born, tied, never, false);
+    if (!last.fell || last.fall > age) {
+      const now = tideOf(host, moon, reach, born, tied, age, false);
+      return { feeds, moon: { mass: moon.mass, orbit: now.orbit } };
+    }
+    at = last.fall;
+    mass = moon.mass;
+  }
+  return { feeds, moon: null };
 }

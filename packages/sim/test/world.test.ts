@@ -644,6 +644,7 @@ test("a ring is the wreck of a moon: it comes late, thins and is gone", () => {
   let gone = 0;
   let thinned = 0;
   let torn = 0;
+  let gathered = 0;
   let giants = 0;
   let ringed = 0;
   let dense = 0;
@@ -689,6 +690,11 @@ test("a ring is the wreck of a moon: it comes late, thins and is gone", () => {
         }
       }
     }
+    const known = new Set(looks[0].bodies.map((body) => body.name));
+    for (const body of looks.slice(1).flatMap((look) => look.bodies)) {
+      gathered += known.has(body.name) ? 0 : 1;
+      known.add(body.name);
+    }
     for (const body of looks[5].bodies) {
       const host = body.parent === null ? null : looks[5].bodies[body.parent];
       if (host === null || !starborn(host.physics) || !wrapped(body.physics)) {
@@ -702,6 +708,7 @@ test("a ring is the wreck of a moon: it comes late, thins and is gone", () => {
   }
   assert.ok(born > 20 && gone > 20 && thinned > 40, `${born} born, ${gone} gone, ${thinned}`);
   assert.ok(torn > 0, `${torn} rings came as a moon was lost`);
+  assert.ok(gathered > 0, `${gathered} moons were gathered from a ring`);
   assert.ok(ringed > 0.2 * giants && ringed < 0.45 * giants, `${ringed} of ${giants} ringed`);
   assert.ok(dense > 0.06 * giants && dense < 0.22 * giants, `${dense} of ${giants} dense`);
 });
@@ -1618,9 +1625,12 @@ test("a system is the same at every age, less what its star and its tides took",
   const names = (system: ReturnType<typeof at>) => system.bodies.map((body) => body.name);
   const circling = (system: ReturnType<typeof at>, moons: boolean) =>
     system.bodies
-      .filter(
-        ({ parent }) => moons === (parent !== null && !starborn(system.bodies[parent].physics)),
-      )
+      .filter(({ parent, physics }) => {
+        const host = parent === null ? null : system.bodies[parent].physics;
+        const moon = host !== null && !starborn(host);
+        const edge = moon ? rocheOf(host.radius, densityOf(host.mass, host.radius), 2000) : 0;
+        return moons ? moon && physics.orbit > 1.7 * edge : !moon;
+      })
       .map((body) => body.name);
   let drawn = 0;
   let swallowed = 0;
@@ -1637,18 +1647,17 @@ test("a system is the same at every age, less what its star and its tides took",
     const old = at(seed, 9.9);
     assert.deepEqual(circling(young, false), circling(prime, false), `seed ${seed} when young`);
     assert.deepEqual(circling(old, false), circling(prime, false), `seed ${seed} when old`);
-    const first = circling(young, true);
     const then = circling(prime, true);
     const last = circling(old, true);
     assert.ok(
-      then.every((name) => first.includes(name)),
+      then.every((name) => names(young).includes(name)),
       `seed ${seed}: no moon is new`,
     );
     assert.ok(
-      last.every((name) => then.includes(name)),
+      last.every((name) => names(prime).includes(name)),
       `seed ${seed}: no moon comes back`,
     );
-    drawn += first.length - last.length;
+    drawn += names(young).filter((name) => !names(old).includes(name)).length;
     const lone = prime.bodies.filter((body) => starborn(body.physics)).length === 1;
     for (const age of [10.9, 11.3, 11.42, 11.56, 12.5]) {
       const late = at(seed, age);
@@ -1756,7 +1765,7 @@ test("a system grows out of the disk of its young star", () => {
       const label = `seed ${seed} at ${years} years`;
       const masses = new Map(system.bodies.map((body) => [body.name, body.physics.mass]));
       for (const [name, mass] of before) {
-        const now = masses.get(name) ?? (tided.has(name) ? mass : 0);
+        const now = tided.has(name) ? mass : (masses.get(name) ?? 0);
         assert.ok(now >= mass, `${label}, ${name} has not shrunk or gone`);
       }
       tided = new Set(
@@ -1796,15 +1805,11 @@ test("a system grows out of the disk of its young star", () => {
         early += system.bodies.length;
       }
       if (years >= 1e8) {
-        const lasting = [...whole.keys()].filter((name) => !tided.has(name) || masses.has(name));
         assert.deepEqual(
-          [...masses.keys()].filter((name) => whole.has(name)),
-          lasting,
-          label,
-        );
-        assert.deepEqual(
-          lasting.filter((name) => !masses.has(name)),
-          [],
+          [...masses.keys()].filter((name) => !tided.has(name)),
+          grown.bodies
+            .filter(({ parent }) => parent === null || starborn(grown.bodies[parent].physics))
+            .map((body) => body.name),
           label,
         );
         const dust = (body: (typeof system.bodies)[number]) =>
@@ -1815,6 +1820,9 @@ test("a system grows out of the disk of its young star", () => {
         for (const body of system.bodies) {
           const end = whole.get(body.name);
           if (end === undefined) {
+            continue;
+          }
+          if (tided.has(body.name)) {
             continue;
           }
           assert.equal(body.physics.mass, end.physics.mass, `${label}, ${body.name}`);

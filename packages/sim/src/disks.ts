@@ -152,6 +152,10 @@ export function diskOf(
   };
 }
 
+export function spreadOf(mass: number, centre: number, year: number): number {
+  return SPREAD * (centre / mass) ** 2 * year;
+}
+
 export function leftOf(
   mass: number,
   centre: number,
@@ -162,8 +166,7 @@ export function leftOf(
   if (since < 0 || mass <= 0) {
     return 0;
   }
-  const spread = SPREAD * (centre / mass) ** 2 * year;
-  const worn = wear / spread;
+  const worn = wear / spreadOf(mass, centre, year);
   return mass / Math.sqrt((1 + worn) * Math.exp(Math.min(700, (2 * since) / wear)) - worn);
 }
 
