@@ -1,4 +1,5 @@
 import { PIT_SHAPE, RELIEF_SHAPE } from "@barycenter/sim";
+import { GRIT_SPAN } from "./tile.ts";
 
 const real = (value: number) => (Number.isInteger(value) ? `${value}.0` : String(value));
 const shape = RELIEF_SHAPE;
@@ -505,7 +506,6 @@ void main() {
 }
 `;
 
-export const GRIT_SPAN = 256;
 const GRIT_SCALES = [0.125, 1, 4];
 const GRIT_DEPTHS = [0.12, 0.1, 0.08];
 

@@ -3,7 +3,6 @@ import {
   createGround,
   depthOf,
   type Ground,
-  grainOf,
   groundFlat,
   landable,
   type Survey,
@@ -20,8 +19,9 @@ import {
   Vector2,
   Vector3,
 } from "three";
-import { bodyFragment, GRIT_SPAN, TILE_VERTEX } from "./shaders.ts";
+import { bodyFragment, TILE_VERTEX } from "./shaders.ts";
 import type { Space } from "./space.ts";
+import { type Ask, aim, type Made, TILE_BOUND, TILE_GRID, TILE_SIDE, TILE_SKIRT } from "./tile.ts";
 
 export interface Terrain {
   update(): void;
@@ -31,12 +31,11 @@ export interface Terrain {
   waiting(): number;
 }
 
-const SPLIT = 1.6;
+const SPLIT = 1.4;
 const WAKE = 0.5;
 const SLEEP = 0.65;
-const KEPT = 700;
-const SKIRT = 0.12;
-const BOUND = 0.8;
+const KEPT = 1000;
+const CREW_MOST = 4;
 const MAP_SIZE = 512;
 const GRIT_MOST = 4096;
 const EYE_LEAST = 1.5;
@@ -44,14 +43,7 @@ const EYE_PATCH = 60;
 const EYE_SHARE = 0.05;
 const CLOUD_LOW = 5000;
 const CLOUD_HIGH = 60000;
-const BUDGET = 6;
-const BUDGET_SHARE = 0.3;
-const BUDGET_MOST = 80;
 const FIELD_LOW = 3.1;
-const SIDE = TILE_CELLS + 1;
-const WIDE = SIDE + 2;
-const GRID = SIDE * SIDE;
-const COUNT = GRID + 4 * SIDE;
 
 interface Node {
   face: number;
@@ -64,45 +56,40 @@ interface Node {
   angle: number;
   kids: Node[] | null;
   mesh: Mesh<BufferGeometry, ShaderMaterial> | null;
+  asked: boolean;
   seen: number;
 }
 
-function aim(face: number, u: number, v: number, into: Vector3): Vector3 {
-  const a = Math.tan((u * Math.PI) / 4);
-  const b = Math.tan((v * Math.PI) / 4);
-  if (face === 0) {
-    into.set(1, b, -a);
-  } else if (face === 1) {
-    into.set(-1, b, a);
-  } else if (face === 2) {
-    into.set(a, 1, -b);
-  } else if (face === 3) {
-    into.set(a, -1, b);
-  } else if (face === 4) {
-    into.set(a, b, 1);
-  } else {
-    into.set(-a, b, -1);
-  }
-  return into.normalize();
+interface Order {
+  node: Node;
+  body: Body;
+  into: Group;
 }
 
 function laced(): Uint16Array {
   const order: number[] = [];
   for (let row = 0; row < TILE_CELLS; row++) {
     for (let column = 0; column < TILE_CELLS; column++) {
-      const from = row * SIDE + column;
-      order.push(from, from + 1, from + SIDE, from + 1, from + SIDE + 1, from + SIDE);
+      const from = row * TILE_SIDE + column;
+      order.push(
+        from,
+        from + 1,
+        from + TILE_SIDE,
+        from + 1,
+        from + TILE_SIDE + 1,
+        from + TILE_SIDE,
+      );
     }
   }
   const edges = [
     (step: number) => step,
-    (step: number) => (SIDE - 1) * SIDE + step,
-    (step: number) => step * SIDE,
-    (step: number) => step * SIDE + SIDE - 1,
+    (step: number) => (TILE_SIDE - 1) * TILE_SIDE + step,
+    (step: number) => step * TILE_SIDE,
+    (step: number) => step * TILE_SIDE + TILE_SIDE - 1,
   ];
   edges.forEach((edge, side) => {
     for (let step = 0; step < TILE_CELLS; step++) {
-      const low = GRID + side * SIDE + step;
+      const low = TILE_GRID + side * TILE_SIDE + step;
       order.push(edge(step), edge(step + 1), low, edge(step + 1), low + 1, low);
     }
   });
@@ -117,28 +104,28 @@ export function createTerrain(space: Space, system: Survey): Terrain {
   const toward = new Vector3();
   const spot = new Vector3();
   const lift = new Vector3();
-  const scratch = new Vector3();
 
   let near: Body | null = null;
   let group: Group | null = null;
   let roots: Node[] = [];
   let materials: (ShaderMaterial | null)[] = [];
+  let clouds: Vector2[] = [];
   let built: Node[] = [];
   let ready = false;
   let frame = 0;
   let clear = Number.POSITIVE_INFINITY;
   let drawn = 0;
   let pending = 0;
-  let updated = performance.now();
-  let allowed = BUDGET;
+  let ticket = 0;
+  let queue: Node[] = [];
   let under: { at: Vector3; reach: number; ground: Ground } | null = null;
-  let clouds: Vector2[] = [];
+  const orders = new Map<number, Order>();
 
   const squashOf = (body: Body) => 1 - groundFlat(body.physics);
 
   const nodeOf = (body: Body, face: number, level: number, column: number, row: number): Node => {
     const span = 2 / 2 ** level;
-    const heading = aim(face, -1 + span * (column + 0.5), -1 + span * (row + 0.5), new Vector3());
+    const heading = new Vector3(...aim(face, -1 + span * (column + 0.5), -1 + span * (row + 0.5)));
     const { radius } = body.physics;
     return {
       face,
@@ -148,9 +135,10 @@ export function createTerrain(space: Space, system: Survey): Terrain {
       heading,
       centre: new Vector3(heading.x, squashOf(body) * heading.y, heading.z).multiplyScalar(radius),
       edge: (radius * Math.PI) / (2 * 2 ** level),
-      angle: (BOUND * Math.PI) / (2 * 2 ** level),
+      angle: (TILE_BOUND * Math.PI) / (2 * 2 ** level),
       kids: null,
       mesh: null,
+      asked: false,
       seen: 0,
     };
   };
@@ -186,110 +174,82 @@ export function createTerrain(space: Space, system: Survey): Terrain {
     return made;
   };
 
-  const places = new Float64Array(3 * WIDE * WIDE);
-  const headings = new Float64Array(3 * WIDE * WIDE);
-  const build = (body: Body, node: Node, into: Group) => {
-    const { radius } = body.physics;
-    const flat = squashOf(body);
-    const wet = body.relief.sea !== null;
-    const span = 2 / 2 ** node.level;
-    const ground = createGround(
-      body,
-      node.heading,
-      (BOUND * Math.PI) / (2 * 2 ** node.level),
-      grainOf(radius, node.level),
-    );
-    for (let row = 0; row < WIDE; row++) {
-      for (let column = 0; column < WIDE; column++) {
-        const at = aim(
-          node.face,
-          -1 + span * (node.column + (column - 1) / TILE_CELLS),
-          -1 + span * (node.row + (row - 1) / TILE_CELLS),
-          scratch,
-        );
-        const height = ground(at.x, at.y, at.z);
-        const far = radius + (wet ? Math.max(0, height) : height);
-        const base = 3 * (row * WIDE + column);
-        headings[base] = at.x;
-        headings[base + 1] = at.y;
-        headings[base + 2] = at.z;
-        places[base] = at.x * far;
-        places[base + 1] = flat * at.y * far;
-        places[base + 2] = at.z * far;
-      }
-    }
-    const middle = 3 * ((WIDE * WIDE - 1) / 2);
-    const originX = places[middle];
-    const originY = places[middle + 1];
-    const originZ = places[middle + 2];
-    const tread = (value: number) => Math.floor(value / GRIT_SPAN) * GRIT_SPAN;
-    const treadX = tread(originX);
-    const treadY = tread(originY);
-    const treadZ = tread(originZ);
-    const position = new Float32Array(3 * COUNT);
-    const normal = new Float32Array(3 * COUNT);
-    const heading = new Float32Array(3 * COUNT);
-    const grit = new Float32Array(3 * COUNT);
-    const drop = SKIRT * node.edge;
-    const write = (slot: number, row: number, column: number, sink: number) => {
-      const base = 3 * ((row + 1) * WIDE + column + 1);
-      const east = base + 3;
-      const west = base - 3;
-      const north = base + 3 * WIDE;
-      const south = base - 3 * WIDE;
-      const ax = places[east] - places[west];
-      const ay = places[east + 1] - places[west + 1];
-      const az = places[east + 2] - places[west + 2];
-      const bx = places[north] - places[south];
-      const by = places[north + 1] - places[south + 1];
-      const bz = places[north + 2] - places[south + 2];
-      const nx = ay * bz - az * by;
-      const ny = az * bx - ax * bz;
-      const nz = ax * by - ay * bx;
-      const length = Math.hypot(nx, ny, nz);
-      const x = places[base] - sink * headings[base];
-      const y = places[base + 1] - sink * flat * headings[base + 1];
-      const z = places[base + 2] - sink * headings[base + 2];
-      const out = 3 * slot;
-      position[out] = (x - originX) / unit;
-      position[out + 1] = (y - originY) / unit;
-      position[out + 2] = (z - originZ) / unit;
-      normal[out] = nx / length;
-      normal[out + 1] = ny / length;
-      normal[out + 2] = nz / length;
-      heading[out] = headings[base];
-      heading[out + 1] = headings[base + 1];
-      heading[out + 2] = headings[base + 2];
-      grit[out] = places[base] - treadX;
-      grit[out + 1] = places[base + 1] - treadY;
-      grit[out + 2] = places[base + 2] - treadZ;
-    };
-    for (let row = 0; row < SIDE; row++) {
-      for (let column = 0; column < SIDE; column++) {
-        write(row * SIDE + column, row, column, 0);
-      }
-    }
-    for (let step = 0; step < SIDE; step++) {
-      write(GRID + step, 0, step, drop);
-      write(GRID + SIDE + step, SIDE - 1, step, drop);
-      write(GRID + 2 * SIDE + step, step, 0, drop);
-      write(GRID + 3 * SIDE + step, step, SIDE - 1, drop);
-    }
+  const raise = ({ node, body, into }: Order, made: Made) => {
+    const [x, y, z] = made.origin;
     const geometry = new BufferGeometry();
-    geometry.setAttribute("position", new BufferAttribute(position, 3));
-    geometry.setAttribute("normal", new BufferAttribute(normal, 3));
-    geometry.setAttribute("heading", new BufferAttribute(heading, 3));
-    geometry.setAttribute("grit", new BufferAttribute(grit, 3));
+    geometry.setAttribute("position", new BufferAttribute(made.position, 3));
+    geometry.setAttribute("normal", new BufferAttribute(made.normal, 3));
+    geometry.setAttribute("heading", new BufferAttribute(made.heading, 3));
+    geometry.setAttribute("grit", new BufferAttribute(made.grit, 3));
     geometry.setIndex(order);
-    geometry.boundingSphere = new Sphere(new Vector3(), (BOUND * node.edge + drop) / unit);
+    geometry.boundingSphere = new Sphere(
+      new Vector3(),
+      ((TILE_BOUND + TILE_SKIRT) * node.edge) / unit,
+    );
     const mesh = new Mesh(geometry, materialOf(body, node.level));
-    mesh.position.set(originX / unit, originY / unit, originZ / unit);
+    mesh.position.set(x / unit, y / unit, z / unit);
     mesh.visible = false;
     into.add(mesh);
     node.mesh = mesh;
-    node.centre.set(originX, originY, originZ);
+    node.centre.set(x, y, z);
     built.push(node);
   };
+
+  const crew = Array.from(
+    { length: Math.max(1, Math.min(CREW_MOST, (navigator.hardwareConcurrency ?? 2) - 1)) },
+    () => {
+      const hand = {
+        worker: new Worker(new URL("./tiler.ts", import.meta.url), { type: "module" }),
+        busy: false,
+      };
+      hand.worker.addEventListener("message", (event: MessageEvent<Made>) => {
+        hand.busy = false;
+        const made = event.data;
+        const known = orders.get(made.ticket);
+        orders.delete(made.ticket);
+        if (known !== undefined && known.into === group) {
+          known.node.asked = false;
+          raise(known, made);
+        }
+        feed();
+        space.invalidate();
+      });
+      return hand;
+    },
+  );
+
+  const ask = (body: Body, node: Node, into: Group): boolean => {
+    const hand = crew.find((each) => !each.busy);
+    if (hand === undefined) {
+      return false;
+    }
+    ticket += 1;
+    orders.set(ticket, { node, body, into });
+    node.asked = true;
+    hand.busy = true;
+    const request: Ask = {
+      ticket,
+      body: { seed: body.seed, relief: body.relief, physics: body.physics },
+      flat: squashOf(body),
+      unit,
+      face: node.face,
+      level: node.level,
+      column: node.column,
+      row: node.row,
+    };
+    hand.worker.postMessage(request);
+    return true;
+  };
+
+  function feed(): void {
+    while (near !== null && group !== null && queue.length > 0) {
+      const node = queue[0];
+      if (node.mesh === null && !node.asked && !ask(near, node, group)) {
+        return;
+      }
+      queue.shift();
+    }
+  }
 
   const drop = (node: Node) => {
     if (node.mesh !== null) {
@@ -309,6 +269,8 @@ export function createTerrain(space: Space, system: Survey): Terrain {
       material?.dispose();
     }
     group?.removeFromParent();
+    orders.clear();
+    queue = [];
     near = null;
     group = null;
     roots = [];
@@ -340,9 +302,6 @@ export function createTerrain(space: Space, system: Survey): Terrain {
     waiting: () => pending,
     update() {
       const { camera } = space;
-      const now = performance.now();
-      allowed = Math.max(BUDGET, Math.min(BUDGET_MOST, BUDGET_SHARE * (now - updated)));
-      updated = now;
       let closest: Body | null = null;
       let least = Number.POSITIVE_INFINITY;
       for (const body of solid) {
@@ -363,7 +322,6 @@ export function createTerrain(space: Space, system: Survey): Terrain {
         return;
       }
       const body = near;
-      const into = group;
       const { radius } = body.physics;
       const flat = squashOf(body);
       const anchor = space.frame(body.id);
@@ -425,7 +383,7 @@ export function createTerrain(space: Space, system: Survey): Terrain {
         if (hidden(node)) {
           return;
         }
-        const gap = Math.max(0, eye.distanceTo(node.centre) - BOUND * node.edge);
+        const gap = Math.max(0, eye.distanceTo(node.centre) - TILE_BOUND * node.edge);
         if (node.level < deepest && gap < SPLIT * node.edge) {
           node.kids ??= [0, 1, 2, 3].map((quarter) =>
             nodeOf(
@@ -467,17 +425,8 @@ export function createTerrain(space: Space, system: Survey): Terrain {
           eye.distanceToSquared(left.centre) - eye.distanceToSquared(right.centre),
       );
       pending = wanted.length;
-      const started = performance.now();
-      for (const node of wanted) {
-        build(body, node, into);
-        pending -= 1;
-        if (performance.now() - started > allowed) {
-          break;
-        }
-      }
-      if (wanted.length > 0) {
-        space.invalidate();
-      }
+      queue = wanted;
+      feed();
       if (built.length > KEPT) {
         built.sort((left, right) => right.seen - left.seen || left.level - right.level);
         for (const node of built.splice(KEPT)) {
