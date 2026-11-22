@@ -32,6 +32,7 @@ import {
 import {
   BELT_FRAGMENT,
   BELT_VERTEX,
+  BUBBLE_ROOM,
   HAZE_FRAGMENT,
   HAZE_STEPS,
   HAZE_VERTEX,
@@ -54,6 +55,7 @@ export interface Haze {
   mesh: Mesh;
   eye: Vector3;
   screens: Vector4[];
+  bubbles: Vector4[];
 }
 
 const ROCK = 0x8a8076;
@@ -151,6 +153,7 @@ export function createHaze(layers: Layer[], lamp: Lamp, sparse: boolean): Haze |
   });
   const eye = new Vector3();
   const screens = Array.from({ length: SCREEN_ROOM }, () => new Vector4(0, 0, 0, 0));
+  const bubbles = Array.from({ length: BUBBLE_ROOM }, () => new Vector4(0, 0, 0, 0));
   const wide = profile.outer / Math.cos(Math.PI / HAZE_SIDES);
   const mesh = new Mesh(
     new CylinderGeometry(wide, wide, 2 * shade.top, HAZE_SIDES, 1),
@@ -171,6 +174,7 @@ export function createHaze(layers: Layer[], lamp: Lamp, sparse: boolean): Haze |
           ),
         },
         screens: { value: screens },
+        bubbles: { value: bubbles },
         shine: { value: lamp.shine },
         dust: { value: new Color(DUST) },
         frost: { value: new Color(FROST) },
@@ -183,5 +187,5 @@ export function createHaze(layers: Layer[], lamp: Lamp, sparse: boolean): Haze |
     }),
   );
   mesh.frustumCulled = false;
-  return { mesh, eye, screens };
+  return { mesh, eye, screens, bubbles };
 }

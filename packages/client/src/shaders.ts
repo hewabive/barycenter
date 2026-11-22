@@ -254,6 +254,7 @@ export const PROMINENCE_ROOM = 16;
 const GRAIN_BITS = 4;
 export const GRAIN_CELLS = 1 << GRAIN_BITS;
 export const SCREEN_ROOM = 6;
+export const BUBBLE_ROOM = 2;
 export const LIMB = 0.28;
 export const LIMB_DEPTH = 0.4;
 export const EXPOSURE = 1.97;
@@ -1401,6 +1402,7 @@ uniform vec3 hull;
 uniform float hot;
 uniform int count;
 uniform vec4 screens[${SCREEN_ROOM}];
+uniform vec4 bubbles[${BUBBLE_ROOM}];
 uniform vec3 shine;
 uniform vec3 dust;
 uniform vec3 frost;
@@ -1445,7 +1447,13 @@ Probe probe(vec3 ray, float anchor, float base, float offset) {
   found.stand = exp(lane.g) * reach;
   found.lamp = lane.b;
   found.fine = lane.a;
-  found.height = (base + offset * ray.y) / found.stand;
+  float lift = base + offset * ray.y;
+  for (int index = 0; index < ${BUBBLE_ROOM}; index++) {
+    vec4 bubble = bubbles[index];
+    float apart = distance(vec3(found.spot.x, lift, found.spot.y), bubble.xyz);
+    found.thick *= bubble.w > 0.0 ? smoothstep(bubble.w, 2.0 * bubble.w, apart) : 1.0;
+  }
+  found.height = lift / found.stand;
   float high = abs(found.height);
   found.tail = above(high);
   vec2 at = vec2(

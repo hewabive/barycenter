@@ -157,6 +157,8 @@ const TRACK_GONE = 5;
 const TRACK_FULL = 12;
 const TRACK_SHADE = 0.55;
 const HAZE_ORDER = 0.25;
+const HAZE_BUBBLE = 6;
+const HAZE_NEAR = [10, 30];
 const TRACK_ORDER = 0.5;
 
 function eased(share: number): number {
@@ -687,6 +689,7 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
         }))
         .sort((left, right) => right.wide - left.wide)
         .slice(0, SCREEN_ROOM);
+      const bared = nearest.filter(({ look }) => look.halo === 0);
       for (const haze of hazes) {
         haze.mesh.worldToLocal(haze.eye.copy(camera.position));
         haze.screens.forEach((screen, at) => {
@@ -696,6 +699,16 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
           } else {
             haze.mesh.worldToLocal(seat.copy(found.place));
             screen.set(seat.x, seat.y, seat.z, found.look.body.radius);
+          }
+        });
+        haze.bubbles.forEach((bubble, at) => {
+          const found = bared[at];
+          if (found === undefined) {
+            bubble.set(0, 0, 0, 0);
+          } else {
+            const near = 1 - ramp(1 / found.wide, HAZE_NEAR[0], HAZE_NEAR[1]);
+            haze.mesh.worldToLocal(seat.copy(found.place));
+            bubble.set(seat.x, seat.y, seat.z, HAZE_BUBBLE * found.look.girth * near);
           }
         });
       }
