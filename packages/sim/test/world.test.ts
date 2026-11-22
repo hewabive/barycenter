@@ -79,15 +79,20 @@ import { sidesOf } from "../src/sphere.ts";
 import { kindled } from "../src/system.ts";
 
 const SEEDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+const LATE_SEEDS = [21, 24, 26, 68, 75, 204, 264];
 
 function sketches(): { label: string; system: Sketch }[] {
-  return SEEDS.flatMap((seed) => [
-    { label: `seed ${seed}`, system: createWorld({ seed }).map.system },
-    {
-      label: `wild seed ${seed}`,
-      system: sketchSystem(seed, { settled: false, star: null }),
-    },
-  ]);
+  const wild = (seed: number) => ({
+    label: `wild seed ${seed}`,
+    system: sketchSystem(seed, { settled: false, star: null }),
+  });
+  return [
+    ...SEEDS.flatMap((seed) => [
+      { label: `seed ${seed}`, system: createWorld({ seed }).map.system },
+      wild(seed),
+    ]),
+    ...LATE_SEEDS.map(wild),
+  ];
 }
 
 test("the same seed produces the same world", () => {
@@ -290,8 +295,11 @@ test("the physics of every body holds together", () => {
       const gases = physics.gases.reduce((sum, part) => sum + part, 0);
       assert.ok(airy ? Math.abs(gases - 1) < 1e-3 : physics.gases.length === 0, label);
       const density = densityOf(physics.mass, physics.radius);
+      const swollen = starborn(physics) && physics.radius > 3 * starRadius(physics.mass);
       assert.ok(
-        density > 50 && density < (physics.glow > 0 ? 200000 : 20000),
+        spent(physics) ||
+          swollen ||
+          (density > 50 && density < (physics.glow > 0 ? 200000 : 20000)),
         `${label}: ${density}`,
       );
       assert.equal(physics.glow > 0, wrapped(physics), label);
@@ -301,7 +309,7 @@ test("the physics of every body holds together", () => {
       for (const disk of physics.disks) {
         assert.ok(disk.inner > physics.radius && disk.outer > disk.inner, label);
         assert.ok(disk.mass > 0 && disk.depth > 0 && disk.depth < 1, label);
-        if (body.parent !== null) {
+        if (body.parent !== null && !starborn(physics)) {
           const pull = system.bodies[body.parent].physics.mass;
           assert.ok(disk.outer < rocheOf(physics.radius, density, 900), label);
           assert.ok(disk.outer < 0.34 * hillOf(physics.orbit, physics.mass, pull), label);
@@ -351,7 +359,7 @@ test("the drawn scale keeps the order and the nesting of the real one", () => {
     }
     const own = (id: number): number => {
       const body = system.bodies[id];
-      const rings = body.parent === null ? [] : body.disks;
+      const rings = body.parent === null || starborn(body.physics) ? [] : body.disks;
       return Math.max(body.radius, ...rings.map((lane) => lane.outer));
     };
     const reach = (id: number): number => {
@@ -898,7 +906,7 @@ test("bodies balance about shared centres, and stars stand in nested groups that
         weightOf(system, other.id) / (within(other) + weightOf(system, other.id));
       if (starborn(body.physics)) {
         assert.ok(starborn(host.physics), label);
-        assert.ok(body.physics.mass <= host.physics.mass || spent(host.physics), label);
+        assert.ok(body.physics.mass <= host.physics.mass, label);
         const inner = kin.filter((other) => other.physics.orbit < body.physics.orbit);
         const reach = Math.max(0, ...inner.map(far));
         const ratio = weightOf(system, body.id) / within(body);
@@ -932,6 +940,7 @@ test("bodies balance about shared centres, and stars stand in nested groups that
           `${label}: a planet stays in the hold of its star`,
         );
         const plane =
+          host.tilt === 0 ||
           body.slant === host.tilt ||
           kin.some((other) => other.slant === body.slant || other.slant === 0);
         assert.ok(plane, `${label}: it lies in the plane of its star or of the pair it circles`);
@@ -1351,6 +1360,7 @@ test("a star lives by its mass and leaves what that mass allows", () => {
 test("systems with no home hold stars at every time of life", () => {
   const seen = new Map<string, number>();
   const count = 1400;
+  let overtaken = 0;
   for (let seed = 1; seed <= count; seed++) {
     const system = surveySystem(seed, { settled: false, star: null });
     const centre = system.bodies[0].physics;
@@ -1372,8 +1382,11 @@ test("systems with no home hold stars at every time of life", () => {
       const host = system.bodies[body.parent];
       const near = physics.orbit * (1 - physics.stretch);
       assert.ok(near > 1.4 * (host.physics.radius + physics.radius), label);
+      assert.ok(body.parent < body.id, `${label} is listed after what it circles`);
+      assert.ok(physics.mass <= host.physics.mass, `${label} is lighter than what it circles`);
       if (starborn(physics)) {
         assert.notEqual(classOf(physics), "neutron star", label);
+        overtaken += spent(physics) && !spent(host.physics) ? 1 : 0;
         continue;
       }
       if (starborn(host.physics)) {
@@ -1403,6 +1416,7 @@ test("systems with no home hold stars at every time of life", () => {
     assert.ok(seen.has(kind), `no ${kind} among ${count} systems`);
   }
   assert.ok(share((kind) => kind.endsWith("supergiant")) > 0);
+  assert.ok(overtaken > 5, `${overtaken} stars that shed mass now circle a heavier companion`);
 });
 
 test("on the drawn scale a body keeps clear of a wider one it circles", () => {

@@ -1057,6 +1057,107 @@ function arranged(bodies: Body[], anchor: Anchor): Body[] {
   });
 }
 
+function ranked(given: Body[], home: number | null): { bodies: Body[]; home: number | null } {
+  const bodies = [...given];
+  const circling = (id: number) => bodies.filter((body) => body.parent === id);
+  const suns = (id: number) => circling(id).filter((body) => starborn(body.physics));
+  const shine = (id: number): number =>
+    suns(id).reduce((sum, body) => sum + shine(body.id), bodies[id].physics.glow);
+  const trade = (head: Body, heir: Body) => {
+    const reach = heir.physics.orbit;
+    const wide = wideOf(heir.physics);
+    const beside = suns(head.id).filter((body) => body.physics.orbit < reach);
+    const within = beside.reduce((sum, body) => sum + shine(body.id), head.physics.glow);
+    const beyond = Math.max(0, heir.physics.light - lightAt(within, wide));
+    const lit = beyond + lightAt(shine(heir.id), wide);
+    for (const body of circling(head.id)) {
+      if (body.id !== heir.id && body.physics.orbit > reach) {
+        bodies[body.id] = { ...body, parent: heir.id };
+      }
+    }
+    bodies[heir.id] = {
+      ...heir,
+      parent: head.parent,
+      phase: head.phase,
+      slant: head.slant,
+      node: head.node,
+      apse: head.apse,
+      physics: {
+        ...heir.physics,
+        orbit: head.physics.orbit,
+        stretch: head.physics.stretch,
+        year: head.physics.year,
+        light: head.physics.light,
+        disks: [...heir.physics.disks, ...head.physics.disks.filter((disk) => disk.inner > reach)],
+      },
+    };
+    bodies[head.id] = {
+      ...head,
+      parent: heir.id,
+      phase: heir.phase,
+      slant: heir.slant,
+      node: heir.node,
+      apse: trim((heir.apse + Math.PI) % (2 * Math.PI)),
+      physics: {
+        ...head.physics,
+        orbit: reach,
+        stretch: heir.physics.stretch,
+        year: heir.physics.year,
+        light: trim(lit),
+        disks: head.physics.disks.filter((disk) => disk.inner <= reach),
+      },
+    };
+  };
+  let traded = false;
+  const settle = (id: number): number => {
+    let top = id;
+    for (;;) {
+      for (const body of suns(top)) {
+        settle(body.id);
+      }
+      const head = bodies[top];
+      const heir = suns(top)
+        .filter((body) => body.physics.mass > head.physics.mass)
+        .sort((left, right) => right.physics.mass - left.physics.mass)[0];
+      if (heir === undefined) {
+        return top;
+      }
+      trade(head, heir);
+      traded = true;
+      top = heir.id;
+    }
+  };
+  const first = settle(given.findIndex((body) => body.parent === null));
+  if (!traded) {
+    return { bodies: given, home };
+  }
+  const order: number[] = [];
+  const visit = (id: number) => {
+    order.push(id);
+    const kids = circling(id).sort(
+      (left, right) => left.physics.orbit - right.physics.orbit || left.id - right.id,
+    );
+    for (const body of kids) {
+      visit(body.id);
+    }
+  };
+  visit(first);
+  const seats = new Map(order.map((old, seat) => [old, seat]));
+  const seated = (old: number) => seats.get(old) ?? 0;
+  return {
+    bodies: order.map((old, id) => {
+      const { parent, shared } = bodies[old];
+      return {
+        ...bodies[old],
+        id,
+        parent: parent === null ? null : seated(parent),
+        shared: shared === null ? null : { ...shared, with: seated(shared.with) },
+      };
+    }),
+    home: home === null ? null : seated(home),
+  };
+}
+
 function measured(bodies: Body[], unit: number): Body[] {
   return bodies.map((body) => {
     const { physics, shared } = body;
@@ -1881,7 +1982,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
           year: settledOn.year,
           day: settledOn.day,
         };
-  return { home, bodies, anchor };
+  return { ...ranked(bodies, home), anchor };
 }
 
 export function sketchSystem(world: number, plan: Plan): Sketch {

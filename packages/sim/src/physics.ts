@@ -493,7 +493,7 @@ export function radiusOf(
 }
 
 export function wrapped(physics: Pick<Physics, "mass" | "radius" | "gas">): boolean {
-  return columnOf(physics.mass, physics.radius) * physics.gas >= DEEP_AIR;
+  return physics.gas >= 1 || columnOf(physics.mass, physics.radius) * physics.gas >= DEEP_AIR;
 }
 
 export function densityOf(mass: number, radius: number): number {
