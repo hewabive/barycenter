@@ -2258,7 +2258,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
         spreadOf(heaviest, planet.mass, turn) < lot.wear;
       if (lot !== null && rim !== undefined && gathers) {
         const dense = densityOf(planet.mass, planet.radius);
-        const edge = Math.max(RIM_CLEAR * rim.outer, rocheOf(planet.radius, dense, MOON_GRAIN));
+        const edge = RIM_CLEAR * rim.outer;
         const glowing = glowOf(planet.radius, planet.heat);
         const perch: Site = {
           star,
