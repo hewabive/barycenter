@@ -176,6 +176,9 @@ const SWIRL_RATE = 4;
 const WAKE_REACH = 3;
 const WAKE_GAIN = 0.8;
 const RING_SHADE = 0.8;
+const RING_SLANT = 0.04;
+const RING_GAIN = 3;
+const RING_DUST = [0.1, 0.6];
 const LUMP_SCALE = 0.9;
 const LUMP_SPAN = 0.06;
 const LAVA_FLOOR = -0.4;
@@ -944,6 +947,37 @@ void main() {
 }
 `;
 
+export const SLAB = `
+float above(float height) {
+  return 0.3989423 * exp(-0.5 * height * height)
+    / (0.6565 * height + 0.3435 * sqrt(height * height + 5.3954372));
+}
+
+float between(float low, float lowTail, float high, float highTail) {
+  return low * high < 0.0 ? 1.0 - lowTail - highTail : abs(lowTail - highTail);
+}
+
+float spread(float low, float lowTail, float high, float highTail) {
+  float wide = abs(high - low);
+  float middle = 0.5 * (low + high);
+  return wide > 0.02
+    ? between(low, lowTail, high, highTail) / wide
+    : 0.3989423 * exp(-0.5 * middle * middle);
+}
+
+float strip(float before, float beforeLit, float after, float afterLit, float through, float gone) {
+  float turn = after - before + through;
+  return abs(turn) < 1e-3
+    ? through * beforeLit * (1.0 - 0.5 * turn)
+    : through * (beforeLit - afterLit * gone) / turn;
+}
+
+float glint(float lean, float cosine) {
+  float wide = 1.0 + lean * lean - 2.0 * lean * cosine;
+  return (1.0 - lean * lean) / (wide * sqrt(wide));
+}
+`;
+
 export const RING_VERTEX = `
 varying vec3 vSpot;
 varying vec3 vPlace;
@@ -966,7 +1000,7 @@ uniform float squash;
 uniform mat4 modelMatrix;
 varying vec3 vSpot;
 varying vec3 vPlace;
-
+${SLAB}
 void main() {
   float across = (length(vSpot.xz) - hoop.x) / (hoop.y - hoop.x);
   vec4 dust = texture2D(grit, vec2(across, 0.5));
@@ -977,14 +1011,24 @@ void main() {
   float ahead = dot(from, ray);
   float lit = max(step(0.0, ahead), smoothstep(0.97, 1.03, length(from - ray * ahead)));
   vec3 eye = normalize((cameraPosition - vPlace) * mat3(modelMatrix));
-  float through = 1.0 - pow(1.0 - 0.97 * dense, 1.0 / max(abs(eye.y), 0.12));
-  float facing = step(0.0, eye.y * sunny.y);
-  float glow = mix(2.5 * dense * (1.0 - dense), 0.6 + 0.5 * dense, facing)
-    * (0.4 + 0.6 * smoothstep(0.0, 0.3, abs(sunny.y)));
+  vec3 sun = normalize(sunny);
+  float seen = dense / max(abs(eye.y), ${real(RING_SLANT)});
+  float sunk = dense / max(abs(sun.y), ${real(RING_SLANT)});
+  float gone = exp(-seen);
+  float dark = exp(-sunk);
+  float sent = eye.y * sun.y > 0.0
+    ? strip(0.0, 1.0, sunk, dark, seen, gone)
+    : strip(sunk, dark, 0.0, 1.0, seen, gone);
+  float turned = dot(eye, sun);
+  float phase = acos(clamp(turned, -1.0, 1.0));
+  float back = 0.8488264 * (sin(phase) + (3.1415927 - phase) * turned);
+  float glow = ${real(RING_GAIN / 4)} * sent * mix(back, glint(${real(RING_DUST[1])}, -turned), ${real(RING_DUST[0])});
   float near = length(vSpot.xz);
   float middle = 0.5 * (hoop.x + hoop.y);
-  vec3 lamp = shine * (0.02 + lit * glow) + inner * pow(middle / near, 3.0) * (0.35 + 0.65 * dense);
-  gl_FragColor = vec4(dust.rgb * dust.rgb * lamp, through);
+  float veil = 1.0 - gone;
+  vec3 lamp = shine * (0.02 * veil + lit * glow)
+    + inner * pow(middle / near, 3.0) * (0.35 + 0.65 * dense) * veil;
+  gl_FragColor = vec4(dust.rgb * dust.rgb * lamp, veil);
   #include <colorspace_fragment>
 }
 `;
@@ -1336,37 +1380,6 @@ void main() {
 `;
 
 export const HAZE_STEPS = [10, 3];
-
-export const SLAB = `
-float above(float height) {
-  return 0.3989423 * exp(-0.5 * height * height)
-    / (0.6565 * height + 0.3435 * sqrt(height * height + 5.3954372));
-}
-
-float between(float low, float lowTail, float high, float highTail) {
-  return low * high < 0.0 ? 1.0 - lowTail - highTail : abs(lowTail - highTail);
-}
-
-float spread(float low, float lowTail, float high, float highTail) {
-  float wide = abs(high - low);
-  float middle = 0.5 * (low + high);
-  return wide > 0.02
-    ? between(low, lowTail, high, highTail) / wide
-    : 0.3989423 * exp(-0.5 * middle * middle);
-}
-
-float strip(float before, float beforeLit, float after, float afterLit, float through, float gone) {
-  float turn = after - before + through;
-  return abs(turn) < 1e-3
-    ? through * beforeLit * (1.0 - 0.5 * turn)
-    : through * (beforeLit - afterLit * gone) / turn;
-}
-
-float glint(float lean, float cosine) {
-  float wide = 1.0 + lean * lean - 2.0 * lean * cosine;
-  return (1.0 - lean * lean) / (wide * sqrt(wide));
-}
-`;
 
 export const HAZE_VERTEX = `
 varying vec3 vRay;

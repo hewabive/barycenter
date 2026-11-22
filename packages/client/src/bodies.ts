@@ -1039,6 +1039,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
           fragmentShader: RING_FRAGMENT,
           side: DoubleSide,
           transparent: true,
+          premultipliedAlpha: true,
           depthWrite: false,
           uniforms: {
             grit: { value: grit },
