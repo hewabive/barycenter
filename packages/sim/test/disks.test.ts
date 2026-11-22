@@ -8,6 +8,7 @@ import {
   GROWN_MOST,
   gasHeight,
   holeOf,
+  leftOf,
   nebulaOf,
   ridgeOf,
   rimOf,
@@ -205,4 +206,24 @@ test("only a heavy planet thins the gas along its orbit", () => {
   assert.ok(thinned(318, 5.2) < 0.01 && thinned(95, 9.5) < 0.1);
   assert.ok(thinned(17, 30) > 0.8 && thinned(1, 1) > 0.95);
   assert.ok(thinned(10, 1) < thinned(10, 10));
+});
+
+test("a ring spreads fast while it is heavy, lasts while it is light and is worn away", () => {
+  const saturn = 5.683e26;
+  const turn = 14 * 3600;
+  const wear = 3e8 * YEAR;
+  assert.equal(leftOf(1e19, saturn, turn, wear, 0), 1e19);
+  assert.equal(leftOf(1e19, saturn, turn, wear, -1), 0);
+  assert.ok(Math.abs(leftOf(1e19, saturn, turn, wear, wear) / 1e19 - Math.exp(-1)) < 0.01);
+  assert.ok(leftOf(1e19, saturn, turn, wear, 10 * wear) < 1e-4 * 1e19);
+  const never = 1e30;
+  const late = 1e9 * YEAR;
+  const heavy = leftOf(1e23, saturn, turn, never, late);
+  const heavier = leftOf(1e25, saturn, turn, never, late);
+  assert.ok(Math.abs(heavy / heavier - 1) < 0.01, `${heavy} ${heavier}`);
+  const spread = saturn * Math.sqrt((0.0425 * turn) / (2 * late));
+  assert.ok(Math.abs(heavy / spread - 1) < 0.01, `${heavy} ${spread}`);
+  assert.ok(spread > 1.5e19 && spread < 1.5e20);
+  assert.ok(Math.abs(leftOf(1e23, saturn, turn, never, 4 * late) / heavy - 0.5) < 0.01);
+  assert.ok(leftOf(1e23, saturn, turn, wear, late) < 0.1 * heavy);
 });

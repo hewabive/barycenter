@@ -319,7 +319,7 @@ test("the physics of every body holds together", () => {
           const pull = system.bodies[body.parent].physics.mass;
           assert.ok(disk.outer < rocheOf(physics.radius, density, 900), label);
           assert.ok(disk.outer < 0.34 * hillOf(physics.orbit, physics.mass, pull), label);
-          assert.ok(disk.depth < 1 && disk.gas === 0 && (disk.depth > 0.1 || !grown), label);
+          assert.ok(disk.depth < 1e3 && disk.gas === 0 && (disk.depth >= 2e-3 || !grown), label);
           const deep = disk.height * Math.sqrt(disk.inner * disk.outer);
           assert.ok(Math.abs(deep - 10) < 0.01 && disk.flare === -1 && disk.grain === 1, label);
         } else {
@@ -636,6 +636,74 @@ test("tides have taken the moons they could reach and left a planet turning with
   );
   assert.ok(tied < 0.05 * free, `${tied} moons of planets held by their star, ${free} of others`);
   assert.ok(nearer > 20, `${nearer} moons were nearer when their system was young`);
+});
+
+test("a ring is the wreck of a moon: it comes late, thins and is gone", () => {
+  const ages = [0.4, 0.8, 1.4, 2.2, 3.2, 4.5, 6.5, 9];
+  let born = 0;
+  let gone = 0;
+  let thinned = 0;
+  let torn = 0;
+  let giants = 0;
+  let ringed = 0;
+  let dense = 0;
+  for (let seed = 1; seed <= 60; seed++) {
+    const looks = ages.map((age) =>
+      surveySystem(seed, { settled: false, star: SUN_MASS, age: age * GIGAYEAR }),
+    );
+    const ringOf = (at: number, name: string) =>
+      looks[at].bodies.find((body) => body.name === name)?.physics.disks[0];
+    for (const body of looks[0].bodies) {
+      if (body.parent === null || starborn(body.physics)) {
+        continue;
+      }
+      for (let at = 1; at < ages.length; at++) {
+        const label = `seed ${seed}, ${body.name} at ${ages[at]}`;
+        const before = ringOf(at - 1, body.name);
+        const now = ringOf(at, body.name);
+        const passed = (ages[at] - ages[at - 1]) * GIGAYEAR;
+        if (now !== undefined) {
+          assert.ok(now.lasts >= 1e8 * YEAR && now.lasts <= 1e9 * YEAR, label);
+          assert.ok(now.since >= 0 && now.since <= ages[at] * GIGAYEAR, label);
+        }
+        if (before === undefined && now !== undefined) {
+          born += 1;
+          assert.ok(now.since <= 1.001 * passed, `${label}: fed since the last look`);
+          const host = looks[at].bodies.find((each) => each.name === body.name);
+          const lost = looks[at - 1].bodies.filter(
+            (moon) =>
+              moon.parent !== null &&
+              looks[at - 1].bodies[moon.parent].name === body.name &&
+              !looks[at].bodies.some((each) => each.name === moon.name),
+          );
+          torn += host !== undefined && lost.length > 0 ? 1 : 0;
+        } else if (before !== undefined && now === undefined) {
+          gone += 1;
+        } else if (
+          before !== undefined &&
+          now !== undefined &&
+          Math.abs(now.since - before.since - passed) < 1e-3 * passed
+        ) {
+          thinned += 1;
+          assert.ok(now.mass < before.mass, `${label}: ${before.mass} to ${now.mass}`);
+        }
+      }
+    }
+    for (const body of looks[5].bodies) {
+      const host = body.parent === null ? null : looks[5].bodies[body.parent];
+      if (host === null || !starborn(host.physics) || !wrapped(body.physics)) {
+        continue;
+      }
+      const [ring] = body.physics.disks;
+      giants += starborn(body.physics) ? 0 : 1;
+      ringed += ring === undefined ? 0 : 1;
+      dense += ring !== undefined && ring.depth >= 0.2 ? 1 : 0;
+    }
+  }
+  assert.ok(born > 20 && gone > 20 && thinned > 40, `${born} born, ${gone} gone, ${thinned}`);
+  assert.ok(torn > 0, `${torn} rings came as a moon was lost`);
+  assert.ok(ringed > 0.2 * giants && ringed < 0.45 * giants, `${ringed} of ${giants} ringed`);
+  assert.ok(dense > 0.06 * giants && dense < 0.22 * giants, `${dense} of ${giants} dense`);
 });
 
 test("a moon keeps no moon of its own for long, and one that still has it holds it", () => {
@@ -1038,6 +1106,7 @@ test("bodies balance about shared centres, and stars stand in nested groups that
 
 test("bodies that share an orbit keep apart and trade places", () => {
   let chases = 0;
+  let rimmed = 0;
   let moons = 0;
   let planets = 0;
   for (let seed = 1; seed <= 600; seed++) {
@@ -1090,10 +1159,11 @@ test("bodies that share an orbit keep apart and trade places", () => {
       assert.ok(Math.abs(Math.max(...gaps) / shared.lane - 1) < 0.02, label);
       assert.ok(Math.abs(Math.min(...gaps) / shared.lane + 1) < 0.02, label);
       if (chasing) {
-        assert.ok(wrapped(host.physics) && host.physics.disks.length > 0, label);
+        assert.ok(wrapped(host.physics), label);
         assert.ok(lead.physics.mass < 6 * body.physics.mass, `${label}: of like mass`);
-        const rim = Math.max(...host.physics.disks.map((disk) => disk.outer));
-        assert.ok(body.physics.orbit > rim && body.physics.orbit < 1.5 * rim, label);
+        const rim = Math.max(0, ...host.physics.disks.map((disk) => disk.outer));
+        assert.ok(body.physics.orbit > rim && body.physics.orbit < 4 * host.physics.radius, label);
+        rimmed += rim > 0 ? 1 : 0;
         chases += 1;
       } else {
         assert.ok(Math.abs(Math.abs(shared.ahead) - Math.PI / 3) < 1e-4, label);
@@ -1104,6 +1174,7 @@ test("bodies that share an orbit keep apart and trade places", () => {
     }
   }
   assert.ok(chases > 2 && chases < 40, `pairs that trade places ${chases}`);
+  assert.ok(rimmed > 0 && rimmed <= chases, `${rimmed} of them still at the rim of a ring`);
   assert.ok(moons > 400 && moons < 2500, `moons at the points ahead of and behind a moon ${moons}`);
   assert.ok(planets > 1 && planets < 25, `planets that share an orbit ${planets}`);
 });
@@ -1746,6 +1817,10 @@ test("a system grows out of the disk of its young star", () => {
           if (end === undefined) {
             continue;
           }
+          assert.equal(body.physics.mass, end.physics.mass, `${label}, ${body.name}`);
+          if (body.parent !== null && !starborn(body.physics)) {
+            continue;
+          }
           assert.deepEqual(dust(body), dust(end), `${label}, ${body.name}`);
           body.physics.disks.forEach((disk, at) => {
             const worn = starborn(body.physics);
@@ -1753,7 +1828,6 @@ test("a system grows out of the disk of its young star", () => {
             assert.ok(worn ? late.depth < disk.depth : late.depth === disk.depth, label);
             assert.ok(worn ? late.grain > disk.grain : late.grain === disk.grain, label);
           });
-          assert.equal(body.physics.mass, end.physics.mass, `${label}, ${body.name}`);
         }
       }
       before = masses;

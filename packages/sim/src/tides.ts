@@ -12,7 +12,7 @@ const SCAN = 48;
 const HALVINGS = 40;
 const SPIN_MOST = 0.8;
 const RIGID = 1.44;
-const PLUNGE = 1.02;
+export const PLUNGE = 1.02;
 const IN_STEP = 2 ** (2 / 3);
 const WEDGE_MOST = 0.9;
 
@@ -36,6 +36,7 @@ export interface Tide {
   orbit: number;
   day: number;
   fell: boolean;
+  fall: number;
   held: boolean;
 }
 
@@ -98,8 +99,9 @@ export function tideOf(
   let orbit = moon.orbit;
   let day = host.day;
   let held = false;
+  const never = Number.POSITIVE_INFINITY;
   if (orbit <= reach.torn) {
-    return { orbit: reach.torn, day, fell: true, held };
+    return { orbit: reach.torn, day, fell: true, fall: Math.min(set, tied), held };
   }
   const until = Math.min(age, tied);
   if (set < tied && until !== set) {
@@ -140,7 +142,8 @@ export function tideOf(
     held = arrived && met;
     if (arrived && !met && !rising && span > 0) {
       const spun = turning ? Math.min(fastest, store / inertia) : steady;
-      return { orbit: reach.torn, day: (2 * Math.PI) / spun, fell: true, held: false };
+      const fall = set + (moon.orbit ** POWER - end) / pull;
+      return { orbit: reach.torn, day: (2 * Math.PI) / spun, fell: true, fall, held: false };
     }
     day = turning ? (2 * Math.PI) / Math.max(spin(orbit), 1e-30) : host.day;
   }
@@ -148,11 +151,12 @@ export function tideOf(
   if (age > bound) {
     const moved = orbit ** POWER - pull * (age - bound);
     if (moved <= reach.torn ** POWER) {
-      return { orbit: reach.torn, day, fell: true, held: false };
+      const fall = bound + (orbit ** POWER - reach.torn ** POWER) / pull;
+      return { orbit: reach.torn, day, fell: true, fall, held: false };
     }
-    return { orbit: moved ** (1 / POWER), day, fell: false, held: false };
+    return { orbit: moved ** (1 / POWER), day, fell: false, fall: never, held: false };
   }
-  return { orbit, day, fell: false, held };
+  return { orbit, day, fell: false, fall: never, held };
 }
 
 export function trainOf(riders: Rider[], around: number): Fate[] {
@@ -175,14 +179,20 @@ export function trainOf(riders: Rider[], around: number): Fate[] {
     const { tide, torn, far } = riders[at];
     let low = 0;
     let high = Number.POSITIVE_INFINITY;
+    let sent = Number.POSITIVE_INFINITY;
+    let stayed = 0;
     fates.forEach((fate, other) => {
       if (fate === null || fate.lost) {
         return;
       }
       if (other < at && !fate.fell) {
         low = Math.max(low, fate.orbit * apart(other, at));
+      } else if (other < at) {
+        stayed = Math.max(stayed, fate.fall);
       } else if (other > at) {
-        high = Math.min(high, (fate.fell ? riders[other].torn : fate.orbit) / apart(at, other));
+        const edge = (fate.fell ? riders[other].torn : fate.orbit) / apart(at, other);
+        sent = fate.fell && edge < high ? fate.fall : sent;
+        high = Math.min(high, edge);
       }
     });
     const pushed = low > 0 && (tide.fell || tide.orbit < low);
@@ -190,7 +200,12 @@ export function trainOf(riders: Rider[], around: number): Fate[] {
     const fell = orbit <= torn || (tide.fell && !pushed);
     const lost = !fell && orbit > far && orbit > tide.orbit;
     const held = tide.held && orbit === tide.orbit;
-    fates[at] = { orbit: fell ? torn : orbit, day: tide.day, fell, held, lost };
+    const fall = !fell
+      ? Number.POSITIVE_INFINITY
+      : tide.fell
+        ? Math.max(tide.fall, stayed)
+        : Math.min(sent, Number.MAX_VALUE);
+    fates[at] = { orbit: fell ? torn : orbit, day: tide.day, fell, fall, held, lost };
   }
   return fates.map((fate, at) => fate ?? { ...riders[at].tide, lost: false });
 }

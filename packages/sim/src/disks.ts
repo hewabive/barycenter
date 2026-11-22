@@ -54,6 +54,7 @@ const STIRRED = 2;
 const STIRRED_MOST = 0.3;
 const DUST_STANDS = 0.04;
 const GAP_DEPTH = 0.04;
+const SPREAD = 0.0425;
 
 export interface Station {
   orbit: number;
@@ -146,7 +147,24 @@ export function diskOf(
     height: given.height ?? Math.max(packed, loose),
     flare: given.flare ?? (packed > loose ? -1 : 0),
     fade: given.fade ?? 0,
+    since: given.since ?? 0,
+    lasts: given.lasts ?? 0,
   };
+}
+
+export function leftOf(
+  mass: number,
+  centre: number,
+  year: number,
+  wear: number,
+  since: number,
+): number {
+  if (since < 0 || mass <= 0) {
+    return 0;
+  }
+  const spread = SPREAD * (centre / mass) ** 2 * year;
+  const worn = wear / spread;
+  return mass / Math.sqrt((1 + worn) * Math.exp(Math.min(700, (2 * since) / wear)) - worn);
 }
 
 export function rimOf(glow: number): number {

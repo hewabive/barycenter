@@ -45,6 +45,8 @@ export interface Disk {
   height: number;
   flare: number;
   fade: number;
+  since: number;
+  lasts: number;
 }
 
 export interface Lane {

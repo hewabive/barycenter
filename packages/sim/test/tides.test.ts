@@ -135,7 +135,7 @@ test("a large rocky body gives way to a tide more than a small one or a giant", 
 });
 
 test("a moon driven outward drives the lighter ones beyond it and keeps their order", () => {
-  const still = (orbit: number) => ({ orbit, day: 1, fell: false, held: false });
+  const still = (orbit: number) => ({ orbit, day: 1, fell: false, fall: NEVER, held: false });
   const riders: Rider[] = [
     { mass: 8, born: 4, stretch: 0, torn: 1.5, far: 100, tide: still(7) },
     { mass: 1, born: 6, stretch: 0, torn: 1.5, far: 100, tide: still(6.1) },
@@ -158,8 +158,8 @@ test("a moon driven outward drives the lighter ones beyond it and keeps their or
 });
 
 test("a heavy moon drawn down sends the lighter ones inside it down first", () => {
-  const still = (orbit: number) => ({ orbit, day: 1, fell: false, held: false });
-  const fallen = { orbit: 1.5, day: 1, fell: true, held: false };
+  const still = (orbit: number) => ({ orbit, day: 1, fell: false, fall: NEVER, held: false });
+  const fallen = { orbit: 1.5, day: 1, fell: true, fall: 7, held: false };
   const riders: Rider[] = [
     { mass: 1, born: 3, stretch: 0, torn: 1.5, far: 100, tide: still(2.9) },
     { mass: 5, born: 4, stretch: 0, torn: 1.5, far: 100, tide: still(2.5) },
@@ -169,6 +169,8 @@ test("a heavy moon drawn down sends the lighter ones inside it down first", () =
   assert.ok(Math.abs(inner.orbit - 2.5 / (4 / 3)) < 1e-9 && !inner.fell);
   const later = trainOf([riders[0], { ...riders[1], tide: fallen }], 1e6);
   assert.ok(later[0].fell && later[1].fell);
+  assert.equal(later[0].fall, 7);
+  assert.equal(later[1].fall, 7);
   const light = trainOf(
     [
       { ...riders[0], mass: 9 },

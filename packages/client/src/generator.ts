@@ -433,7 +433,7 @@ function factsOf(body: Body): Fact[] {
                 ]
               : [
                   "Ring",
-                  `${figure(disk.inner / physics.radius)} to ${figure(disk.outer / physics.radius)} radii · density ${figure(disk.depth)} · ice ${share(disk.ice)} · ${figure(disk.mass)} kg · grains of ${grainOf(disk.grain)} · ${grainOf(disk.height * Math.sqrt(disk.inner * disk.outer))} deep`,
+                  `${figure(disk.inner / physics.radius)} to ${figure(disk.outer / physics.radius)} radii · density ${figure(disk.depth)} · ice ${share(disk.ice)} · ${figure(disk.mass)} kg · grains of ${grainOf(disk.grain)} · ${grainOf(disk.height * Math.sqrt(disk.inner * disk.outer))} deep · last fed ${lived(disk.since)} ago · wears away by half every ${lived(Math.LN2 * disk.lasts)}`,
                 ],
         )),
     "Light now",
