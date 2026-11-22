@@ -1405,6 +1405,25 @@ test("systems with no home hold stars at every time of life", () => {
   assert.ok(share((kind) => kind.endsWith("supergiant")) > 0);
 });
 
+test("on the drawn scale a body keeps clear of a wider one it circles", () => {
+  let wider = 0;
+  for (let seed = 1; seed <= 300; seed++) {
+    const system = sketchSystem(seed, { settled: false, star: null });
+    for (const body of system.bodies) {
+      if (body.parent === null) {
+        continue;
+      }
+      const host = system.bodies[body.parent];
+      const room = host.parent === null || starborn(host.physics) ? 0.7 : 0.35;
+      const near = body.orbit * (1 - body.physics.stretch) - body.radius - host.radius;
+      const widest = Math.max(body.radius, host.radius);
+      assert.ok(near > 0.999 * room * widest, `seed ${seed}, ${body.name} passes ${near} away`);
+      wider += body.radius > host.radius ? 1 : 0;
+    }
+  }
+  assert.ok(wider > 10, `${wider} bodies wider than what they circle`);
+});
+
 test("a system can be given the age of its star", () => {
   const plan = { settled: false, star: SUN_MASS, age: 11.39 * GIGAYEAR };
   let icy = 0;

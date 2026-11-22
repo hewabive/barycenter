@@ -988,7 +988,8 @@ function arranged(bodies: Body[], anchor: Anchor): Body[] {
     }));
     const own = Math.max(radius[id], ...lanes[id].map((lane) => lane.outer));
     const gap = sun ? PLANET_GAP : MOON_GAP;
-    let edge = own * (sun ? STAR_ROOM : CLEARANCE);
+    const room = sun ? STAR_ROOM : CLEARANCE;
+    let edge = own * room;
     const belts = sun ? physics.disks : [];
     const around = [
       ...bodies
@@ -1000,12 +1001,15 @@ function arranged(bodies: Body[], anchor: Anchor): Body[] {
       if (child !== null) {
         const sharers = bodies.filter((other) => other.shared?.with === child.id);
         const span = Math.max(reach(child.id), ...sharers.map((other) => reach(other.id)));
+        const wide = Math.max(radius[child.id], ...sharers.map((other) => radius[other.id]));
+        const spare = (room - 1) * Math.max(0, wide - own);
         const oval = child.physics.stretch;
-        orbit[child.id] = Math.max(drawn(child.physics.orbit), (edge + span) / (1 - oval));
+        const clear = (edge + span + spare) / (1 - oval);
+        orbit[child.id] = Math.max(drawn(child.physics.orbit), clear);
         for (const other of sharers) {
           orbit[other.id] = orbit[child.id];
         }
-        edge = orbit[child.id] * (1 + oval) + span + gap;
+        edge = orbit[child.id] * (1 + oval) + span + gap + spare;
       } else if (belt !== null) {
         const inner = Math.max(drawn(belt.inner), edge);
         const outer = inner + drawn(belt.outer) - drawn(belt.inner);
