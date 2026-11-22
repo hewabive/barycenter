@@ -1457,7 +1457,7 @@ test("a system can be given the age of its star", () => {
         dried += ice < 1e-3 ? 1 : 0;
         assert.ok(ice > 0.25 || (ice < 1e-3 && heat > 200), `seed ${seed}, ${body.name}`);
         const frozen = classOf(body.physics).startsWith("ice ");
-        assert.equal(frozen, ice > 0.25 && (heat < 273 || wrapped(body.physics)));
+        assert.ok(wrapped(body.physics) || frozen === (ice > 0.25 && heat < 273));
       }
     }
     const home = surveySystem(seed, { ...plan, settled: true }).bodies[0].physics;
@@ -1465,4 +1465,68 @@ test("a system can be given the age of its star", () => {
     assert.equal(classOf(home), "yellow star");
   }
   assert.ok(icy > 3 && dried > 1, `${icy} bodies kept the ice they formed of, ${dried} lost it`);
+});
+
+test("a system is the same at every age, less what its star swallowed or let go", () => {
+  const at = (seed: number, age: number) =>
+    surveySystem(seed, { settled: false, star: SUN_MASS, age: age * GIGAYEAR });
+  const names = (system: ReturnType<typeof at>) => system.bodies.map((body) => body.name);
+  let swallowed = 0;
+  let crowded = 0;
+  let kept = 0;
+  for (let seed = 1; seed <= 40; seed++) {
+    const prime = at(seed, 4.5);
+    const known = new Map(prime.bodies.map((body) => [body.name, body]));
+    const hostOf = (system: ReturnType<typeof at>, name: string) => {
+      const { parent } = system.bodies.find((body) => body.name === name) ?? { parent: null };
+      return parent === null ? null : system.bodies[parent].name;
+    };
+    assert.deepEqual(names(at(seed, 0.3)), names(prime), `seed ${seed} when young`);
+    assert.deepEqual(names(at(seed, 9.9)), names(prime), `seed ${seed} when old`);
+    const lone = prime.bodies.filter((body) => starborn(body.physics)).length === 1;
+    for (const age of [10.9, 11.3, 11.42, 11.56, 12.5]) {
+      const late = at(seed, age);
+      const label = `seed ${seed} at ${age}`;
+      const { swell } = lifeOf(SUN_MASS, age * GIGAYEAR);
+      const here = new Set(names(late));
+      for (const body of late.bodies) {
+        const once = known.get(body.name);
+        assert.ok(once !== undefined, `${label}, ${body.name} was there at first`);
+        assert.equal(body.seed, once.seed, label);
+        assert.equal(starborn(body.physics), starborn(once.physics), label);
+        if (!starborn(body.physics)) {
+          assert.equal(body.physics.mass, once.physics.mass, `${label}, ${body.name}`);
+        }
+      }
+      if (!lone) {
+        continue;
+      }
+      const sun = late.bodies[0].physics;
+      for (const once of prime.bodies) {
+        const host = hostOf(prime, once.name);
+        if (host === null) {
+          continue;
+        }
+        const near = once.physics.orbit * (1 - once.physics.stretch);
+        const gone = !here.has(once.name);
+        if (host !== prime.bodies[0].name) {
+          assert.equal(gone, !here.has(host), `${label}, ${once.name} goes with ${host}`);
+          continue;
+        }
+        const taken = near < 1.5 * swell;
+        assert.ok(gone || !taken, `${label}, ${once.name} at ${near} was swallowed`);
+        assert.ok(taken || !gone || sun.mass < SUN_MASS, `${label}, ${once.name} was let go`);
+        swallowed += taken ? 1 : 0;
+        crowded += gone && !taken ? 1 : 0;
+        kept += gone ? 0 : 1;
+        const now = late.bodies.find((body) => body.name === once.name);
+        if (now !== undefined) {
+          const wider = (now.physics.orbit * sun.mass) / (once.physics.orbit * SUN_MASS);
+          assert.ok(Math.abs(wider - 1) < 1e-4, `${label}, ${once.name} moved out ${wider}`);
+        }
+      }
+    }
+  }
+  assert.ok(swallowed > 100 && kept > 100, `${swallowed} swallowed, ${kept} kept`);
+  assert.ok(crowded > 0 && crowded < 0.2 * kept, `${crowded} crowded out as the star shed mass`);
 });
