@@ -282,7 +282,7 @@ const settled = query.get("home") !== "0";
 const given = Number.parseFloat(query.get("star") ?? "");
 const starMass = Number.isFinite(given) && given > 0 ? Math.min(60, Math.max(0.013, given)) : null;
 const old = Number.parseFloat(query.get("age") ?? "");
-const starAge = starMass !== null && Number.isFinite(old) && old > 0 ? Math.min(13, old) : null;
+const starAge = Number.isFinite(old) && old > 0 ? Math.min(13, Math.max(1e-4, old)) : null;
 const search = new URLSearchParams({ seed: String(seed), home: settled ? "1" : "0" });
 if (starMass !== null) {
   search.set("star", String(starMass));

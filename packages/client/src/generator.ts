@@ -82,6 +82,8 @@ const LAMPS = 2;
 const HEAVY = 0.03;
 const ROCK_GRAIN = 3000;
 const ICE_GRAIN = 900;
+const AGE_LEAST = 1e-4;
+const AGE_MOST = 13;
 
 const query = new URLSearchParams(location.search);
 const asked = Number.parseInt(query.get("seed") ?? "", 10);
@@ -90,7 +92,8 @@ const settled = query.get("home") === "1";
 const given = Number.parseFloat(query.get("star") ?? "");
 const starMass = Number.isFinite(given) && given > 0 ? Math.min(60, Math.max(0.013, given)) : null;
 const old = Number.parseFloat(query.get("age") ?? "");
-const starAge = starMass !== null && Number.isFinite(old) && old > 0 ? Math.min(13, old) : null;
+const starAge =
+  !settled && Number.isFinite(old) && old > 0 ? Math.min(AGE_MOST, Math.max(AGE_LEAST, old)) : null;
 const real = query.get("scale") === "real";
 
 const address = (next: {
@@ -104,7 +107,7 @@ const address = (next: {
   if (next.star !== null) {
     search.set("star", String(next.star));
   }
-  if (next.star !== null && next.age !== null) {
+  if (!next.settled && next.age !== null) {
     search.set("age", String(next.age));
   }
   if (next.real) {
@@ -143,6 +146,12 @@ const span = (seconds: number) =>
     : seconds >= 3 * DAY
       ? `${figure(seconds / DAY)} days`
       : `${figure(seconds / HOUR)} hours`;
+const lived = (seconds: number) =>
+  seconds >= GIGAYEAR
+    ? `${figure(seconds / GIGAYEAR)} billion years`
+    : seconds >= 1e6 * YEAR
+      ? `${figure(seconds / (1e6 * YEAR))} million years`
+      : `${figure(seconds / (1e3 * YEAR))} thousand years`;
 const massOf = (mass: number) =>
   mass >= 0.07 * SUN_MASS
     ? `${figure(mass / SUN_MASS)} suns`
@@ -383,8 +392,8 @@ function factsOf(body: Body): Fact[] {
           (disk): Fact =>
             parent === null
               ? [
-                  "Belt",
-                  `${lengthOf(disk.inner)} to ${lengthOf(disk.outer)} · ${massOf(disk.mass)} · ice ${share(disk.ice)} · density ${figure(disk.depth)}`,
+                  disk.gas > 0 ? "Disk" : "Belt",
+                  `${lengthOf(disk.inner)} to ${lengthOf(disk.outer)} · ${massOf(disk.mass)}${disk.gas > 0 ? ` of dust in ${massOf(disk.gas)} of gas` : ""} · ice ${share(disk.ice)} · density ${figure(disk.depth)}`,
                 ]
               : [
                   "Ring",
@@ -476,11 +485,20 @@ const starField = el("input", {
 const ageField = el("input", {
   type: "number",
   value: starAge === null ? "" : String(starAge),
-  min: "0.001",
-  max: "13",
-  step: "0.001",
-  placeholder: "prime",
+  min: String(AGE_LEAST),
+  max: String(AGE_MOST),
+  step: "any",
+  placeholder: "drawn",
 });
+const ageSlide = el("input", {
+  type: "range",
+  min: String(Math.log10(AGE_LEAST)),
+  max: String(Math.log10(AGE_MOST)),
+  step: "0.01",
+  value: String(Math.log10(star.physics.age / GIGAYEAR)),
+});
+ageSlide.disabled = settled;
+const ageRead = el("span", { class: "clock" }, lived(star.physics.age));
 const homeField = el("input", { type: "checkbox" });
 homeField.checked = settled;
 const go = (next: number, scale = real) => {
@@ -506,6 +524,13 @@ for (const field of [seedField, starField, ageField]) {
   });
 }
 homeField.addEventListener("change", () => go(read()));
+ageSlide.addEventListener("input", () => {
+  write(ageRead, lived(GIGAYEAR * 10 ** Number(ageSlide.value)));
+});
+ageSlide.addEventListener("change", () => {
+  ageField.value = (10 ** Number(ageSlide.value)).toPrecision(3);
+  go(read());
+});
 
 required<HTMLElement>("#topbar").append(
   el("strong", {}, "Generator"),
@@ -525,10 +550,12 @@ required<HTMLElement>("#topbar").append(
     "label",
     {
       title:
-        "The age of a given star in billions of years, where there is no home; left empty, the star is in its prime",
+        "The age of the system in billions of years, where there is no home; left empty, it is drawn with the seed",
     },
     "Age",
     ageField,
+    ageSlide,
+    ageRead,
   ),
   el("label", { title: "Make the system around a living home, as a game does" }, homeField, "home"),
   button(
@@ -567,12 +594,14 @@ const summary = el(
         (body) =>
           `${body.name}, ${classOf(body.physics)} of ${massOf(body.physics.mass)} and ${figure(body.physics.heat, 4)} K`,
       )
-      .join(" with ")}, ${figure(star.physics.age / GIGAYEAR)} billion years old`,
+      .join(" with ")}, ${lived(star.physics.age)} old`,
   ),
   el(
     "div",
     { class: "hint" },
-    `${planets} planets, ${system.bodies.length - suns.length - planets} moons and ${suns.reduce((sum, body) => sum + body.physics.disks.length, 0)} belts · ${
+    `${planets} planets, ${system.bodies.length - suns.length - planets} moons and ${suns.reduce((sum, body) => sum + body.physics.disks.length, 0)} ${
+      suns.some((body) => body.physics.disks.some((disk) => disk.gas > 0)) ? "disks" : "belts"
+    } · ${
       system.home === null
         ? "no home"
         : `home ${system.bodies[system.home].name}, the system of world seed ${seed}`

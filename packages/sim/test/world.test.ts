@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { GROWN_MOST } from "../src/disks.ts";
 import {
   ASTRONOMICAL_UNIT,
   angleBetween,
@@ -69,10 +70,12 @@ import {
   lifeOf,
   rocheOf,
   SUN_RADIUS,
+  starDawn,
   starGlow,
   starLife,
   starRadius,
   starSpan,
+  YEAR,
   yearOf,
 } from "../src/physics.ts";
 import { sidesOf } from "../src/sphere.ts";
@@ -306,16 +309,18 @@ test("the physics of every body holds together", () => {
       assert.equal(physics.light > 0, body.parent !== null, label);
       assert.equal(physics.age, system.bodies[0].physics.age, label);
       assert.equal(body.disks.length, physics.disks.length, label);
+      const grown = physics.age >= GROWN_MOST;
       for (const disk of physics.disks) {
         assert.ok(disk.inner > physics.radius && disk.outer > disk.inner, label);
-        assert.ok(disk.mass > 0 && disk.depth > 0 && disk.depth < 1, label);
+        assert.ok(disk.mass >= 0 && disk.depth >= 0 && disk.gas >= 0, label);
+        assert.ok(!grown || (disk.mass > 0 && disk.depth > 0 && disk.gas === 0), label);
         if (body.parent !== null && !starborn(physics)) {
           const pull = system.bodies[body.parent].physics.mass;
           assert.ok(disk.outer < rocheOf(physics.radius, density, 900), label);
           assert.ok(disk.outer < 0.34 * hillOf(physics.orbit, physics.mass, pull), label);
-          assert.ok(disk.depth > 0.1, label);
+          assert.ok(disk.depth < 1 && disk.gas === 0 && (disk.depth > 0.1 || !grown), label);
         } else {
-          assert.ok(disk.depth < 1e-3, label);
+          assert.ok(disk.depth < 1e-3 || !grown, label);
         }
       }
       if (body.parent === null) {
@@ -1361,10 +1366,14 @@ test("systems with no home hold stars at every time of life", () => {
   const seen = new Map<string, number>();
   const count = 1400;
   let overtaken = 0;
+  let gassy = 0;
   for (let seed = 1; seed <= count; seed++) {
     const system = surveySystem(seed, { settled: false, star: null });
     const centre = system.bodies[0].physics;
     const kind = classOf(centre);
+    gassy += system.bodies.some(({ physics }) => physics.disks.some((disk) => disk.gas > 0))
+      ? 1
+      : 0;
     seen.set(kind, (seen.get(kind) ?? 0) + 1);
     const stars = system.bodies.filter((body) => starborn(body.physics));
     for (const body of system.bodies) {
@@ -1417,6 +1426,8 @@ test("systems with no home hold stars at every time of life", () => {
   }
   assert.ok(share((kind) => kind.endsWith("supergiant")) > 0);
   assert.ok(overtaken > 5, `${overtaken} stars that shed mass now circle a heavier companion`);
+  assert.ok(seen.has("T Tauri star"), `no young star among ${count} systems`);
+  assert.ok(gassy > 0.008 * count && gassy < 0.04 * count, `${gassy} systems with a disk of gas`);
 });
 
 test("on the drawn scale a body keeps clear of a wider one it circles", () => {
@@ -1529,4 +1540,114 @@ test("a system is the same at every age, less what its star swallowed or let go"
   }
   assert.ok(swallowed > 100 && kept > 100, `${swallowed} swallowed, ${kept} kept`);
   assert.ok(crowded > 0 && crowded < 0.2 * kept, `${crowded} crowded out as the star shed mass`);
+});
+
+test("a young star is wide and cool and settles on the main sequence", () => {
+  const still = { next: () => 0.5 };
+  const at = (suns: number, years: number) => kindled(suns * SUN_MASS, years * YEAR, still);
+  const sun = at(1, 1e6);
+  assert.equal(classOf(sun), "T Tauri star");
+  assert.ok(Math.abs(sun.radius / SUN_RADIUS - 2.4) < 0.1 && Math.abs(sun.heat - 4300) < 50);
+  assert.ok(sun.glow > 1.5 * SUN_GLOW && sun.glow < 2.1 * SUN_GLOW);
+  const dim = at(1, 1e7);
+  assert.equal(classOf(dim), "orange star");
+  assert.ok(dim.glow > 0.4 * SUN_GLOW && dim.glow < 0.6 * SUN_GLOW);
+  assert.ok(sun.day < at(1, 1e8).day && at(1, 1e8).day < at(1, 4.5e9).day);
+  assert.equal(classOf(at(3, 5e5)), "Herbig star");
+  assert.equal(classOf(at(0.1, 1e8)), "T Tauri star");
+  assert.equal(classOf(at(0.1, 5e8)), "red dwarf");
+  assert.ok(Math.abs(at(0.1, 1e6).radius / SUN_RADIUS - 0.9) < 0.1);
+  for (const suns of [0.08, 0.1, 0.3, 0.6, 1, 1.5, 2.5, 5, 9, 20, 60]) {
+    const mass = suns * SUN_MASS;
+    const dawn = starDawn(mass);
+    assert.ok(dawn < 0.5 * starSpan(mass), `${suns} suns settle in ${dawn / YEAR} years`);
+    const settled = lifeOf(mass, dawn);
+    assert.equal(settled.radius, starRadius(mass));
+    assert.equal(settled.glow, starGlow(mass));
+    let before = lifeOf(mass, 1e4 * YEAR);
+    assert.equal(before.radius, lifeOf(mass, 1e5 * YEAR).radius);
+    for (let step = 1; step <= 60; step++) {
+      const now = lifeOf(mass, 1e5 * YEAR * (dawn / (1e5 * YEAR)) ** (step / 60));
+      const label = `${suns} suns at step ${step}`;
+      assert.ok(now.radius <= before.radius * (1 + 1e-12), label);
+      assert.ok(now.radius >= settled.radius && now.mass === mass && now.spent === 0, label);
+      assert.ok(now.glow > (suns < 3 ? 0.25 : 1 - 1e-12) * settled.glow, label);
+      assert.ok(now.swell === settled.radius && now.peak === settled.glow, label);
+      before = now;
+    }
+  }
+  assert.ok(Math.abs(starDawn(SUN_MASS) / (4e7 * YEAR) - 1) < 1e-9);
+  assert.ok(starDawn(0.1 * SUN_MASS) > 0.9 * GIGAYEAR && starDawn(0.1 * SUN_MASS) < 1.1 * GIGAYEAR);
+});
+
+test("a system grows out of the disk of its young star", () => {
+  const at = (seed: number, years: number) =>
+    surveySystem(seed, { settled: false, star: SUN_MASS, age: years * YEAR });
+  const ages = [1e5, 5e5, 2e6, 5e6, 1e7, 3e7, 6e7, 1e8, 1.5e8];
+  let early = 0;
+  let late = 0;
+  let sheets = 0;
+  let heavy = 0;
+  let molten = 0;
+  for (let seed = 1; seed <= 24; seed++) {
+    const grown = at(seed, 4.5e9);
+    const whole = new Map(grown.bodies.map((body) => [body.name, body]));
+    let before = new Map<string, number>();
+    let gas = Number.POSITIVE_INFINITY;
+    for (const years of ages) {
+      const system = at(seed, years);
+      const label = `seed ${seed} at ${years} years`;
+      const masses = new Map(system.bodies.map((body) => [body.name, body.physics.mass]));
+      for (const [name, mass] of before) {
+        assert.ok((masses.get(name) ?? 0) >= mass, `${label}, ${name} has not shrunk or gone`);
+      }
+      for (const body of system.bodies) {
+        const end = whole.get(body.name);
+        assert.ok(end !== undefined, `${label}, ${body.name} is of the grown system`);
+        assert.ok(body.physics.mass <= end.physics.mass, `${label}, ${body.name}`);
+        assert.equal(body.seed, end.seed, label);
+        if (body.parent !== null && !starborn(body.physics)) {
+          const host = system.bodies[body.parent].physics;
+          const near = body.physics.orbit * (1 - body.physics.stretch);
+          assert.ok(near > 1.4 * (host.radius + body.physics.radius), `${label}, ${body.name}`);
+          molten += body.physics.mass < end.physics.mass && body.physics.heat > 1000 ? 1 : 0;
+        }
+      }
+      const disks = system.bodies.flatMap((body) => body.physics.disks);
+      const left = disks.reduce((sum, disk) => sum + disk.gas, 0);
+      assert.ok(left <= gas, `${label}: the gas does not come back`);
+      assert.equal(left, years >= 6e7 ? 0 : left, label);
+      if (years === 5e5) {
+        assert.equal(classOf(system.bodies[0].physics), "T Tauri star", label);
+        assert.ok(left > 1e-4 * SUN_MASS && left < 0.03 * SUN_MASS, `${label}: ${left} of gas`);
+        heavy += left > 0.01 * SUN_MASS ? 1 : 0;
+        assert.ok(
+          disks.some((disk) => disk.gas > 0 && disk.depth > 0.1),
+          label,
+        );
+        sheets += disks.filter((disk) => disk.gas > 0).length;
+        early += system.bodies.length;
+      }
+      if (years >= 1e8) {
+        assert.deepEqual([...masses.keys()], [...whole.keys()], label);
+        assert.deepEqual(
+          system.bodies.map((body) => body.physics.disks),
+          grown.bodies.map((body) => body.physics.disks),
+          label,
+        );
+        assert.ok(
+          system.bodies.every((body) => body.physics.mass === whole.get(body.name)?.physics.mass),
+        );
+      }
+      before = masses;
+      gas = left;
+    }
+    late += grown.bodies.length;
+  }
+  assert.ok(early < 0.25 * late, `${early} bodies at half a million years of ${late} in the end`);
+  assert.ok(
+    sheets > 24 && molten > 10,
+    `${sheets} sheets of gas and dust, ${molten} molten bodies`,
+  );
+  assert.ok(heavy > 8, `${heavy} disks of 24 as heavy as a hundredth of a Sun`);
 });

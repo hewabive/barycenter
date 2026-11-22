@@ -53,6 +53,13 @@ const ROUND_ROCK = 3e5;
 const ROUND_ICE = 2e5;
 const SUN_SPAN = 10 * GIGAYEAR;
 const SPAN_LEAST = 3e6 * YEAR;
+const DAWN = [4e7 * YEAR, 1.4, 2.5];
+const DAWN_LEAST = 1e5 * YEAR;
+const DAWN_SWELL = 0.33;
+const DAWN_HEAT = [4300, 0.16];
+const DAWN_WARMING = 1.175;
+const DAWN_HEAVY = 2;
+const DAWN_STEADY = [1, 3];
 const BRIGHT_MASS = 20;
 const BRIGHT_POWER = 2.3;
 const TURN_SHARE = [0.08, 1.5, 0.005];
@@ -238,6 +245,11 @@ export function starSpan(mass: number): number {
   return SUN_SPAN * (mass / SUN_MASS) ** -2.5 + SPAN_LEAST;
 }
 
+export function starDawn(mass: number): number {
+  const suns = mass / SUN_MASS;
+  return DAWN[0] * suns ** -(suns < 1 ? DAWN[1] : DAWN[2]);
+}
+
 export interface Life {
   mass: number;
   radius: number;
@@ -289,6 +301,23 @@ export function lifeOf(born: number, age: number): Life {
   const suns = born / SUN_MASS;
   const first = { mass: born, radius: starRadius(born), glow: starGlow(born) };
   const [main, turn, climb, core, last] = stagesOf(born);
+  const dawn = starDawn(born);
+  if (age < dawn) {
+    const early = Math.max(0, dawn / Math.max(age, DAWN_LEAST) - 1);
+    const wide = Math.cbrt(1 + DAWN_SWELL * early);
+    const settled = starHeat(first.glow, first.radius);
+    const track = (DAWN_HEAT[0] * suns ** DAWN_HEAT[1]) / settled;
+    const cool = Math.min(1, Math.max(track, wide ** -DAWN_WARMING));
+    const steady = smooth(DAWN_STEADY[0], DAWN_STEADY[1], suns);
+    return {
+      mass: born,
+      radius: first.radius * wide,
+      glow: first.glow * Math.max(steady, wide ** 2 * cool ** 4),
+      swell: first.radius,
+      peak: first.glow,
+      spent: 0,
+    };
+  }
   if (age <= main) {
     return { ...first, swell: first.radius, peak: first.glow, spent: 0 };
   }
@@ -368,7 +397,8 @@ export function starTurn(born: number, age: number, life: Life, luck: number): n
     const heat = starHeat(starGlow(born), dwarf);
     const steady = starDay(born, heat, Math.min(age, starSpan(born)), luck);
     const braked = SPIN_SETTLED * turnover(starHeat(life.glow, life.radius));
-    return life.radius > dwarf ? Math.max(braked, (steady * life.radius) / dwarf) : steady;
+    const slowed = (steady * life.radius) / dwarf;
+    return age < starDawn(born) ? slowed : life.radius > dwarf ? Math.max(braked, slowed) : steady;
   }
   if (born >= HOLE_LEAST) {
     const spin = HOLE_SPIN[0] + HOLE_SPIN[1] * luck;
@@ -827,6 +857,9 @@ export function classOf(physics: Physics): string {
     }
     if (size < STAR_SIZES[1]) {
       return shade === "red" ? "red dwarf" : `${shade} star`;
+    }
+    if (physics.age < starDawn(physics.mass)) {
+      return physics.mass < DAWN_HEAVY * SUN_MASS ? "T Tauri star" : "Herbig star";
     }
     if (physics.mass >= BURST_LEAST) {
       return `${shade} supergiant`;

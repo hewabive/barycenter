@@ -124,6 +124,7 @@ export {
   shareOf,
   shownLight,
   starborn,
+  starDawn,
   starDay,
   starGlow,
   starHeat,

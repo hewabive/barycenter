@@ -40,6 +40,7 @@ export interface Disk {
   mass: number;
   depth: number;
   ice: number;
+  gas: number;
 }
 
 export interface Lane {
