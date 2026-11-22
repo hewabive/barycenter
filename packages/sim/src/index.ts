@@ -1,5 +1,6 @@
 export type { Battle, Siege } from "./battle.ts";
 export { defaultConstants } from "./constants.ts";
+export { thinningOf } from "./disks.ts";
 export {
   type Books,
   type CellAccount,

@@ -319,8 +319,13 @@ test("the physics of every body holds together", () => {
           assert.ok(disk.outer < rocheOf(physics.radius, density, 900), label);
           assert.ok(disk.outer < 0.34 * hillOf(physics.orbit, physics.mass, pull), label);
           assert.ok(disk.depth < 1 && disk.gas === 0 && (disk.depth > 0.1 || !grown), label);
+          const deep = disk.height * Math.sqrt(disk.inner * disk.outer);
+          assert.ok(Math.abs(deep - 10) < 0.01 && disk.flare === -1 && disk.grain === 1, label);
         } else {
           assert.ok(disk.depth < 1e-3 || !grown, label);
+          assert.ok(disk.height > 0 && disk.height < 0.5 && disk.grain > 0, `${label} stands`);
+          assert.ok(disk.gas > 0 ? disk.grain < 1e-4 : disk.flare === 0, label);
+          assert.ok(disk.gas > 0 || disk.height >= 0.04, label);
         }
       }
       if (body.parent === null) {

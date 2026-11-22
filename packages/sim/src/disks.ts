@@ -1,4 +1,14 @@
-import { ASTRONOMICAL_UNIT, EARTH_MASS, SUN_MASS, YEAR } from "./physics.ts";
+import {
+  ASTRONOMICAL_UNIT,
+  BOLTZMANN,
+  DALTON,
+  EARTH_MASS,
+  frostOf,
+  GRAVITY,
+  SUN_MASS,
+  YEAR,
+  yearOf,
+} from "./physics.ts";
 import type { Disk } from "./types.ts";
 
 export const ROCK_GRAIN = 3000;
@@ -6,8 +16,10 @@ export const ICE_GRAIN = 900;
 export const RING_ROCK = 1;
 export const BELT_ROCK = 1000;
 export const GROWN_MOST = 1e8 * YEAR;
+export const RING_DEEP = 10;
+export const SOLID_YEARS = 3e7;
 
-const DUST = 1e-3;
+const DUST = 1e-5;
 const RUBBLE = 1;
 const SOLID_SIGMA = 70;
 const ICE_BOOST = 4;
@@ -19,6 +31,14 @@ const HOLE_FROM = 0.8;
 const GAP_HILL = 4;
 const DISK_LEAST = 1e-6 * EARTH_MASS;
 const JOINED = 1.01;
+const FROST_HEAT = 170;
+const GAS_WEIGHT = 2.34;
+const TURBULENCE = 3e-4;
+const FLARE = 0.25;
+const STIRRED = 2;
+const STIRRED_MOST = 0.3;
+const DUST_STANDS = 0.04;
+const GAP_DEPTH = 0.04;
 
 export interface Station {
   orbit: number;
@@ -49,7 +69,7 @@ export function diskOf(
   inner: number,
   outer: number,
   ice: number,
-  given: Partial<Disk>,
+  given: Partial<Disk> & { stirred?: number },
   size = given.depth === undefined ? BELT_ROCK : RING_ROCK,
 ): Disk {
   const area = Math.PI * (outer ** 2 - inner ** 2);
@@ -57,7 +77,36 @@ export function diskOf(
   const laden = (4 * grain * size) / 3;
   const mass = given.mass ?? (given.depth ?? 0) * area * laden;
   const depth = given.depth ?? mass / (area * laden);
-  return { inner, outer, mass, depth, ice, gas: given.gas ?? 0 };
+  const packed = (RING_DEEP * size) / Math.sqrt(inner * outer);
+  const loose = given.stirred ?? 0;
+  return {
+    inner,
+    outer,
+    mass,
+    depth,
+    ice,
+    gas: given.gas ?? 0,
+    grain: size,
+    height: given.height ?? Math.max(packed, loose),
+    flare: given.flare ?? (packed > loose ? -1 : 0),
+  };
+}
+
+export function gasHeight(orbit: number, centre: number, frost: number): number {
+  const heat = FROST_HEAT * Math.sqrt(frost / orbit);
+  const sound = Math.sqrt((BOLTZMANN * heat) / (GAS_WEIGHT * DALTON));
+  return sound / Math.sqrt((GRAVITY * centre) / orbit);
+}
+
+export function stirredHeight(heaviest: number, centre: number, grown = 1): number {
+  const hill = Math.cbrt(heaviest / (3 * centre));
+  const stirred = Math.min(STIRRED_MOST, Math.max(DUST_STANDS, STIRRED * hill));
+  return DUST_STANDS + (stirred - DUST_STANDS) * grown;
+}
+
+export function thinningOf(mass: number, orbit: number, centre: number, glow: number): number {
+  const height = gasHeight(orbit, centre, frostOf(glow));
+  return 1 / (1 + (GAP_DEPTH * (mass / centre) ** 2) / (height ** 5 * TURBULENCE));
 }
 
 export function holeOf(cloud: Pick<Cloud, "inner" | "outer" | "age" | "airy">): number {
@@ -131,7 +180,16 @@ export function nebulaOf(cloud: Cloud): Disk[] {
       { ...piece, inner: hole, mass: piece.mass * (1 - part) },
     ];
   });
-  const rubble = RUBBLE * (BELT_ROCK / RUBBLE) ** grown;
+  const coarse = (at: number) => {
+    const pace = Math.min(GROWN_MOST, SOLID_YEARS * YEAR * Math.sqrt(yearOf(at, centre) / YEAR));
+    return RUBBLE * (BELT_ROCK / RUBBLE) ** Math.min(1, age / pace);
+  };
+  const stirred = stirredHeight(
+    Math.max(0, ...stations.map((station) => station.mass)),
+    centre,
+    grown,
+  );
+  const area = (disk: Disk) => disk.outer ** 2 - disk.inner ** 2;
   const disks: Disk[] = [];
   for (const piece of split) {
     const dusty = airyYet && piece.inner >= hole;
@@ -141,16 +199,15 @@ export function nebulaOf(cloud: Cloud): Disk[] {
       piece.outer,
       piece.ice,
       { mass: piece.mass, gas },
-      dusty ? DUST : rubble,
+      dusty ? DUST : coarse(Math.sqrt(piece.inner * piece.outer)),
     );
     const last = disks.at(-1);
     const joined = last !== undefined && made.inner <= JOINED * last.outer;
     if (last !== undefined && joined && last.gas > 0 === made.gas > 0) {
-      const area = (disk: Disk) => disk.outer ** 2 - disk.inner ** 2;
       const mass = last.mass + made.mass;
       disks[disks.length - 1] = {
+        ...made,
         inner: last.inner,
-        outer: made.outer,
         mass,
         depth: (last.depth * area(last) + made.depth * area(made)) / (area(last) + area(made)),
         ice: mass > 0 ? (last.ice * last.mass + made.ice * made.mass) / mass : made.ice,
@@ -160,5 +217,21 @@ export function nebulaOf(cloud: Cloud): Disk[] {
       disks.push(made);
     }
   }
-  return disks.filter((disk) => disk.mass >= DISK_LEAST || disk.gas > 0);
+  return disks
+    .filter((disk) => disk.mass >= DISK_LEAST || disk.gas > 0)
+    .map((disk) => {
+      const grain = ROCK_GRAIN - (ROCK_GRAIN - ICE_GRAIN) * disk.ice;
+      if (disk.gas === 0) {
+        const size = (3 * disk.mass) / (4 * grain * Math.PI * area(disk) * disk.depth);
+        return { ...disk, grain: size, height: stirred, flare: 0 };
+      }
+      const spread = disk.gas / (Math.PI * area(disk));
+      const loose = (Math.PI * grain * DUST) / (2 * spread * TURBULENCE);
+      const held = gasHeight(Math.sqrt(disk.inner * disk.outer), centre, frost);
+      return {
+        ...disk,
+        height: held / Math.sqrt(1 + loose),
+        flare: FLARE - (0.5 * loose) / (1 + loose),
+      };
+    });
 }

@@ -1,4 +1,5 @@
 import { PIT_SHAPE, RELIEF_SHAPE } from "@barycenter/sim";
+import { HAZE_COLUMNS, SHADE_COLUMNS, SHADE_REACH, SHADE_ROWS } from "./haze.ts";
 import { GRIT_SPAN } from "./tile.ts";
 
 const real = (value: number) => (Number.isInteger(value) ? `${value}.0` : String(value));
@@ -229,12 +230,16 @@ const HALO_PEAK = HALO_RIM + HALO_WIDE;
 const HALO_WRAP = 2;
 const HALO_SHEET = 1.35;
 const BELT_COVER = 0.12;
-const SHEET_LANES = 9;
-const SHEET_RIPPLE = 0.3;
-const SHEET_SLANT = 0.06;
-const SHEET_EDGE = 0.04;
-const SHEET_DIM = 0.25;
-const SHEET_EMBER = [700, 1500];
+const HAZE_GAIN = 6;
+const HAZE_MOST_LIGHT = 1.4;
+const HAZE_SLACK = 1.1;
+const HAZE_CLEAR = 0.01;
+const HAZE_NEAR = 0.3;
+const HAZE_LONG = 0.25;
+const HAZE_ACROSS = 6;
+const HAZE_MOST = 28;
+const HAZE_DUST = [0.2, 0.5];
+const HAZE_EMBER = "vec3(1.0, 0.42, 0.14)";
 
 export const STORM_ROOM = 8;
 export const LAMP_ROOM = 2;
@@ -1330,57 +1335,273 @@ void main() {
 }
 `;
 
-export const SHEET_VERTEX = `
-varying vec3 vSpot;
-varying vec3 vPlace;
+export const HAZE_STEPS = [10, 3];
 
-void main() {
-  vSpot = position;
-  vec4 placed = modelMatrix * vec4(position, 1.0);
-  vPlace = placed.xyz;
-  gl_Position = projectionMatrix * viewMatrix * placed;
+export const SLAB = `
+float above(float height) {
+  return 0.3989423 * exp(-0.5 * height * height)
+    / (0.6565 * height + 0.3435 * sqrt(height * height + 5.3954372));
+}
+
+float between(float low, float lowTail, float high, float highTail) {
+  return low * high < 0.0 ? 1.0 - lowTail - highTail : abs(lowTail - highTail);
+}
+
+float spread(float low, float lowTail, float high, float highTail) {
+  float wide = abs(high - low);
+  float middle = 0.5 * (low + high);
+  return wide > 0.02
+    ? between(low, lowTail, high, highTail) / wide
+    : 0.3989423 * exp(-0.5 * middle * middle);
+}
+
+float strip(float before, float beforeLit, float after, float afterLit, float through, float gone) {
+  float turn = after - before + through;
+  return abs(turn) < 1e-3
+    ? through * beforeLit * (1.0 - 0.5 * turn)
+    : through * (beforeLit - afterLit * gone) / turn;
+}
+
+float glint(float lean, float cosine) {
+  float wide = 1.0 + lean * lean - 2.0 * lean * cosine;
+  return (1.0 - lean * lean) / (wide * sqrt(wide));
 }
 `;
 
-export const SHEET_FRAGMENT = `
-uniform vec2 hoop;
-uniform float spread;
-uniform float depth;
-uniform float warmth;
-uniform float grit;
-uniform vec3 tint;
-uniform vec3 near;
-uniform vec3 far;
-uniform mat4 modelMatrix;
-varying vec3 vSpot;
-varying vec3 vPlace;
+export const HAZE_VERTEX = `
+varying vec3 vRay;
 
-float wave(float at) {
-  float cell = floor(at);
-  float part = at - cell;
-  float left = fract(sin(cell * 127.1 + grit) * 43758.5453);
-  float right = fract(sin((cell + 1.0) * 127.1 + grit) * 43758.5453);
-  return mix(left, right, part * part * (3.0 - 2.0 * part));
+void main() {
+  vec4 placed = modelViewMatrix * vec4(position, 1.0);
+  vRay = placed.xyz * mat3(modelViewMatrix);
+  gl_Position = projectionMatrix * placed;
+}
+`;
+
+export const HAZE_FRAGMENT = `
+uniform sampler2D lanes;
+uniform sampler2D tones;
+uniform sampler2D shade;
+uniform vec3 eye;
+uniform vec2 span;
+uniform vec3 hull;
+uniform float hot;
+uniform int count;
+uniform vec4 screens[${SCREEN_ROOM}];
+uniform vec3 shine;
+uniform vec3 dust;
+uniform vec3 frost;
+varying vec3 vRay;
+${SLAB}
+struct Probe {
+  vec2 spot;
+  float share;
+  float thick;
+  float stand;
+  float lamp;
+  float fine;
+  float height;
+  float tail;
+  float shadow;
+  float lit;
+};
+
+float along(float reach) {
+  return clamp(log(reach / span.x) / log(span.y / span.x), 0.0, 1.0);
+}
+
+vec4 laneAt(float share) {
+  return textureLod(lanes, vec2((0.5 + ${real(HAZE_COLUMNS - 1)} * share) / ${real(HAZE_COLUMNS)}, 0.5), 0.0);
+}
+
+vec4 toneAt(float share) {
+  return textureLod(tones, vec2((0.5 + ${real(HAZE_COLUMNS - 1)} * share) / ${real(HAZE_COLUMNS)}, 0.5), 0.0);
+}
+
+float brimAt(float reach) {
+  return exp(toneAt(along(reach)).b) * reach;
+}
+
+Probe probe(vec3 ray, float anchor, float base, float offset) {
+  Probe found;
+  found.spot = eye.xz + (anchor + offset) * ray.xz;
+  float reach = length(found.spot);
+  found.share = along(reach);
+  vec4 lane = laneAt(found.share);
+  found.thick = exp(lane.r);
+  found.stand = exp(lane.g) * reach;
+  found.lamp = lane.b;
+  found.fine = lane.a;
+  found.height = (base + offset * ray.y) / found.stand;
+  float high = abs(found.height);
+  found.tail = above(high);
+  vec2 at = vec2(
+    (0.5 + ${real(SHADE_COLUMNS - 1)} * found.share) / ${real(SHADE_COLUMNS)},
+    (0.5 + ${real(SHADE_ROWS - 1)} * min(high / ${real(SHADE_REACH)}, 1.0)) / ${real(SHADE_ROWS)}
+  );
+  found.shadow = exp(textureLod(shade, at, 0.0).r);
+  found.lit = exp(-found.shadow);
+  return found;
 }
 
 void main() {
-  float across = (length(vSpot.xz) - hoop.x) / (hoop.y - hoop.x);
-  float wide = pow(spread, across);
-  float fall = (spread * spread - 1.0) / (4.0 * (sqrt(spread) - 1.0)) * pow(wide, -1.5);
-  float lanes = log(wide) * ${real(SHEET_LANES)};
-  float ripple = 0.5 * wave(lanes) + 0.3 * wave(2.7 * lanes + 11.0) + 0.2 * wave(7.3 * lanes + 5.0);
-  float dense = depth * fall * (${real(1 - SHEET_RIPPLE)} + ${real(2 * SHEET_RIPPLE)} * ripple);
-  vec3 eye = normalize(cameraPosition - vPlace);
-  vec3 pole = normalize(mat3(modelMatrix) * vec3(0.0, 1.0, 0.0));
-  float slant = max(abs(dot(eye, pole)), ${real(SHEET_SLANT)});
-  float edge = smoothstep(0.0, ${real(SHEET_EDGE)}, across) * smoothstep(1.0, ${real(1 - SHEET_EDGE)}, across);
-  float through = (1.0 - exp(-dense / slant)) * edge;
-  float thick = 1.0 - exp(-dense);
-  vec3 lamp = mix(near, far, sqrt(clamp(across, 0.0, 1.0))) * (${real(SHEET_DIM)} + ${real(1 - SHEET_DIM)} * thick);
-  float heat = warmth / sqrt(wide);
-  vec3 ember = vec3(1.0, 0.42, 0.14) * smoothstep(${real(SHEET_EMBER[0])}, ${real(SHEET_EMBER[1])}, heat);
-  gl_FragColor = vec4(tint * lamp * (0.8 + 0.4 * ripple) + ember * thick, through);
+  vec3 ray = normalize(vRay);
+  float level = length(ray.xz);
+  float climb = abs(ray.y);
+  float from = 0.0;
+  float to = 1e30;
+  if (climb > 1e-9) {
+    float low = (-hull.y - eye.y) / ray.y;
+    float high = (hull.y - eye.y) / ray.y;
+    from = max(from, min(low, high));
+    to = min(to, max(low, high));
+  } else if (abs(eye.y) > hull.y) {
+    discard;
+  }
+  float lean = dot(eye.xz, ray.xz);
+  float aside = dot(eye.xz, eye.xz);
+  if (level > 1e-6) {
+    float found = lean * lean - level * level * (aside - hull.x * hull.x);
+    if (found <= 0.0) {
+      discard;
+    }
+    float root = sqrt(found);
+    from = max(from, (-lean - root) / (level * level));
+    to = min(to, (-lean + root) / (level * level));
+  } else if (aside > hull.x * hull.x) {
+    discard;
+  }
+  for (int index = 0; index < ${SCREEN_ROOM}; index++) {
+    vec4 screen = screens[index];
+    vec3 toward = eye - screen.xyz;
+    float near = dot(toward, ray);
+    float inside = dot(toward, toward) - screen.w * screen.w;
+    float hit = near * near - inside;
+    if (screen.w > 0.0 && hit > 0.0) {
+      float met = -near - sqrt(hit);
+      to = met > 0.0 ? min(to, met) : inside < 0.0 ? 0.0 : to;
+    }
+  }
+  if (to <= from) {
+    discard;
+  }
+
+  float anchor = from;
+  float base = eye.y + from * ray.y;
+  vec2 legs[3];
+  legs[0] = vec2(0.0);
+  legs[1] = vec2(0.0);
+  legs[2] = vec2(0.0);
+  if (climb > hull.z * level) {
+    anchor = -eye.y / ray.y;
+    base = 0.0;
+    float most = hull.y / climb;
+    float back = min(anchor - from, most);
+    float fore = min(to - anchor, most);
+    float here = brimAt(length(eye.xz + anchor * ray.xz));
+    for (int turn = 0; turn < 2; turn++) {
+      float behind = brimAt(length(eye.xz + (anchor - back) * ray.xz));
+      float ahead = brimAt(length(eye.xz + (anchor + fore) * ray.xz));
+      back = min(back, ${real(HAZE_SLACK)} * max(here, behind) / climb);
+      fore = min(fore, ${real(HAZE_SLACK)} * max(here, ahead) / climb);
+    }
+    float first = max(from - anchor, -back);
+    float last = min(to - anchor, fore);
+    float split = clamp(0.0, first, last);
+    legs[0] = vec2(first, split);
+    legs[1] = vec2(split, last);
+  } else {
+    float whole = to - from;
+    float bow = ray.y * ray.y - hull.z * hull.z * level * level;
+    float tilt = eye.y * ray.y - hull.z * hull.z * lean;
+    float found = tilt * tilt - bow * (eye.y * eye.y - hull.z * hull.z * aside);
+    vec2 clearing = vec2(0.0);
+    if (found > 0.0 && bow < -1e-12) {
+      float root = sqrt(found);
+      clearing = vec2((-tilt + root) / bow, (-tilt - root) / bow) - from;
+    }
+    float met = climb > 1e-9 ? -base / ray.y : -1.0;
+    vec2 nearer = vec2(0.0, min(whole, clearing.x));
+    vec2 farther = vec2(max(0.0, clearing.y), whole);
+    if (met > nearer.x && met < nearer.y) {
+      legs[0] = vec2(nearer.x, met);
+      legs[1] = vec2(met, nearer.y);
+      legs[2] = farther;
+    } else if (met > farther.x && met < farther.y) {
+      legs[0] = nearer;
+      legs[1] = vec2(farther.x, met);
+      legs[2] = vec2(met, farther.y);
+    } else {
+      legs[0] = nearer;
+      legs[1] = farther;
+    }
+  }
+
+  float nearest = level > 1e-6 ? -lean / (level * level) : anchor;
+  float miss = level > 1e-6 ? sqrt(max(aside - lean * lean / (level * level), 0.0)) : sqrt(aside);
+  float bend = level / max(miss, ${real(HAZE_NEAR)} * span.x);
+  float clear = 1.0;
+  float seen = 0.0;
+  float lent = 0.0;
+  float where = 0.0;
+  float glow = 0.0;
+  for (int leg = 0; leg < 3; leg++) {
+    float start = legs[leg].x;
+    float end = legs[leg].y;
+    if (end <= start || clear == 0.0) {
+      continue;
+    }
+    float low = asinh((anchor + start - nearest) * bend);
+    float high = asinh((anchor + end - nearest) * bend);
+    bool straight = level < 1e-4 || abs(high - low) < ${real(HAZE_LONG)};
+    int paces = min(count + int(${real(HAZE_ACROSS)} * abs(high - low)), ${HAZE_MOST});
+    float swell = exp(low);
+    float rate = exp((high - low) / float(paces));
+    Probe last = probe(ray, anchor, base, start);
+    float past = start;
+    for (int step = 1; step <= paces; step++) {
+      swell *= rate;
+      float next = straight
+        ? mix(start, end, float(step) / float(paces))
+        : nearest + 0.5 * (swell - 1.0 / swell) / bend - anchor;
+      Probe here = probe(ray, anchor, base, next);
+      float through = 0.5 * (last.thick + here.thick)
+        * spread(last.height, last.tail, here.height, here.tail)
+        * (next - past) / (0.5 * (last.stand + here.stand));
+      float gone = exp(-through);
+      vec3 middle = vec3(
+        last.spot + here.spot,
+        last.height * last.stand + here.height * here.stand
+      ).xzy;
+      float sent = clear
+        * strip(last.shadow, last.lit, here.shadow, here.lit, through, gone)
+        * glint(
+          mix(${real(HAZE_DUST[0])}, ${real(HAZE_DUST[1])}, 0.5 * (last.fine + here.fine)),
+          -dot(normalize(middle), ray)
+        );
+      seen += sent;
+      lent += sent * 0.5 * (last.lamp + here.lamp);
+      where += sent * 0.5 * (last.share + here.share);
+      if (here.share < hot) {
+        glow += clear * (1.0 - gone) * toneAt(here.share).g;
+      }
+      clear *= gone;
+      if (clear < ${real(HAZE_CLEAR)}) {
+        clear = 0.0;
+        break;
+      }
+      last = here;
+      past = next;
+    }
+  }
+  float ice = toneAt(seen > 0.0 ? where / seen : 0.0).r;
+  float glare = sqrt(${real(HAZE_GAIN)} * seen);
+  float shown = seen > 0.0 ? lent / seen * glare / (1.0 + glare / ${real(HAZE_MOST_LIGHT)}) : 0.0;
+  float grain = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) - 0.5;
+  vec3 lamp = shine * mix(dust, frost, ice) * shown + ${HAZE_EMBER} * glow;
+  gl_FragColor = vec4(lamp, 1.0 - clear);
   #include <colorspace_fragment>
+  gl_FragColor.rgb = max(gl_FragColor.rgb + grain / 255.0 * step(1e-4, shown + glow), 0.0);
 }
 `;
 

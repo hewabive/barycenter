@@ -1,37 +1,74 @@
 import { createRandom, type Disk, EARTH_MASS, type Lane } from "@barycenter/sim";
 import {
+  BackSide,
   BufferAttribute,
   BufferGeometry,
+  ClampToEdgeWrapping,
   Color,
-  DoubleSide,
+  CylinderGeometry,
+  DataTexture,
+  DataUtils,
+  HalfFloatType,
+  LinearFilter,
   Mesh,
+  type PixelFormat,
   Points,
-  RingGeometry,
+  RedFormat,
+  RGBAFormat,
   ShaderMaterial,
   Vector2,
+  Vector3,
+  Vector4,
 } from "three";
-import { BELT_FRAGMENT, BELT_VERTEX, SHEET_FRAGMENT, SHEET_VERTEX } from "./shaders.ts";
+import {
+  HAZE_COLUMNS,
+  LAMP_HEIGHT,
+  type Layer,
+  profileOf,
+  SHADE_COLUMNS,
+  SHADE_ROWS,
+  shadeOf,
+} from "./haze.ts";
+import {
+  BELT_FRAGMENT,
+  BELT_VERTEX,
+  HAZE_FRAGMENT,
+  HAZE_STEPS,
+  HAZE_VERTEX,
+  SCREEN_ROOM,
+} from "./shaders.ts";
 
 export interface Belt {
   points: Points;
   turn(tick: number, dense: number, scale: number): void;
 }
 
-export interface Glow {
-  near: Color;
-  far: Color;
-  warmth: number;
+export interface Lamp {
+  girth: number;
+  shine: Color;
+  level(far: number): number;
+  ember(far: number): number;
+}
+
+export interface Haze {
+  mesh: Mesh;
+  eye: Vector3;
+  screens: Vector4[];
 }
 
 const ROCK = 0x8a8076;
 const ICE = 0xcdd6dd;
-const LEAN = 0.06;
+const LEAN_MOST = 3;
 const LEAST = 300;
 const MOST = 1800;
+const ROCKS = [1, 100];
 const DUST = 0xb39474;
 const FROST = 0xaab4bd;
-const SHEET_STEPS = 128;
-export const SHEET_LEAST = 1e-4;
+const HAZE_LEAST = 1e-6;
+const HAZE_SIDES = 64;
+const HAZE_COARSE = 0.7;
+const SKINNED = 0.3;
+const EMBER_LEAST = 0.004;
 
 export function createBelt(
   lane: Lane,
@@ -48,14 +85,16 @@ export function createBelt(
   const grains = new Float32Array(count);
   for (let index = 0; index < count; index++) {
     const across = (random.next() + random.next()) / 2;
+    const lean = Math.sqrt(-2 * Math.log(1 - random.next()));
     courses[3 * index] = lane.inner + (lane.outer - lane.inner) * across;
     courses[3 * index + 1] = 2 * Math.PI * random.next();
-    courses[3 * index + 2] = LEAN * (random.next() + random.next() - 1);
+    courses[3 * index + 2] = disk.height * Math.min(LEAN_MOST, lean);
     grains[index] = random.next();
   }
   const geometry = new BufferGeometry();
   geometry.setAttribute("position", new BufferAttribute(courses, 3));
   geometry.setAttribute("grain", new BufferAttribute(grains, 1));
+  const rocky = Math.log(disk.grain / ROCKS[0]) / Math.log(ROCKS[1] / ROCKS[0]);
   const uniforms = {
     tick: { value: 0 },
     year: { value: lane.year },
@@ -64,13 +103,14 @@ export function createBelt(
     scale: { value: 1 },
     room: { value: (Math.PI * (lane.outer ** 2 - lane.inner ** 2)) / count },
     tint: { value: new Color(ROCK).lerp(new Color(ICE), disk.ice) },
-    shine: { value: shine },
+    shine: { value: shine.clone().multiplyScalar(Math.max(0, Math.min(1, rocky))) },
   };
   const points = new Points(
     geometry,
     new ShaderMaterial({ vertexShader: BELT_VERTEX, fragmentShader: BELT_FRAGMENT, uniforms }),
   );
   points.frustumCulled = false;
+  points.visible = rocky > 0;
   return {
     points,
     turn(tick, dense, scale) {
@@ -81,30 +121,67 @@ export function createBelt(
   };
 }
 
-export function createSheet(lane: Lane, disk: Disk, seed: number, glow: Glow): Mesh {
-  const geometry = new RingGeometry(lane.inner, lane.outer, SHEET_STEPS, 1);
-  geometry.rotateX(-Math.PI / 2);
-  const uniforms = {
-    hoop: { value: new Vector2(lane.inner, lane.outer) },
-    spread: { value: disk.outer / disk.inner },
-    depth: { value: disk.depth },
-    warmth: { value: glow.warmth },
-    grit: { value: seed % 1000 },
-    tint: { value: new Color(DUST).lerp(new Color(FROST), disk.ice) },
-    near: { value: glow.near },
-    far: { value: glow.far },
-  };
-  const sheet = new Mesh(
-    geometry,
+function chart(values: number[], width: number, height: number, format: PixelFormat): DataTexture {
+  const data = Uint16Array.from(values, (value) => DataUtils.toHalfFloat(value));
+  const texture = new DataTexture(data, width, height, format, HalfFloatType);
+  texture.minFilter = LinearFilter;
+  texture.magFilter = LinearFilter;
+  texture.wrapS = ClampToEdgeWrapping;
+  texture.wrapT = ClampToEdgeWrapping;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+export function createHaze(layers: Layer[], lamp: Lamp, sparse: boolean): Haze | null {
+  const profile = profileOf(layers);
+  if (profile.dense.every((seen) => seen < HAZE_LEAST)) {
+    return null;
+  }
+  const shade = shadeOf(profile, LAMP_HEIGHT * lamp.girth);
+  const lanes: number[] = [];
+  const tones: number[] = [];
+  let hot = 0;
+  profile.dense.forEach((seen, column) => {
+    const far = profile.far[column];
+    const ember = lamp.ember(far);
+    lanes.push(Math.log(Math.max(seen, 1e-13)), Math.log(profile.tall[column]), lamp.level(far));
+    lanes.push(profile.fine[column]);
+    tones.push(profile.ice[column], ember, Math.log(shade.brims[column] * profile.tall[column]), 0);
+    hot = ember > EMBER_LEAST ? (column + 1) / (HAZE_COLUMNS - 1) : hot;
+  });
+  const eye = new Vector3();
+  const screens = Array.from({ length: SCREEN_ROOM }, () => new Vector4(0, 0, 0, 0));
+  const wide = profile.outer / Math.cos(Math.PI / HAZE_SIDES);
+  const mesh = new Mesh(
+    new CylinderGeometry(wide, wide, 2 * shade.top, HAZE_SIDES, 1),
     new ShaderMaterial({
-      vertexShader: SHEET_VERTEX,
-      fragmentShader: SHEET_FRAGMENT,
-      uniforms,
+      vertexShader: HAZE_VERTEX,
+      fragmentShader: HAZE_FRAGMENT,
+      uniforms: {
+        lanes: { value: chart(lanes, HAZE_COLUMNS, 1, RGBAFormat) },
+        tones: { value: chart(tones, HAZE_COLUMNS, 1, RGBAFormat) },
+        shade: { value: chart([...shade.depth], SHADE_COLUMNS, SHADE_ROWS, RedFormat) },
+        eye: { value: eye },
+        span: { value: new Vector2(profile.inner, profile.outer) },
+        hull: { value: new Vector3(profile.outer, shade.top, shade.steep) },
+        hot: { value: hot },
+        count: {
+          value: Math.round(
+            HAZE_STEPS[shade.deepest > SKINNED ? 0 : 1] * (sparse ? HAZE_COARSE : 1),
+          ),
+        },
+        screens: { value: screens },
+        shine: { value: lamp.shine },
+        dust: { value: new Color(DUST) },
+        frost: { value: new Color(FROST) },
+      },
       transparent: true,
+      premultipliedAlpha: true,
+      depthTest: false,
       depthWrite: false,
-      side: DoubleSide,
+      side: BackSide,
     }),
   );
-  sheet.frustumCulled = false;
-  return sheet;
+  mesh.frustumCulled = false;
+  return { mesh, eye, screens };
 }

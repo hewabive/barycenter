@@ -4,6 +4,7 @@ import {
   centreOf,
   courseOf,
   createRandom,
+  type Disk,
   heatAt,
   poleOf,
   poseOf,
@@ -14,6 +15,7 @@ import {
   spinOf,
   starborn,
   swayOf,
+  thinningOf,
 } from "@barycenter/sim";
 import {
   BufferAttribute,
@@ -38,12 +40,20 @@ import {
   WebGLRenderer,
 } from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { createBelt, createSheet, SHEET_LEAST } from "./belts.ts";
+import { createBelt, createHaze } from "./belts.ts";
 import { createLooks, type Look, type Paint } from "./bodies.ts";
 import { el } from "./dom.ts";
+import type { Layer } from "./haze.ts";
 import { holeOf } from "./looks.ts";
 import { ORBIT, SKY } from "./palette.ts";
-import { LENS_ROOM, SKY_FRAGMENT, SKY_VERTEX, SPECK_FRAGMENT, SPECK_VERTEX } from "./shaders.ts";
+import {
+  LENS_ROOM,
+  SCREEN_ROOM,
+  SKY_FRAGMENT,
+  SKY_VERTEX,
+  SPECK_FRAGMENT,
+  SPECK_VERTEX,
+} from "./shaders.ts";
 
 export interface Probe {
   id: number;
@@ -146,6 +156,8 @@ const SPECK_PIXELS = 3;
 const TRACK_GONE = 5;
 const TRACK_FULL = 12;
 const TRACK_SHADE = 0.55;
+const HAZE_ORDER = 0.25;
+const TRACK_ORDER = 0.5;
 
 function eased(share: number): number {
   return share * share * (3 - 2 * share);
@@ -302,47 +314,84 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
   const dust = new Points(specks, speckMaterial);
   dust.frustumCulled = false;
   world.add(dust);
-  const belts = looks
-    .filter(({ body }) => body.parent === null || starborn(body.physics))
-    .flatMap((owner) =>
-      owner.body.disks.map((lane, index) => {
-        const disk = owner.body.physics.disks[index];
-        const { heat, radius } = owner.body.physics;
-        const seen = seenGlow(heat) * ((2 * radius) / (disk.inner + disk.outer)) ** 2;
-        const shine = tintOf(owner.body).multiplyScalar(shownLight([seen], 0).lamps[0]);
-        const within = system.bodies
-          .filter((body) => body.parent === owner.body.id && body.physics.orbit < disk.inner)
-          .sort((left, right) => right.physics.orbit - left.physics.orbit)[0];
-        const about = within === undefined ? null : within.id;
-        const cloud = createBelt(lane, disk, owner.body.seed + index, shine, coarse.matches);
-        cloud.points.visible = disk.gas === 0;
-        const lit = (reach: number) =>
-          tintOf(owner.body).multiplyScalar(
-            shownLight([seenGlow(heat) * (radius / reach) ** 2], 0).lamps[0],
-          );
-        const sheet =
-          disk.depth < SHEET_LEAST
-            ? null
-            : createSheet(lane, disk, owner.body.seed + index, {
-                near: lit(disk.inner),
-                far: lit(disk.outer),
-                warmth: heat * Math.sqrt(radius / (2 * disk.inner)),
-              });
-        const pole = poleOf(owner.body);
-        const lean = new Quaternion().setFromUnitVectors(
-          new Vector3(0, 1, 0),
-          new Vector3(pole.x, pole.y, pole.z),
-        );
-        cloud.points.quaternion.copy(lean);
-        sheet?.quaternion.copy(lean);
-        return { ...cloud, sheet, about, owner };
-      }),
+  const rooted = looks.filter(({ body }) => body.parent === null || starborn(body.physics));
+  const leanOf = (owner: Look) => {
+    const pole = poleOf(owner.body);
+    return new Quaternion().setFromUnitVectors(
+      new Vector3(0, 1, 0),
+      new Vector3(pole.x, pole.y, pole.z),
     );
+  };
+  const insideOf = (owner: Look, disk: Disk, suns: boolean) =>
+    system.bodies
+      .filter(
+        (body) =>
+          body.parent === owner.body.id &&
+          body.physics.orbit < disk.inner &&
+          (!suns || starborn(body.physics)),
+      )
+      .sort((left, right) => right.physics.orbit - left.physics.orbit)[0]?.id ?? null;
+  const belts = rooted.flatMap((owner) =>
+    owner.body.disks.map((lane, index) => {
+      const disk = owner.body.physics.disks[index];
+      const { heat, radius } = owner.body.physics;
+      const seen = seenGlow(heat) * ((2 * radius) / (disk.inner + disk.outer)) ** 2;
+      const shine = tintOf(owner.body).multiplyScalar(shownLight([seen], 0).lamps[0]);
+      const cloud = createBelt(lane, disk, owner.body.seed + index, shine, coarse.matches);
+      cloud.points.quaternion.copy(leanOf(owner));
+      return { ...cloud, about: insideOf(owner, disk, false), owner };
+    }),
+  );
+  const hazes = rooted.flatMap((owner) => {
+    const { heat, radius, mass, glow, disks } = owner.body.physics;
+    const hubs = new Map<number | null, Layer[]>();
+    owner.body.disks.forEach((lane, index) => {
+      const hub = insideOf(owner, disks[index], true);
+      hubs.set(hub, [...(hubs.get(hub) ?? []), { lane, disk: disks[index], thinned: 0 }]);
+    });
+    const seen = seenGlow(heat);
+    const lit = (far: number) => seen * (radius / far) ** 2;
+    return [...hubs].flatMap(([about, layers]) => {
+      layers.sort((left, right) => left.disk.inner - right.disk.inner);
+      layers.forEach((layer, index) => {
+        const beyond = layers[index + 1];
+        if (beyond !== undefined && layer.disk.gas > 0 && beyond.disk.gas > 0) {
+          layer.thinned = system.bodies
+            .filter(
+              ({ parent, physics }) =>
+                parent === owner.body.id &&
+                physics.orbit > layer.disk.outer &&
+                physics.orbit < beyond.disk.inner,
+            )
+            .reduce(
+              (left, { physics }) => left * thinningOf(physics.mass, physics.orbit, mass, glow),
+              1,
+            );
+        }
+      });
+      const haze = createHaze(
+        layers,
+        {
+          girth: owner.body.radius,
+          shine: tintOf(owner.body),
+          level: (far) => shownLight([lit(far)], 0).lamps[0],
+          ember: (far) => shownLight([lit(far)], heat * Math.sqrt(radius / (2 * far))).glow,
+        },
+        coarse.matches,
+      );
+      if (haze === null) {
+        return [];
+      }
+      haze.mesh.quaternion.copy(leanOf(owner));
+      haze.mesh.renderOrder = HAZE_ORDER;
+      return [{ ...haze, about, owner }];
+    });
+  });
   for (const belt of belts) {
     world.add(belt.points);
-    if (belt.sheet !== null) {
-      world.add(belt.sheet);
-    }
+  }
+  for (const haze of hazes) {
+    world.add(haze.mesh);
   }
   renderer.domElement.addEventListener("webglcontextrestored", () => {
     for (const look of looks) {
@@ -373,6 +422,7 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
     const material = new LineBasicMaterial({ color: ORBIT, transparent: true, opacity: 0 });
     const line = new LineLoop(new BufferGeometry().setAttribute("position", path), material);
     line.frustumCulled = false;
+    line.renderOrder = TRACK_ORDER;
     world.add(line);
     return {
       line,
@@ -522,7 +572,14 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
         const middle = centreOf(system, belt.about, shown);
         belt.points.position.set(middle.x, middle.y, middle.z);
       }
-      belt.sheet?.position.copy(belt.points.position);
+    }
+    for (const haze of hazes) {
+      if (haze.about === null) {
+        haze.mesh.position.copy(haze.owner.frame.position);
+      } else {
+        const middle = centreOf(system, haze.about, shown);
+        haze.mesh.position.set(middle.x, middle.y, middle.z);
+      }
     }
 
     const to = lookOf(shift.to);
@@ -621,6 +678,28 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
     }
     waking?.refine(rough);
     camera.updateMatrixWorld();
+    if (hazes.length > 0) {
+      const nearest = looks
+        .map((look, index) => ({
+          look,
+          place: places[index],
+          wide: look.body.radius / Math.max(places[index].distanceTo(camera.position), 1e-9),
+        }))
+        .sort((left, right) => right.wide - left.wide)
+        .slice(0, SCREEN_ROOM);
+      for (const haze of hazes) {
+        haze.mesh.worldToLocal(haze.eye.copy(camera.position));
+        haze.screens.forEach((screen, at) => {
+          const found = nearest[at];
+          if (found === undefined) {
+            screen.set(0, 0, 0, 0);
+          } else {
+            haze.mesh.worldToLocal(seat.copy(found.place));
+            screen.set(seat.x, seat.y, seat.z, found.look.body.radius);
+          }
+        });
+      }
+    }
     for (const glare of glaring) {
       const middle = places[glare.body.id];
       const within = looks

@@ -163,6 +163,14 @@ const lengthOf = (meters: number) =>
   meters >= 0.01 * ASTRONOMICAL_UNIT
     ? `${figure(meters / ASTRONOMICAL_UNIT)} AU`
     : `${figure(meters / 1000)} km`;
+const grainOf = (meters: number) =>
+  meters >= 1000
+    ? `${figure(meters / 1000)} km`
+    : meters >= 1
+      ? `${figure(meters)} m`
+      : meters >= 1e-3
+        ? `${figure(1000 * meters)} mm`
+        : `${figure(1e6 * meters)} µm`;
 
 const heavy = (body: Body) =>
   system.bodies
@@ -393,11 +401,11 @@ function factsOf(body: Body): Fact[] {
             parent === null
               ? [
                   disk.gas > 0 ? "Disk" : "Belt",
-                  `${lengthOf(disk.inner)} to ${lengthOf(disk.outer)} · ${massOf(disk.mass)}${disk.gas > 0 ? ` of dust in ${massOf(disk.gas)} of gas` : ""} · ice ${share(disk.ice)} · density ${figure(disk.depth)}`,
+                  `${lengthOf(disk.inner)} to ${lengthOf(disk.outer)} · ${massOf(disk.mass)}${disk.gas > 0 ? ` of dust in ${massOf(disk.gas)} of gas` : ""} · ice ${share(disk.ice)} · density ${figure(disk.depth)} · grains of ${grainOf(disk.grain)} · ${figure(disk.height)} of its width in height`,
                 ]
               : [
                   "Ring",
-                  `${figure(disk.inner / physics.radius)} to ${figure(disk.outer / physics.radius)} radii · density ${figure(disk.depth)} · ice ${share(disk.ice)} · ${figure(disk.mass)} kg`,
+                  `${figure(disk.inner / physics.radius)} to ${figure(disk.outer / physics.radius)} radii · density ${figure(disk.depth)} · ice ${share(disk.ice)} · ${figure(disk.mass)} kg · grains of ${grainOf(disk.grain)} · ${grainOf(disk.height * Math.sqrt(disk.inner * disk.outer))} deep`,
                 ],
         )),
     "Light now",

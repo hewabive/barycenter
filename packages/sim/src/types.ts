@@ -41,6 +41,9 @@ export interface Disk {
   depth: number;
   ice: number;
   gas: number;
+  grain: number;
+  height: number;
+  flare: number;
 }
 
 export interface Lane {

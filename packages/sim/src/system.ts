@@ -1,4 +1,13 @@
-import { diskOf, GROWN_MOST, ICE_GRAIN, nebulaOf, ROCK_GRAIN, type Station } from "./disks.ts";
+import {
+  diskOf,
+  GROWN_MOST,
+  ICE_GRAIN,
+  nebulaOf,
+  ROCK_GRAIN,
+  SOLID_YEARS,
+  type Station,
+  stirredHeight,
+} from "./disks.ts";
 import {
   ASTRONOMICAL_UNIT,
   BROWN_LEAST,
@@ -360,7 +369,6 @@ const BORN_SHARE = 0.05;
 const YOUTH_SALT = 0x3c6ef35f;
 const GAS_YEARS = [2e6, 6e6, 0.5];
 const GAS_BEARING = 0.01;
-const SOLID_YEARS = 3e7;
 const DISK_REACH = 1.5;
 const YOUNG_SHARE = 0.03;
 const YOUNG_AGES = [3e5, 1e8];
@@ -1301,6 +1309,9 @@ function trimmed(physics: Physics): Physics {
       depth: trim(disk.depth),
       ice: trim(disk.ice),
       gas: trim(disk.gas),
+      grain: trim(disk.grain),
+      height: trim(disk.height),
+      flare: trim(disk.flare),
     })),
   };
 }
@@ -1970,13 +1981,20 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
         seats.push({ orbit, far: orbit * (1 + stretch), mass: retinue + other.mass });
       }
     }
+    const stirred = stirredHeight(
+      Math.max(0, ...row.map(({ draft }) => draft.physics.mass)),
+      zone.centre.mass,
+    );
     const stayed = belts.flatMap((belt, at) => {
       const wider = spreads.findLast((moved) => moved.rung < beltRungs[at])?.spread ?? 1;
-      return wider === 1
-        ? [belt]
-        : belt.outer * wider > zone.outer
-          ? []
-          : [diskOf(belt.inner * wider, belt.outer * wider, belt.ice, { mass: belt.mass })];
+      return belt.outer * wider > zone.outer
+        ? []
+        : [
+            diskOf(belt.inner * wider, belt.outer * wider, belt.ice, {
+              mass: belt.mass,
+              stirred,
+            }),
+          ];
     });
     return { belts: stayed, row };
   };
@@ -2172,26 +2190,31 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
           return [];
         }
         const { swallowed, widened, outer } = ground;
+        const kept = post.rows[level].filter(({ draft }) => !draft.gone);
         if (age >= GROWN_MOST) {
+          const heaviest = Math.max(
+            0,
+            ...kept.filter(({ draft }) => !draft.absent).map(({ draft }) => draft.physics.mass),
+          );
+          const stirred = stirredHeight(heaviest, zone.centre.mass);
           return post.belts[level]
             .filter((belt) => belt.inner >= swallowed && belt.outer * widened <= outer)
             .map((belt) =>
-              widened === 1
-                ? belt
-                : diskOf(belt.inner * widened, belt.outer * widened, belt.ice, { mass: belt.mass }),
+              diskOf(belt.inner * widened, belt.outer * widened, belt.ice, {
+                mass: belt.mass,
+                stirred,
+              }),
             );
         }
         const lit = reachOf(zone.centre.glow);
         const bare = zone.centre.glow >= starGlow(BURST_LEAST) || zone.outer <= zone.inner;
         const stations: Station[] = [
-          ...post.rows[level]
-            .filter(({ draft }) => !draft.gone)
-            .map(({ draft, orbit }) => ({
-              orbit,
-              share: draft.absent ? 0 : draft.share,
-              mass: draft.physics.mass,
-              belt: null,
-            })),
+          ...kept.map(({ draft, orbit }) => ({
+            orbit,
+            share: draft.absent ? 0 : draft.share,
+            mass: draft.absent ? 0 : draft.physics.mass,
+            belt: null,
+          })),
           ...post.belts[level].map((belt) => ({
             orbit: Math.sqrt(belt.inner * belt.outer),
             share: 0,

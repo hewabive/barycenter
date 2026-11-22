@@ -1,7 +1,24 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { type Cloud, diskOf, GROWN_MOST, holeOf, nebulaOf, type Station } from "../src/disks.ts";
-import { ASTRONOMICAL_UNIT, EARTH_MASS, SUN_MASS, YEAR } from "../src/physics.ts";
+import {
+  type Cloud,
+  diskOf,
+  GROWN_MOST,
+  gasHeight,
+  holeOf,
+  nebulaOf,
+  type Station,
+  stirredHeight,
+  thinningOf,
+} from "../src/disks.ts";
+import {
+  ASTRONOMICAL_UNIT,
+  EARTH_MASS,
+  JUPITER_MASS,
+  SUN_GLOW,
+  SUN_MASS,
+  YEAR,
+} from "../src/physics.ts";
 
 const AU = ASTRONOMICAL_UNIT;
 const MYR = 1e6 * YEAR;
@@ -31,7 +48,8 @@ test("a young disk is one sheet of dust and gas, as heavy as the nebula of the S
   assert.equal(disk.outer, 60 * AU);
   assert.ok(disk.mass > 40 * EARTH_MASS && disk.mass < 150 * EARTH_MASS, `${disk.mass}`);
   assert.ok(disk.gas > 0.01 * SUN_MASS && disk.gas < 0.02 * SUN_MASS);
-  assert.ok(disk.depth > 0.3 && disk.depth < 3);
+  assert.ok(disk.depth > 30 && disk.depth < 300, `${disk.depth}`);
+  assert.equal(disk.grain, 1e-5);
   assert.ok(disk.ice > 0.4 && disk.ice < 0.6);
 });
 
@@ -84,4 +102,54 @@ test("what is left in the end is the belt the system keeps", () => {
   }
   assert.equal(last.gas, 0);
   assert.ok(GROWN_MOST === 100 * MYR);
+});
+
+test("dust stands as high as the gas holds it, and lower where the gas has thinned", () => {
+  const held = [1, 10, 100].map((orbit) => gasHeight(orbit * AU, SUN_MASS, 2.7 * AU));
+  assert.ok(Math.abs(held[0] - 0.033) < 0.002 && Math.abs(held[2] - 0.105) < 0.005, `${held}`);
+  const giant = [planet(5.2, 0.5, 318)];
+  const [near, far] = nebulaOf(cloud(0.3, giant));
+  assert.ok(near.height > 0.02 && near.height < gasHeight(0.5 * AU, SUN_MASS, 2.7 * AU));
+  assert.ok(far.height > near.height && far.height < gasHeight(18 * AU, SUN_MASS, 2.7 * AU));
+  assert.ok(near.flare > 0.2 && near.flare <= 0.25 && far.flare < near.flare);
+  const late = nebulaOf(cloud(3.1, giant))[1];
+  assert.ok(late.gas < far.gas && late.height < 0.7 * far.height, `${late.height} ${far.height}`);
+});
+
+test("without gas a disk is as thick as its planets have had time to stir it", () => {
+  assert.ok(Math.abs(Math.SQRT2 * stirredHeight(JUPITER_MASS, SUN_MASS) - 0.193) < 0.005);
+  assert.equal(stirredHeight(EARTH_MASS, SUN_MASS), 0.04);
+  assert.equal(stirredHeight(0, SUN_MASS), 0.04);
+  const giant = [planet(1, 0.5, 1), planet(5.2, 1, 318)];
+  const heights = [30, 60, 99.999].map((age) => nebulaOf(cloud(age, giant))[0]);
+  assert.ok(heights.every((disk) => disk.gas === 0 && disk.flare === 0 && disk.grain >= 1));
+  assert.ok(heights[0].height < 0.08 && heights[0].height < heights[1].height);
+  assert.ok(Math.abs(heights[2].height / stirredHeight(JUPITER_MASS, SUN_MASS) - 1) < 1e-3);
+});
+
+test("a ring that nothing stirs is a few of its own grains deep", () => {
+  const ring = diskOf(1e8, 1.4e8, 1, { depth: 0.6 });
+  assert.ok(Math.abs(ring.height * Math.sqrt(1e8 * 1.4e8) - 10) < 1e-9 && ring.flare === -1);
+  const belt = diskOf(2.1 * AU, 3.3 * AU, 0.05, { mass: 3e-4 * EARTH_MASS, stirred: 0.137 });
+  assert.ok(belt.height === 0.137 && belt.flare === 0 && belt.grain === 1000);
+});
+
+test("rubble near the star grows coarse and thin before the rubble far from it", () => {
+  const stations = [planet(1, 0.2, 1), planet(5.2, 1, 318), planet(20, 0.3, 15)];
+  const rubble = nebulaOf(cloud(8, stations));
+  const near = rubble[0];
+  const far = rubble[rubble.length - 1];
+  assert.ok(near.gas === 0 && far.gas === 0 && near.outer < AU && far.inner > 20 * AU);
+  assert.ok(near.grain > 30 * far.grain && far.grain < 3, `${near.grain} ${far.grain}`);
+  assert.ok(near.depth < 0.01, `${near.depth}`);
+  const late = nebulaOf(cloud(99.999, stations));
+  assert.ok(late.every((disk) => Math.abs(disk.grain / 1000 - 1) < 0.01));
+});
+
+test("only a heavy planet thins the gas along its orbit", () => {
+  const thinned = (earths: number, orbit: number) =>
+    thinningOf(earths * EARTH_MASS, orbit * AU, SUN_MASS, SUN_GLOW);
+  assert.ok(thinned(318, 5.2) < 0.01 && thinned(95, 9.5) < 0.1);
+  assert.ok(thinned(17, 30) > 0.8 && thinned(1, 1) > 0.95);
+  assert.ok(thinned(10, 1) < thinned(10, 10));
 });
