@@ -1450,8 +1450,10 @@ Probe probe(vec3 ray, float anchor, float base, float offset) {
   float lift = base + offset * ray.y;
   for (int index = 0; index < ${BUBBLE_ROOM}; index++) {
     vec4 bubble = bubbles[index];
-    float apart = distance(vec3(found.spot.x, lift, found.spot.y), bubble.xyz);
-    found.thick *= bubble.w > 0.0 ? smoothstep(bubble.w, 2.0 * bubble.w, apart) : 1.0;
+    if (bubble.w > 0.0) {
+      float apart = distance(vec3(found.spot.x, lift, found.spot.y), bubble.xyz);
+      found.thick *= smoothstep(bubble.w, 2.0 * bubble.w, apart);
+    }
   }
   found.height = lift / found.stand;
   float high = abs(found.height);
