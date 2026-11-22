@@ -10,7 +10,9 @@ export const LAMP_HEIGHT = 4 / (3 * Math.PI);
 const BELL = 1 / Math.sqrt(2 * Math.PI);
 const TAIL = [0.3435, 5.3954372];
 const SOFT = 1;
-const MARGIN = 4;
+const MARGIN = 1;
+const INSET = 3;
+const INSET_MOST = 0.3;
 const BRIM_LEAST = 4.5;
 const SEEN_LEAST = 1e-12;
 const SKIN = Math.log(0.02);
@@ -85,12 +87,17 @@ export function profileOf(layers: Layer[], ridges: Ridge[] = []): Profile {
   const last = layers[layers.length - 1];
   const rough = Math.log(last.lane.outer / first.lane.inner) / HAZE_COLUMNS;
   const soft = (disk: Disk, at: number) => Math.max(rough, SOFT * standOf(disk, at));
-  const edges = layers.map(({ lane, disk }) => ({
-    from: Math.log(lane.inner),
-    to: Math.log(lane.outer),
-    rise: soft(disk, disk.inner),
-    fall: soft(disk, disk.outer),
-  }));
+  const edges = layers.map(({ lane, disk }) => {
+    const wide = Math.log(lane.outer / lane.inner);
+    const rise = Math.min(soft(disk, disk.inner), (INSET_MOST * wide) / INSET);
+    const fall = Math.min(soft(disk, disk.outer), (INSET_MOST * wide) / INSET);
+    return {
+      from: Math.log(lane.inner) + INSET * rise,
+      to: Math.log(lane.outer) - INSET * fall,
+      rise,
+      fall,
+    };
+  });
   const inner = first.lane.inner * Math.exp(-MARGIN * edges[0].rise);
   const outer = last.lane.outer * Math.exp(MARGIN * edges[edges.length - 1].fall);
   const knots = layers.flatMap(({ lane, disk }) => [

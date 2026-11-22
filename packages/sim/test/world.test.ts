@@ -645,8 +645,11 @@ test("tides have taken the moons they could reach and left a planet turning with
 test("a giant gathers its moons in a disk of its own while it takes gas", () => {
   let cradles = 0;
   let mooned = 0;
+  let tipped = 0;
   for (let seed = 1; seed <= 16; seed++) {
-    const grown = surveySystem(seed, { settled: false, star: SUN_MASS, age: 4.5 * GIGAYEAR });
+    const late = { settled: false, star: SUN_MASS, age: 4.5 * GIGAYEAR };
+    const grown = surveySystem(seed, late);
+    const settledPoses = sketchSystem(seed, late).bodies;
     for (const years of [2e6, 3.5e6, 5e6, 2e8]) {
       const plan = { settled: false, star: SUN_MASS, age: years * YEAR };
       const system = surveySystem(seed, plan);
@@ -664,6 +667,12 @@ test("a giant gathers its moons in a disk of its own while it takes gas", () => 
         const hold = hillOf(orbit * (1 - stretch), mass, sun.mass);
         const moons = system.bodies.filter((moon) => moon.parent === body.id);
         const lanes = drawn.bodies[body.id].disks.slice(-pieces.length);
+        const pose = drawn.bodies[body.id];
+        const later = settledPoses.find((each) => each.name === body.name);
+        assert.ok(Math.abs(pose.tilt - pose.slant) < 1e-4, `${label}: upright on its orbit`);
+        assert.ok(pose.slant < 1e-4 || Math.abs(pose.swing - pose.node) < 1e-4, label);
+        assert.ok(pose.slant < 1e-4 || body.parent !== 0, `${label}: in the plane of the disk`);
+        tipped += later !== undefined && Math.abs(later.tilt - later.slant) > 0.02 ? 1 : 0;
         cradles += 1;
         mooned += moons.length > 0 ? 1 : 0;
         pieces.forEach((disk, at) => {
@@ -688,6 +697,7 @@ test("a giant gathers its moons in a disk of its own while it takes gas", () => 
     }
   }
   assert.ok(cradles > 20 && mooned > 3, `${cradles} disks, ${mooned} with moons in them`);
+  assert.ok(tipped > 0.5 * cradles, `${tipped} of them lean once their system has settled`);
 });
 
 test("a ring is the wreck of a moon: it comes late, thins and is gone", () => {

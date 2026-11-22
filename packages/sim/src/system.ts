@@ -96,6 +96,7 @@ import {
   type Survey,
   type Vector,
 } from "./types.ts";
+import { slerp } from "./vector.ts";
 
 export interface Past {
   star: Pick<Physics, "mass" | "glow">;
@@ -156,6 +157,7 @@ interface Draft {
   absent: boolean;
   share: number;
   held: number | null;
+  upright: number;
   sprout: Sprung | null;
   setting: Setting | null;
   aged: ((age: number) => void) | null;
@@ -1855,6 +1857,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       absent: left(first) || drafts[parent].absent || prime < sprung,
       share: 1,
       held: null,
+      upright: 0,
       sprout: null,
       setting: { star: site.star, distance: site.distance, lent: moved.lent, past: null },
       aged: null,
@@ -2118,6 +2121,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
         absent: false,
         share: 1,
         held: null,
+        upright: 0,
         sprout: null,
         setting: { star, distance, lent: zone.lent, past: null },
         aged: null,
@@ -2231,8 +2235,11 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
           const tide = bound || turned.by === null ? undefined : turned.by(age);
           draft.physics = tide === undefined ? made : { ...made, day: tide.day };
           draft.held = tide?.held ? turned.lead : null;
+          const stirred = smooth(gasFor(star.mass), GROWN_MOST, age);
           draft.share = share;
           draft.tilt = bound ? null : tilt;
+          draft.upright = airborne ? 1 - stirred : 0;
+          draft.slant = zone.plane === "system" ? slant * stirred : draft.slant;
           draft.beat = beatOf(draft.physics, ground.centre, far);
           draft.setting = setting;
         };
@@ -2363,6 +2370,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
           absent: first === null,
           share: 1,
           held: null,
+          upright: 0,
           sprout: first,
           setting: { star, distance, lent: perch.lent, past: null },
           aged: null,
@@ -2464,9 +2472,10 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       apart: false,
       sprung: false,
     };
-    const there = { gone: false, absent: false, share: 1, held: null, sprout: null, setting: null };
+    const there = { gone: false, absent: false, share: 1, held: null, upright: 0, sprout: null };
+    const stood = { setting: null };
     const made = { aged: null, strew: null };
-    drafts.push({ physics, parent, tilt, slant, ...alone, ...there, ...made });
+    drafts.push({ physics, parent, tilt, slant, ...alone, ...there, ...stood, ...made });
     const post: Post = { id, zones: [], belts: [], rows: [] };
     posts.set(star, post);
     const beyond = (from: number) =>
@@ -2795,13 +2804,25 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
               ? 0
               : node;
     const beside = draft.shared === null ? null : trim(2 * Math.PI * rare.next());
+    const axis = (tilt: number, about: number): Vector => ({
+      x: Math.sin(tilt) * Math.sin(about),
+      y: Math.cos(tilt),
+      z: Math.sin(tilt) * Math.cos(about),
+    });
+    const natal = draft.tilt === null ? axis(slant, turned) : axis(draft.tilt, swing);
+    const pole = draft.upright > 0 ? slerp(natal, axis(slant, turned), draft.upright) : natal;
+    const leaning = Math.acos(Math.max(-1, Math.min(1, pole.y)));
+    const about = (Math.atan2(pole.x, pole.z) + 2 * Math.PI) % (2 * Math.PI);
     const lie = {
       phase: lead === null ? placed : lead.phase,
       slant: trim(slant),
       node: trim(turned),
       apse: lead !== null ? lead.apse : around === null ? 0 : trim(apse),
-      tilt: trim(draft.tilt ?? slant),
-      swing: around === null ? 0 : trim(draft.tilt === null ? turned : swing),
+      tilt: trim(draft.upright > 0 ? leaning : (draft.tilt ?? slant)),
+      swing:
+        around === null
+          ? 0
+          : trim(draft.upright > 0 ? about : draft.tilt === null ? turned : swing),
     };
     lies.push(lie);
     if (draft.gone || draft.absent) {
