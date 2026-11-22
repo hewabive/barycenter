@@ -61,15 +61,22 @@ import {
   wrapped,
 } from "../src/index.ts";
 import {
+  BURST_LEAST,
   densityOf,
+  frostOf,
   hillOf,
+  holeRadius,
+  lifeOf,
   rocheOf,
+  SUN_RADIUS,
   starGlow,
+  starLife,
   starRadius,
   starSpan,
   yearOf,
 } from "../src/physics.ts";
 import { sidesOf } from "../src/sphere.ts";
+import { kindled } from "../src/system.ts";
 
 const SEEDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
@@ -222,6 +229,10 @@ test("cells joined by land meet on dry ground and a strait crosses water", () =>
     }
   }
 });
+
+function spent(physics: Physics): boolean {
+  return starborn(physics) && densityOf(physics.mass, physics.radius) > 1e7;
+}
 
 function sharing(system: Sketch, body: Body): boolean {
   return body.shared !== null || system.bodies.some((other) => other.shared?.with === body.id);
@@ -682,7 +693,8 @@ test("light is drawn on a scale that keeps what is brighter brighter", () => {
       const label = `seed ${seed}, ${body.name}`;
       if (body.parent === null) {
         const suns = system.bodies.filter(
-          (other) => other.id !== body.id && other.physics.mass >= STAR_LEAST,
+          (other) =>
+            other.id !== body.id && other.physics.mass >= STAR_LEAST && !spent(other.physics),
         );
         assert.ok(
           suns.every((other) => lamps.some((lamp) => lamp.source === other.id)),
@@ -696,7 +708,7 @@ test("light is drawn on a scale that keeps what is brighter brighter", () => {
       }
       const centre = system.bodies[0].physics;
       const sun = lamps.find((lamp) => lamp.source === 0);
-      if (centre.mass >= STAR_LEAST) {
+      if (centre.mass >= STAR_LEAST && !spent(centre)) {
         assert.ok(sun, label);
       }
       const suns = system.bodies.filter((other) => starborn(other.physics)).length;
@@ -843,7 +855,7 @@ test("bodies balance about shared centres, and stars stand in nested groups that
             0,
           );
         assert.ok(
-          Math.hypot(pull("x"), pull("y"), pull("z")) < 1e-9 * whole * span,
+          Math.hypot(pull("x"), pull("y"), pull("z")) <= 1e-9 * whole * span,
           `seed ${seed}: the middle of all the mass stays where it is`,
         );
       }
@@ -886,7 +898,7 @@ test("bodies balance about shared centres, and stars stand in nested groups that
         weightOf(system, other.id) / (within(other) + weightOf(system, other.id));
       if (starborn(body.physics)) {
         assert.ok(starborn(host.physics), label);
-        assert.ok(body.physics.mass <= host.physics.mass, label);
+        assert.ok(body.physics.mass <= host.physics.mass || spent(host.physics), label);
         const inner = kin.filter((other) => other.physics.orbit < body.physics.orbit);
         const reach = Math.max(0, ...inner.map(far));
         const ratio = weightOf(system, body.id) / within(body);
@@ -1184,6 +1196,9 @@ test("small bodies are loose and not round, and rock melts where it is hot", () 
   assert.ok(bare > 0.3 && bare <= 0.5, `bare ${bare}`);
   assert.equal(moltenOf(body(EARTH_MASS, 0, 1600, 100 * EARTH_AIR)), 1);
   assert.equal(classOf(body(EARTH_MASS, 0, 1500)), "lava world");
+  assert.equal(classOf(body(EARTH_MASS, 0.4, 150)), "ice world");
+  assert.equal(classOf(body(EARTH_MASS, 0.4, 600, 9 * EARTH_AIR)), "steam world");
+  assert.equal(classOf(body(EARTH_MASS, 0.4, 600)), "barren world");
 });
 
 test("a centre too light to be a star is a brown dwarf with small worlds close to it", () => {
@@ -1225,8 +1240,7 @@ test("rare bodies turn up among many systems", () => {
   assert.ok(glowing > 2, `glowing ${glowing}`);
   for (const system of systems) {
     const centre = system.bodies[0].physics;
-    assert.ok(centre.age >= 0.09 * GIGAYEAR && centre.age <= 10 * GIGAYEAR);
-    assert.ok(centre.age < starSpan(centre.mass));
+    assert.ok(centre.age > 0 && centre.age <= 12 * GIGAYEAR);
     const heavy = system.bodies.filter(
       (body) => body.physics.mass >= BROWN_LEAST && body.physics.mass < STAR_LEAST && body.id > 0,
     );
@@ -1263,4 +1277,159 @@ test("a star turns slower as it ages, a red dwarf later than a Sun, and a hot st
   assert.ok(day(0.2, 4.57).days > 80);
   assert.ok(day(2, 4.57).days < 2 && day(2, 0.1).days < 2);
   assert.ok(day(1, 4.57, 0).days < day(1, 4.57, 1).days);
+});
+
+test("a star lives by its mass and leaves what that mass allows", () => {
+  const still = { next: () => 0.5 };
+  const at = (suns: number, age: number) => kindled(suns * SUN_MASS, age * GIGAYEAR, still);
+  const sun = at(1, 4.57);
+  assert.equal(classOf(sun), "yellow star");
+  assert.equal(sun.mass, SUN_MASS);
+  assert.equal(sun.radius, starRadius(SUN_MASS));
+  assert.equal(sun.glow, starGlow(SUN_MASS));
+  assert.equal(classOf(at(1, 10.7)), "orange subgiant");
+  const giant = at(1, 11.395);
+  assert.equal(classOf(giant), "red giant");
+  assert.ok(giant.radius > 80 * SUN_RADIUS && giant.radius < 200 * SUN_RADIUS);
+  assert.ok(giant.glow > 500 * SUN_GLOW && giant.heat > 3000 && giant.heat < 3900);
+  const clump = at(1, 11.45);
+  assert.equal(classOf(clump), "orange giant");
+  assert.ok(clump.radius > 8 * SUN_RADIUS && clump.radius < 15 * SUN_RADIUS);
+  const dwarf = at(1, 12.5);
+  assert.equal(classOf(dwarf), "white dwarf");
+  assert.ok(dwarf.mass > 0.45 * SUN_MASS && dwarf.mass < 0.56 * SUN_MASS);
+  assert.ok(Math.abs(dwarf.radius / 8.9e6 - 1) < 0.15, `as wide as ${dwarf.radius}`);
+  assert.ok(dwarf.heat > 7000 && dwarf.heat < 9500, `a billion years on ${dwarf.heat}`);
+  assert.ok(at(1, 11.6).heat > 2 * dwarf.heat);
+  assert.ok(at(3, 10).heat < 5500);
+  assert.ok(at(7, 1).mass > at(1.5, 5).mass && at(7, 1).radius < at(1.5, 5).radius);
+
+  assert.equal(classOf(at(5, 0.1)), "blue-white star");
+  assert.equal(classOf(at(25, 0.003)), "blue star");
+  assert.ok(Math.abs(starSpan(20 * SUN_MASS) / (8.5e-3 * GIGAYEAR) - 1) < 0.1);
+  const red = at(15, 0.0168);
+  assert.equal(classOf(red), "red supergiant");
+  assert.ok(red.radius > 400 * SUN_RADIUS && red.radius < 1000 * SUN_RADIUS);
+  assert.ok(red.heat > 3300 && red.heat < 3900, `as cool as ${red.heat}`);
+  assert.equal(classOf(at(15, 0.0155)), "white supergiant");
+  assert.equal(classOf(at(60, 0.0039)), "Wolf-Rayet star");
+  const pulsar = at(15, 0.0175);
+  assert.equal(classOf(pulsar), "neutron star");
+  assert.ok(pulsar.mass > 1.2 * SUN_MASS && pulsar.mass < 2 * SUN_MASS);
+  assert.ok(pulsar.radius > 1e4 && pulsar.radius < 1.3e4);
+  assert.ok(pulsar.day < 1 && pulsar.heat > 3e5 && pulsar.heat < 2e6);
+  assert.ok(at(15, 0.5).heat < 0.1 * pulsar.heat && at(15, 0.5).day > pulsar.day);
+  const hole = at(30, 0.01);
+  assert.equal(classOf(hole), "black hole");
+  assert.equal(hole.radius, holeRadius(hole.mass));
+  assert.ok(Math.abs(hole.radius / 26600 - 1) < 0.02);
+  assert.ok(hole.heat > 0 && hole.heat < 1e-6 && hole.glow > 0 && hole.glow < 1e-20);
+  assert.ok(hole.day > 0 && hole.day < 0.1);
+
+  for (const suns of [1, 1.7, 2.2, 3, 5, 7.9, 8.1, 12, 19, 21, 30, 45, 60]) {
+    const mass = suns * SUN_MASS;
+    const main = starSpan(mass);
+    const whole = starLife(mass);
+    assert.ok(whole > 1.1 * main && whole < 1.2 * main, `${suns} suns live ${whole / main}`);
+    const just = lifeOf(mass, 1.000001 * main);
+    assert.ok(Math.abs(just.radius / starRadius(mass) - 1) < 1e-3, `${suns} suns leave gently`);
+    let before = lifeOf(mass, 0.5 * main);
+    assert.equal(before.spent, 0);
+    for (let step = 0; step <= 400; step++) {
+      const now = lifeOf(mass, main + ((whole - main) * 1.2 * step) / 400);
+      const label = `${suns} suns at step ${step}`;
+      assert.ok(now.swell >= before.swell && now.peak >= before.peak, label);
+      assert.ok(now.mass <= before.mass && now.radius <= now.swell * (1 + 1e-12), label);
+      assert.ok(now.glow > 0 && now.radius > 0 && Number.isFinite(now.glow), label);
+      assert.equal(now.spent > 0, step > 333, label);
+      before = now;
+    }
+    assert.equal(before.radius > 1e6, mass < BURST_LEAST, `${suns} suns leave a white dwarf`);
+  }
+});
+
+test("systems with no home hold stars at every time of life", () => {
+  const seen = new Map<string, number>();
+  const count = 1400;
+  for (let seed = 1; seed <= count; seed++) {
+    const system = surveySystem(seed, { settled: false, star: null });
+    const centre = system.bodies[0].physics;
+    const kind = classOf(centre);
+    seen.set(kind, (seen.get(kind) ?? 0) + 1);
+    const stars = system.bodies.filter((body) => starborn(body.physics));
+    for (const body of system.bodies) {
+      const { physics } = body;
+      const label = `seed ${seed}, ${body.name}`;
+      assert.ok(
+        Object.values(physics).every((value) => !Number.isNaN(value)),
+        label,
+      );
+      assert.ok(physics.mass > 0 && physics.radius > 0 && physics.heat > 0, label);
+      assert.ok(physics.day > 0 && physics.glow >= 0, label);
+      if (body.parent === null) {
+        continue;
+      }
+      const host = system.bodies[body.parent];
+      const near = physics.orbit * (1 - physics.stretch);
+      assert.ok(near > 1.4 * (host.physics.radius + physics.radius), label);
+      if (starborn(physics)) {
+        assert.notEqual(classOf(physics), "neutron star", label);
+        continue;
+      }
+      if (starborn(host.physics)) {
+        assert.ok(host.physics.mass < BURST_LEAST, `${label} circles a star too bright for it`);
+        assert.notEqual(classOf(host.physics), "black hole", label);
+      }
+      if (host.parent === null && stars.length === 1 && kind === "white dwarf") {
+        const born = (SUN_MASS * (centre.mass / SUN_MASS - 0.394)) / 0.109;
+        const { swell } = lifeOf(born, centre.age);
+        assert.ok(swell > 0.5 * ASTRONOMICAL_UNIT, label);
+        assert.ok(near > (1.45 * swell * born) / centre.mass, `${label} was not swallowed`);
+      }
+    }
+    if (kind === "neutron star") {
+      assert.equal(system.bodies.length, 1, `seed ${seed}`);
+    }
+  }
+  const share = (test: (kind: string) => boolean) =>
+    [...seen].reduce((sum, [kind, times]) => sum + (test(kind) ? times : 0), 0) / count;
+  const dwarfs = share((kind) => kind === "white dwarf");
+  assert.ok(dwarfs > 0.04 && dwarfs < 0.12, `white dwarfs ${dwarfs}`);
+  const giants = share((kind) => kind.endsWith(" giant") || kind.endsWith("subgiant"));
+  assert.ok(giants > 0.015 && giants < 0.06, `giants ${giants}`);
+  const hot = share((kind) => kind.startsWith("blue"));
+  assert.ok(hot > 0.01 && hot < 0.05, `hot stars ${hot}`);
+  for (const kind of ["neutron star", "black hole", "red giant", "blue star"]) {
+    assert.ok(seen.has(kind), `no ${kind} among ${count} systems`);
+  }
+  assert.ok(share((kind) => kind.endsWith("supergiant")) > 0);
+});
+
+test("a system can be given the age of its star", () => {
+  const plan = { settled: false, star: SUN_MASS, age: 11.39 * GIGAYEAR };
+  let icy = 0;
+  let dried = 0;
+  for (const seed of SEEDS) {
+    const system = surveySystem(seed, plan);
+    const centre = system.bodies[0].physics;
+    assert.equal(classOf(centre), "red giant");
+    assert.ok(system.bodies.every((body) => body.physics.age === centre.age));
+    for (const body of system.bodies.filter((other) => other.parent === 0)) {
+      const near = body.physics.orbit * (1 - body.physics.stretch);
+      assert.ok(near > 1.45 * centre.radius, `seed ${seed}, ${body.name}`);
+      const born = body.physics.orbit > 3.5 * ASTRONOMICAL_UNIT && body.physics.gas < 0.5;
+      if (born && !starborn(body.physics) && body.physics.orbit < frostOf(centre.glow)) {
+        const { ice, heat } = body.physics;
+        icy += ice > 0.25 ? 1 : 0;
+        dried += ice < 1e-3 ? 1 : 0;
+        assert.ok(ice > 0.25 || (ice < 1e-3 && heat > 200), `seed ${seed}, ${body.name}`);
+        const frozen = classOf(body.physics).startsWith("ice ");
+        assert.equal(frozen, ice > 0.25 && (heat < 273 || wrapped(body.physics)));
+      }
+    }
+    const home = surveySystem(seed, { ...plan, settled: true }).bodies[0].physics;
+    assert.equal(home.mass, SUN_MASS);
+    assert.equal(classOf(home), "yellow star");
+  }
+  assert.ok(icy > 3 && dried > 1, `${icy} bodies kept the ice they formed of, ${dried} lost it`);
 });

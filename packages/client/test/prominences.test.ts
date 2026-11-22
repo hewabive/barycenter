@@ -16,6 +16,7 @@ const flame: Flame = {
   lively: 0.134,
   vigor: 0.5,
   cells: 500,
+  coarse: 0,
 };
 
 test("a prominence stands on the surface along an arc of a sane size", () => {

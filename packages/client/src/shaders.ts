@@ -191,6 +191,11 @@ const FILAMENT_SQUEEZE = 0.1;
 const FILAMENT_FLOW = 1;
 const FILAMENT_FINE = 3;
 const GRAIN_MIDDLE = 0.3;
+const COARSE_WARP = 0.05;
+const COARSE_SOFT = 1.2;
+const COARSE_FINE = 3.1;
+const COARSE_GAIN = 0.5;
+const COARSE_PATCH = 0.6;
 const PENUMBRA = 1.3;
 const PORE = 0.003;
 const PLAGE = 0.6;
@@ -794,6 +799,7 @@ uniform vec2 flow;
 uniform vec3 tint;
 uniform vec3 steep;
 uniform vec3 traits;
+uniform float coarse;
 uniform mat4 modelMatrix;
 varying vec3 vAt;
 varying vec3 vPlace;
@@ -857,14 +863,26 @@ void main() {
     + boil.x * vec3(0.37, 0.61, 0.83);
   vec3 hind = pitch.x * (1.0 + pitch.y * (flow.y - ${real(GRAIN_MIDDLE)})) * two.yzx
     + boil.z * vec3(0.71, 0.43, 0.59);
-  float grain = (texture(granules, fore).r - ${real(GRAIN_MEAN)}) * boil.y
-    + (texture(granules, hind).r - ${real(GRAIN_MEAN)}) * boil.w;
+  if (coarse > 0.0) {
+    vec3 sway = vec3(wide.b, textureCube(relief, at.yzx).b, textureCube(relief, at.zxy).b) - 0.5;
+    fore += ${real(COARSE_WARP)} * coarse * sway;
+    hind += ${real(COARSE_WARP)} * coarse * sway.zxy;
+  }
+  float soft = ${real(COARSE_SOFT)} * coarse;
+  float grain = (texture(granules, fore, soft).r - ${real(GRAIN_MEAN)}) * boil.y
+    + (texture(granules, hind, soft).r - ${real(GRAIN_MEAN)}) * boil.w;
+  if (coarse > 0.0) {
+    float fine = (texture(granules, ${real(COARSE_FINE)} * fore.zxy).r - ${real(GRAIN_MEAN)}) * boil.y
+      + (texture(granules, ${real(COARSE_FINE)} * hind.zxy).r - ${real(GRAIN_MEAN)}) * boil.w;
+    grain += ${real(COARSE_GAIN)} * coarse * fine;
+  }
 
   vec3 round = normalize(mat3(modelMatrix) * at);
   float facing = max(dot(round, normalize(cameraPosition - vPlace)), 0.0);
   float bright = wide.a * (0.15 + min(stir, 1.0)) * (0.25 + 0.5 * (1.0 - smoothstep(0.25, 0.9, facing)));
   float heat = 1.0 + traits.z * (at.y * at.y - 0.33)
-    + traits.x * (grain * (0.35 + 0.65 * facing) + 0.17 * (wide.b - 0.5) + ${real(FACULAE)} * bright);
+    + traits.x * (grain * (0.35 + 0.65 * facing)
+      + (0.17 + ${real(COARSE_PATCH)} * coarse) * (wide.b - 0.5) + ${real(FACULAE)} * bright);
   float chill = traits.y;
   heat = mix(heat, (0.75 + 0.25 * chill) * (1.0 + 1.6 * traits.x * grain), fringe);
   heat = mix(heat, chill * (1.0 + 0.3 * traits.x * grain), umbra);
@@ -1176,6 +1194,51 @@ void main() {
     tint * mix(${real(PROMINENCE_DUSK)}, 1.0, sky),
     thick * mix(${real(PROMINENCE_SHADE)}, 1.0, sky)
   );
+  #include <colorspace_fragment>
+}
+`;
+
+export const LENS_ROOM = 4;
+const LENS_GAIN = 3;
+const LENS_MOST = 3.1;
+
+export const SKY_VERTEX = `
+attribute vec3 shade;
+uniform vec4 lenses[${LENS_ROOM}];
+uniform float size;
+uniform int echo;
+varying vec3 vShade;
+
+void main() {
+  vec3 ray = normalize(position);
+  float gain = 1.0;
+  for (int index = 0; index < ${LENS_ROOM}; index++) {
+    vec4 lens = lenses[index];
+    if (lens.w > 0.0) {
+      float along = clamp(dot(ray, lens.xyz), -1.0, 1.0);
+      float off = acos(along);
+      float root = sqrt(off * off + 4.0 * lens.w);
+      float turned = index == echo ? -1.0 : 1.0;
+      float bent = min(0.5 * (root + turned * off), ${real(LENS_MOST)});
+      vec3 side = ray - lens.xyz * along;
+      ray = lens.xyz * cos(bent) + turned * side / max(length(side), 1e-6) * sin(bent);
+      float both = (off * off + 2.0 * lens.w) / max(2.0 * off * root, 1e-6);
+      gain *= min(both + 0.5 * turned, ${real(LENS_GAIN)});
+    }
+  }
+  vShade = shade * gain;
+  gl_PointSize = size;
+  gl_Position = echo >= 0 && lenses[max(echo, 0)].w <= 0.0
+    ? vec4(2.0, 2.0, 2.0, 1.0)
+    : projectionMatrix * modelViewMatrix * vec4(ray, 1.0);
+}
+`;
+
+export const SKY_FRAGMENT = `
+varying vec3 vShade;
+
+void main() {
+  gl_FragColor = vec4(vShade, 1.0);
   #include <colorspace_fragment>
 }
 `;

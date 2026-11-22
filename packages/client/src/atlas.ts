@@ -13,6 +13,7 @@ import {
   SUN_GLOW,
   SUN_MASS,
   seenGlow,
+  starSpan,
 } from "@barycenter/sim";
 import { PerspectiveCamera, Scene, Vector3, WebGLRenderer } from "three";
 import { createStudio } from "./bodies.ts";
@@ -23,6 +24,24 @@ const MASSES = [
 ];
 const PLACES = [0.02, 0.035, 0.06, 0.1, 0.2, 0.4, 0.7, 1, 1.6, 2.6, 4.5, 8, 14, 25, 40];
 const STARS = [0.015, 0.03, 0.05, 0.07, 0.08, 0.15, 0.3, 0.5, 0.7, 0.85, 1, 1.15, 1.5, 2, 2.8];
+const LIVES = [
+  "5@0.1",
+  "20@0.004",
+  "40@0.002",
+  "1@10.7",
+  "1@11.2",
+  "1@11.395",
+  "1@11.45",
+  "1@11.55",
+  "5@0.2",
+  "15@0.0155",
+  "15@0.0168",
+  "60@0.0039",
+  "1@11.6",
+  "2@10",
+  "15@0.0175",
+  "30@0.01",
+];
 const CAPTION = 44;
 const MARGIN = 8;
 const VIEW = 4.4;
@@ -41,6 +60,9 @@ const number = (name: string, given: number) => numbers(name, [given])[0] ?? giv
 const masses = numbers("masses", MASSES);
 const places = numbers("places", PLACES);
 const stars = numbers("stars", STARS);
+const lives = (query.get("lives")?.split(",") ?? LIVES)
+  .map((life) => life.split("@").map(Number))
+  .filter((life) => life.length === 2 && life.every(Number.isFinite));
 const seed = number("seed", 1);
 const side = number("size", 150);
 const detail = number("detail", 128);
@@ -82,12 +104,31 @@ const bodyOf = (physics: Physics, own: number): Body => ({
 const rows: Body[][] = masses.map((mass) =>
   places.map((place) => {
     const orbit = place * lit;
-    const site = { star, distance: orbit, around: star, orbit, lent: 0, stretch: 0, tied: false };
+    const site = {
+      star,
+      distance: orbit,
+      around: star,
+      orbit,
+      lent: 0,
+      stretch: 0,
+      tied: false,
+      past: null,
+    };
     return bodyOf(formed(mass * EARTH_MASS, site, random), draw());
   }),
 );
 if (stars.length > 0) {
-  rows.push(stars.map((mass) => bodyOf(kindled(mass * SUN_MASS, age, random), draw())));
+  rows.push(
+    stars.map((mass) => {
+      const prime = Math.min(age, 0.5 * starSpan(mass * SUN_MASS));
+      return bodyOf(kindled(mass * SUN_MASS, prime, random), draw());
+    }),
+  );
+}
+if (lives.length > 0) {
+  rows.push(
+    lives.map(([mass, old]) => bodyOf(kindled(mass * SUN_MASS, old * GIGAYEAR, random), draw())),
+  );
 }
 
 const columns = Math.max(...rows.map((row) => row.length));

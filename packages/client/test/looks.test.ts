@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createRandom, GIGAYEAR, kindled, SUN_MASS } from "@barycenter/sim";
-import { cellsOf, livelyOf } from "../src/looks.ts";
+import { type Body, createRandom, GIGAYEAR, kindled, SUN_MASS } from "@barycenter/sim";
+import { cellsOf, flameOf, flatnessOf, holeOf, livelyOf } from "../src/looks.ts";
 
 const star = (suns: number, age: number) =>
   kindled(suns * SUN_MASS, age * GIGAYEAR, { next: () => 0.5 });
@@ -22,4 +22,32 @@ test("a star is as lively as its age and its kind make it", () => {
   assert.equal(livelyOf(star(2, 1)), 0);
   const drawn = kindled(SUN_MASS, 4.57 * GIGAYEAR, createRandom(7));
   assert.ok(livelyOf(drawn) >= 0 && livelyOf(drawn) < 0.25);
+});
+
+test("a star is drawn by what its life has made of it", () => {
+  const flame = (suns: number, age: number) =>
+    flameOf({ physics: star(suns, age) } as unknown as Body);
+  const sun = flame(1, 4.57);
+  assert.equal(sun.coarse, 0);
+  assert.ok(sun.regions > 0 && sun.poles === 0);
+  const giant = flame(1, 11.395);
+  assert.ok(giant.cells < 20 && giant.coarse > 0.7, `a red giant has ${giant.cells} cells`);
+  assert.ok(giant.grain > 2 * flame(0.3, 4.57).grain);
+  assert.ok(giant.lively < sun.lively);
+  const clump = flame(2, 1.9);
+  assert.ok(clump.lively < 0.2, `a giant born hot has slowed to ${clump.lively}`);
+  const hot = flame(20, 0.004);
+  assert.ok(hot.kelvin > 30000 && hot.grain === 0 && hot.regions === 0 && hot.poles > 0);
+  assert.ok(flame(5, 0.1).kelvin > flame(2, 1).kelvin);
+  assert.equal(flame(15, 0.0155).poles, 0);
+  for (const left of [flame(1, 12.5), flame(3, 10), flame(15, 0.0175)]) {
+    assert.deepEqual(
+      [left.grain, left.regions, left.poles, left.lively, left.coarse],
+      [0, 0, 0, 0, 0],
+    );
+  }
+  assert.ok(flame(3, 10).kelvin < 6000 && flame(1, 11.6).kelvin > 20000);
+  assert.equal(holeOf(star(30, 0.01)), true);
+  assert.equal(flatnessOf(star(30, 0.01)), 0);
+  assert.equal(holeOf(star(15, 0.0175)) || holeOf(star(1, 12.5)) || holeOf(star(1, 4.57)), false);
 });

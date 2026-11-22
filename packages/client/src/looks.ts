@@ -1,11 +1,13 @@
 import {
   type Body,
   createRandom,
+  densityOf,
   EARTH_MASS,
   flatOf,
   type Gas,
   groundFlat,
   HOUR,
+  holeRadius,
   moltenOf,
   type Physics,
   ROCK_MELT,
@@ -18,6 +20,7 @@ import {
   seaCover,
   shareOf,
   shownLight,
+  starRadius,
   turnover,
   wrapped,
 } from "@barycenter/sim";
@@ -40,6 +43,7 @@ export interface Flame extends Fire {
   lively: number;
   vigor: number;
   cells: number;
+  coarse: number;
 }
 
 export interface Brew {
@@ -205,6 +209,9 @@ export function seasonOf(body: Body, seen: number[], heat: number, spare = 0): S
 }
 
 export function flatnessOf(physics: Physics): number {
+  if (holeOf(physics)) {
+    return 0;
+  }
   const flat = flatOf(physics);
   if (familyOf(physics) === "fluid") {
     return flat;
@@ -214,8 +221,13 @@ export function flatnessOf(physics: Physics): number {
 
 const ROSSBY_QUIET = 3;
 const ROSSBY_SATURATED = 0.13;
-const SUN_CELLS = 500;
+export const SUN_CELLS = 500;
 const CELL_HEAT = 1.3;
+export const DENSE_STAR = 1e7;
+export const SHADOW = 2.6;
+const SWOLLEN = [1.3, 3];
+const COARSE_GRAIN = 1.5;
+const COARSE_MOST = 2;
 
 const FLAMES: Fire[] = [
   {
@@ -260,9 +272,22 @@ const FLAMES: Fire[] = [
   },
   { kelvin: 8200, tint: 0xccdeff, grain: 0, chill: 1, poles: 0.2, regions: 0, girth: 0, belt: 0 },
   { kelvin: 11000, tint: 0xb4c8ff, grain: 0, chill: 1, poles: 0.25, regions: 0, girth: 0, belt: 0 },
+  { kelvin: 20000, tint: 0xa6bcff, grain: 0, chill: 1, poles: 0.25, regions: 0, girth: 0, belt: 0 },
+  { kelvin: 40000, tint: 0x9bb1ff, grain: 0, chill: 1, poles: 0.25, regions: 0, girth: 0, belt: 0 },
 ];
 
+export function holeOf(physics: Physics): boolean {
+  return physics.mass >= STAR_LEAST && physics.radius < 1.5 * holeRadius(physics.mass);
+}
+
+function denseOf(physics: Physics): boolean {
+  return densityOf(physics.mass, physics.radius) > DENSE_STAR;
+}
+
 export function livelyOf(physics: Physics): number {
+  if (denseOf(physics)) {
+    return 0;
+  }
   const rossby = physics.day / turnover(physics.heat);
   const share = Math.log(ROSSBY_QUIET / rossby) / Math.log(ROSSBY_QUIET / ROSSBY_SATURATED);
   return Math.max(0, Math.min(1, share));
@@ -287,18 +312,23 @@ export function flameOf(star: Body): Flame {
   const hot = FLAMES[next];
   const share = (kelvin - cool.kelvin) / (hot.kelvin - cool.kelvin);
   const mix = (from: number, to: number) => from + (to - from) * share;
+  const cells = cellsOf(star.physics);
+  const dense = denseOf(star.physics);
+  const size = star.physics.radius / starRadius(star.physics.mass);
+  const coarse = Math.max(0, Math.min(COARSE_MOST, Math.log10(SUN_CELLS / cells)));
   return {
     kelvin,
     tint: tone(cool.tint, hot.tint, share),
-    grain: mix(cool.grain, hot.grain),
+    grain: dense ? 0 : mix(cool.grain, hot.grain) * (1 + COARSE_GRAIN * coarse),
     chill: mix(cool.chill, hot.chill),
-    poles: mix(cool.poles, hot.poles),
-    regions: Math.round(mix(cool.regions, hot.regions)),
+    poles: dense ? 0 : mix(cool.poles, hot.poles) * (1 - smooth(SWOLLEN[0], SWOLLEN[1], size)),
+    regions: dense ? 0 : Math.round(mix(cool.regions, hot.regions)),
     girth: mix(cool.girth, hot.girth),
     belt: mix(cool.belt, hot.belt),
     lively: livelyOf(star.physics),
     vigor: star.physics.vigor,
-    cells: cellsOf(star.physics),
+    cells,
+    coarse: dense ? 0 : coarse / COARSE_MOST,
   };
 }
 

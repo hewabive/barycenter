@@ -26,7 +26,6 @@ import {
   LineLoop,
   PerspectiveCamera,
   Points,
-  PointsMaterial,
   Quaternion,
   Raycaster,
   Scene,
@@ -34,14 +33,16 @@ import {
   Sphere,
   Vector2,
   Vector3,
+  Vector4,
   WebGLRenderer,
 } from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { createBelt } from "./belts.ts";
 import { createLooks, type Look, type Paint } from "./bodies.ts";
 import { el } from "./dom.ts";
+import { holeOf } from "./looks.ts";
 import { ORBIT, SKY } from "./palette.ts";
-import { SPECK_FRAGMENT, SPECK_VERTEX } from "./shaders.ts";
+import { LENS_ROOM, SKY_FRAGMENT, SKY_VERTEX, SPECK_FRAGMENT, SPECK_VERTEX } from "./shaders.ts";
 
 export interface Probe {
   id: number;
@@ -120,6 +121,7 @@ const SHIFT_TIME = 0.7;
 const GLIDE_TIME = 1.1;
 const PICK_SHARE = 0.012;
 const STARS = 2600;
+const SKY_STAR = 1.6;
 const ORBIT_STEPS = 256;
 const ORBIT_CROWD = 3;
 const NEAR_LEAST = 0.02;
@@ -153,7 +155,7 @@ function ramp(value: number, from: number, to: number): number {
   return eased(Math.max(0, Math.min(1, share)));
 }
 
-function createSky(seed: number): Points {
+function createSky(seed: number, size: number, lenses: Vector4[], echoes: number): Points[] {
   const random = createRandom(seed);
   const positions = new Float32Array(STARS * 3);
   const colors = new Float32Array(STARS * 3);
@@ -169,20 +171,22 @@ function createSky(seed: number): Points {
   }
   const geometry = new BufferGeometry();
   geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
-  geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
-  const sky = new Points(
-    geometry,
-    new PointsMaterial({
-      vertexColors: true,
-      size: 1.6,
-      sizeAttenuation: false,
-      depthTest: false,
-      depthWrite: false,
-    }),
-  );
-  sky.frustumCulled = false;
-  sky.renderOrder = -1;
-  return sky;
+  geometry.setAttribute("shade", new Float32BufferAttribute(colors, 3));
+  return Array.from({ length: 1 + echoes }, (_, pass) => {
+    const sky = new Points(
+      geometry,
+      new ShaderMaterial({
+        vertexShader: SKY_VERTEX,
+        fragmentShader: SKY_FRAGMENT,
+        uniforms: { size: { value: size }, lenses: { value: lenses }, echo: { value: pass - 1 } },
+        depthTest: false,
+        depthWrite: false,
+      }),
+    );
+    sky.frustumCulled = false;
+    sky.renderOrder = -1;
+    return sky;
+  });
 }
 
 export function createSpace(stage: HTMLElement, system: Sketch, real = false): Space {
@@ -236,10 +240,13 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
   scene.add(world);
   const fore = new Scene();
   const range = { near: 1e-7, far: 1e-3 };
-  const sky = createSky(system.bodies[0].seed);
-  scene.add(sky);
-
   const { looks, lamps: lit, tintOf } = createLooks(renderer, system);
+  const holes = looks.filter((look) => holeOf(look.body.physics)).slice(0, LENS_ROOM);
+  const lenses = Array.from({ length: LENS_ROOM }, () => new Vector4(0, 0, 0, 0));
+  const dot = SKY_STAR * renderer.getPixelRatio();
+  const skies = createSky(system.bodies[0].seed, dot, lenses, holes.length);
+  scene.add(...skies);
+
   const sources = lit.map((list) => list.map((lamp) => lamp.source));
   const glares = lit.map((list) => list.map((lamp) => lamp.seen));
   const home = system.home === null ? null : looks[system.home];
@@ -672,9 +679,21 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
     camera.near = Math.max(least, Math.min(20, (grounded ? ground : closest) * 0.25));
     camera.far = (camera.position.distanceTo(world.position) + brim) * 1.2 + 50;
     camera.updateProjectionMatrix();
-    sky.position.copy(camera.position);
-    sky.scale.setScalar(camera.far * 0.8);
-    sky.updateMatrixWorld(true);
+    for (const sky of skies) {
+      sky.position.copy(camera.position);
+      sky.scale.setScalar(camera.far * 0.8);
+      sky.updateMatrixWorld(true);
+    }
+    holes.forEach((hole, at) => {
+      seat.copy(places[hole.body.id]).sub(camera.position);
+      const apart = Math.max(seat.length(), 1e-9);
+      lenses[at].set(
+        seat.x / apart,
+        seat.y / apart,
+        seat.z / apart,
+        (2 * hole.body.radius) / apart,
+      );
+    });
     eye.copy(camera.position);
     first.frame.worldToLocal(eye);
   };

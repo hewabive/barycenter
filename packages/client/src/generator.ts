@@ -46,7 +46,16 @@ import {
   YEAR,
 } from "@barycenter/sim";
 import { button, el, required, write } from "./dom.ts";
-import { familyOf, flatnessOf, livelyOf, recipeOf, shownOf } from "./looks.ts";
+import {
+  DENSE_STAR,
+  familyOf,
+  flatnessOf,
+  holeOf,
+  livelyOf,
+  recipeOf,
+  SHADOW,
+  shownOf,
+} from "./looks.ts";
 import { createSpace } from "./space.ts";
 
 interface Moment {
@@ -79,22 +88,37 @@ const asked = Number.parseInt(query.get("seed") ?? "", 10);
 const seed = Number.isFinite(asked) ? asked : Math.floor(Math.random() * 1e6);
 const settled = query.get("home") === "1";
 const given = Number.parseFloat(query.get("star") ?? "");
-const starMass = Number.isFinite(given) && given > 0 ? Math.min(3, Math.max(0.013, given)) : null;
+const starMass = Number.isFinite(given) && given > 0 ? Math.min(60, Math.max(0.013, given)) : null;
+const old = Number.parseFloat(query.get("age") ?? "");
+const starAge = starMass !== null && Number.isFinite(old) && old > 0 ? Math.min(13, old) : null;
 const real = query.get("scale") === "real";
 
-const address = (next: { seed: number; settled: boolean; star: number | null; real: boolean }) => {
+const address = (next: {
+  seed: number;
+  settled: boolean;
+  star: number | null;
+  age: number | null;
+  real: boolean;
+}) => {
   const search = new URLSearchParams({ seed: String(next.seed), home: next.settled ? "1" : "0" });
   if (next.star !== null) {
     search.set("star", String(next.star));
+  }
+  if (next.star !== null && next.age !== null) {
+    search.set("age", String(next.age));
   }
   if (next.real) {
     search.set("scale", "real");
   }
   return `?${search}`;
 };
-history.replaceState(null, "", address({ seed, settled, star: starMass, real }));
+history.replaceState(null, "", address({ seed, settled, star: starMass, age: starAge, real }));
 
-const plan = { settled, star: starMass === null ? null : starMass * SUN_MASS };
+const plan = {
+  settled,
+  star: starMass === null ? null : starMass * SUN_MASS,
+  age: starAge === null ? null : starAge * GIGAYEAR,
+};
 const system = real ? surveySystem(seed, plan) : sketchSystem(seed, plan);
 const star = system.bodies[0];
 
@@ -206,12 +230,23 @@ function factsOf(body: Body): Fact[] {
     ],
     [
       "Activity",
-      family === "star"
-        ? `${figure(livelyOf(physics))} · Rossby number ${figure(physics.day / turnover(physics.heat))}`
-        : figure(physics.vigor),
+      family !== "star"
+        ? figure(physics.vigor)
+        : density > DENSE_STAR
+          ? "none"
+          : `${figure(livelyOf(physics))} · Rossby number ${figure(physics.day / turnover(physics.heat))}`,
     ],
   ];
-  if (family === "star") {
+  if (holeOf(physics)) {
+    facts.push(
+      ["Temperature", `${figure(physics.heat, 4)} K, next to nothing`],
+      ["Light", "none: it is seen by the sky it bends and hides"],
+      [
+        "Shadow",
+        `${figure((2 * SHADOW * physics.radius) / 1000)} km across, ${SHADOW} times as wide as the horizon`,
+      ],
+    );
+  } else if (family === "star") {
     facts.push(
       ["Temperature", `${figure(physics.heat, 4)} K`],
       ["Light", `${figure(physics.glow / SUN_GLOW)} suns`],
@@ -434,18 +469,28 @@ const starField = el("input", {
   type: "number",
   value: starMass === null ? "" : String(starMass),
   min: "0.013",
-  max: "3",
+  max: "60",
   step: "0.01",
   placeholder: "any",
+});
+const ageField = el("input", {
+  type: "number",
+  value: starAge === null ? "" : String(starAge),
+  min: "0.001",
+  max: "13",
+  step: "0.001",
+  placeholder: "prime",
 });
 const homeField = el("input", { type: "checkbox" });
 homeField.checked = settled;
 const go = (next: number, scale = real) => {
   const mass = Number.parseFloat(starField.value);
+  const age = Number.parseFloat(ageField.value);
   location.search = address({
     seed: next,
     settled: homeField.checked,
     star: Number.isFinite(mass) && mass > 0 ? mass : null,
+    age: Number.isFinite(age) && age > 0 ? age : null,
     real: scale,
   });
 };
@@ -453,7 +498,7 @@ const read = () => {
   const typed = Number.parseInt(seedField.value, 10);
   return Number.isFinite(typed) ? typed : seed;
 };
-for (const field of [seedField, starField]) {
+for (const field of [seedField, starField, ageField]) {
   field.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       go(read());
@@ -470,9 +515,20 @@ required<HTMLElement>("#topbar").append(
   button("Random", "Make the system of a random seed", () => go(Math.floor(Math.random() * 1e6))),
   el(
     "label",
-    { title: "The mass of the centre in solar masses; below 0.075 it is a brown dwarf" },
+    {
+      title: "The mass of the centre at its birth in solar masses; below 0.075 it is a brown dwarf",
+    },
     "Star",
     starField,
+  ),
+  el(
+    "label",
+    {
+      title:
+        "The age of a given star in billions of years, where there is no home; left empty, the star is in its prime",
+    },
+    "Age",
+    ageField,
   ),
   el("label", { title: "Make the system around a living home, as a game does" }, homeField, "home"),
   button(
@@ -488,7 +544,7 @@ required<HTMLElement>("#topbar").append(
   el(
     "a",
     {
-      href: `flight.html${address({ seed, settled, star: starMass, real: false })}`,
+      href: `flight.html${address({ seed, settled, star: starMass, age: starAge, real: false })}`,
       title: "Fly a ship through this system",
     },
     "Fly",

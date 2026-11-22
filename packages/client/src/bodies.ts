@@ -14,7 +14,7 @@ import {
   BackSide,
   BufferGeometry,
   Color,
-  type CubeTexture,
+  CubeTexture,
   type Data3DTexture,
   DataTexture,
   DoubleSide,
@@ -26,6 +26,7 @@ import {
   LinearMipmapLinearFilter,
   MathUtils,
   Mesh,
+  MeshBasicMaterial,
   NearestFilter,
   OrthographicCamera,
   PlaneGeometry,
@@ -52,7 +53,10 @@ import {
   type Giant,
   giantOf,
   type Hoop,
+  holeOf,
   hoopOf,
+  SHADOW,
+  SUN_CELLS,
   seasonOf,
   skinOf,
   WAVES,
@@ -166,6 +170,7 @@ const STORM_YEAR = 5000;
 const GRAIN_LIFE = 480;
 const GRAIN_FADE = 0.1;
 const GRANULE_PACE = 0.125;
+const BOIL_LEAST = 0.1;
 const GRAIN_SIZE = 128;
 const GOLDEN_TURN = 2.39996;
 const SHINE_PALE = 0.6;
@@ -649,6 +654,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
     const shuffle = 2 * Math.PI * createRandom(body.seed + 97).next();
     const prominences = createProminences(body.seed, flame);
     const drift = { value: 0 };
+    const pace = Math.max(BOIL_LEAST, Math.min(1, flame.cells / SUN_CELLS)) / GRAIN_LIFE;
     const boil = new Vector4(0, 1, 0, 0);
     const screens = Array.from({ length: SCREEN_ROOM }, () => new Vector4(0, 0, 0, 0));
     const poles = Array.from({ length: SCREEN_ROOM }, () => new Vector4(0, 0, 0, 0));
@@ -676,7 +682,10 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       relief: { value: null as CubeTexture | null },
       granules: { value: grainOf() },
       pitch: {
-        value: new Vector2(flame.cells / GRAIN_CELLS, (GRANULE_PACE * GRAIN_LIFE) / flame.cells),
+        value: new Vector2(
+          flame.cells / GRAIN_CELLS,
+          (GRANULE_PACE * GRAIN_LIFE) / Math.max(flame.cells, SUN_CELLS),
+        ),
       },
       regions: { value: activity.regions },
       plages: { value: activity.plages },
@@ -688,6 +697,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       tint: { value: tint },
       steep: { value: steep },
       traits: { value: new Vector3(flame.grain, flame.chill, flame.poles) },
+      coarse: { value: flame.coarse },
     };
     const frame = new Group();
     const globe = new Mesh(
@@ -773,8 +783,8 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       ...surface,
       warm: () => false,
       light(_rays, _chart, tick) {
-        const one = beat(tick / GRAIN_LIFE);
-        const two = beat(tick / GRAIN_LIFE + 0.5);
+        const one = beat(tick * pace);
+        const two = beat(tick * pace + 0.5);
         boil.set(one.shift, one.weight, two.shift, two.weight);
         flow.set(one.share, two.share);
         activity.turn(tick);
@@ -791,10 +801,59 @@ export function createStudio(renderer: WebGLRenderer): Studio {
     };
   };
 
+  const hollow = (body: Body): Look => {
+    const frame = new Group();
+    const shadow = new Mesh(ball, new MeshBasicMaterial({ color: 0x000000 }));
+    const girth = SHADOW * body.radius;
+    const dark = new Color(0, 0, 0);
+    const blank = new CubeTexture();
+    const shown = { size: 0, far: false };
+    const settle = () => {
+      shadow.visible = shown.size > 0 && !shown.far;
+    };
+    shadow.scale.setScalar(girth);
+    settle();
+    frame.add(shadow);
+    return {
+      body,
+      frame,
+      girth,
+      ball: girth,
+      flat: 1,
+      halo: 0,
+      screens: [],
+      poles: [],
+      suns: [],
+      tone: dark,
+      ember: dark,
+      shine: dark,
+      dusk: 0,
+      paint: null,
+      detail: () => shown.size,
+      relief: () => blank,
+      bare() {},
+      light() {},
+      warm: () => false,
+      refine(wanted) {
+        shown.size = wanted;
+        settle();
+      },
+      recede(next) {
+        shown.far = next;
+        settle();
+      },
+      restore() {},
+      dispose() {
+        shadow.material.dispose();
+        blank.dispose();
+      },
+    };
+  };
+
   const shape = (body: Body, lamps: Glare[], spare = 0): Look => {
     const family = familyOf(body.physics);
     if (family === "star") {
-      return ignite(body);
+      return holeOf(body.physics) ? hollow(body) : ignite(body);
     }
     const seen = lamps.map((lamp) => lamp.seen);
     const giant = family === "fluid" ? giantOf(body, seen, spare) : null;
