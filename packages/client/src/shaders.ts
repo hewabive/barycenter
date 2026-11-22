@@ -229,6 +229,12 @@ const HALO_PEAK = HALO_RIM + HALO_WIDE;
 const HALO_WRAP = 2;
 const HALO_SHEET = 1.35;
 const BELT_COVER = 0.12;
+const SHEET_LANES = 9;
+const SHEET_RIPPLE = 0.3;
+const SHEET_SLANT = 0.06;
+const SHEET_EDGE = 0.04;
+const SHEET_DIM = 0.25;
+const SHEET_EMBER = [700, 1500];
 
 export const STORM_ROOM = 8;
 export const LAMP_ROOM = 2;
@@ -1320,6 +1326,60 @@ varying float vGlint;
 
 void main() {
   gl_FragColor = vec4(tint * shine * vGlint, 1.0);
+  #include <colorspace_fragment>
+}
+`;
+
+export const SHEET_VERTEX = `
+varying vec3 vSpot;
+varying vec3 vPlace;
+
+void main() {
+  vSpot = position;
+  vec4 placed = modelMatrix * vec4(position, 1.0);
+  vPlace = placed.xyz;
+  gl_Position = projectionMatrix * viewMatrix * placed;
+}
+`;
+
+export const SHEET_FRAGMENT = `
+uniform vec2 hoop;
+uniform float spread;
+uniform float depth;
+uniform float warmth;
+uniform float grit;
+uniform vec3 tint;
+uniform vec3 near;
+uniform vec3 far;
+uniform mat4 modelMatrix;
+varying vec3 vSpot;
+varying vec3 vPlace;
+
+float wave(float at) {
+  float cell = floor(at);
+  float part = at - cell;
+  float left = fract(sin(cell * 127.1 + grit) * 43758.5453);
+  float right = fract(sin((cell + 1.0) * 127.1 + grit) * 43758.5453);
+  return mix(left, right, part * part * (3.0 - 2.0 * part));
+}
+
+void main() {
+  float across = (length(vSpot.xz) - hoop.x) / (hoop.y - hoop.x);
+  float wide = pow(spread, across);
+  float fall = (spread * spread - 1.0) / (4.0 * (sqrt(spread) - 1.0)) * pow(wide, -1.5);
+  float lanes = log(wide) * ${real(SHEET_LANES)};
+  float ripple = 0.5 * wave(lanes) + 0.3 * wave(2.7 * lanes + 11.0) + 0.2 * wave(7.3 * lanes + 5.0);
+  float dense = depth * fall * (${real(1 - SHEET_RIPPLE)} + ${real(2 * SHEET_RIPPLE)} * ripple);
+  vec3 eye = normalize(cameraPosition - vPlace);
+  vec3 pole = normalize(mat3(modelMatrix) * vec3(0.0, 1.0, 0.0));
+  float slant = max(abs(dot(eye, pole)), ${real(SHEET_SLANT)});
+  float edge = smoothstep(0.0, ${real(SHEET_EDGE)}, across) * smoothstep(1.0, ${real(1 - SHEET_EDGE)}, across);
+  float through = (1.0 - exp(-dense / slant)) * edge;
+  float thick = 1.0 - exp(-dense);
+  vec3 lamp = mix(near, far, sqrt(clamp(across, 0.0, 1.0))) * (${real(SHEET_DIM)} + ${real(1 - SHEET_DIM)} * thick);
+  float heat = warmth / sqrt(wide);
+  vec3 ember = vec3(1.0, 0.42, 0.14) * smoothstep(${real(SHEET_EMBER[0])}, ${real(SHEET_EMBER[1])}, heat);
+  gl_FragColor = vec4(tint * lamp * (0.8 + 0.4 * ripple) + ember * thick, through);
   #include <colorspace_fragment>
 }
 `;

@@ -5,6 +5,7 @@ import {
   courseOf,
   createRandom,
   heatAt,
+  poleOf,
   poseOf,
   positionOf,
   type Sketch,
@@ -37,7 +38,7 @@ import {
   WebGLRenderer,
 } from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { createBelt } from "./belts.ts";
+import { createBelt, createSheet, SHEET_LEAST } from "./belts.ts";
 import { createLooks, type Look, type Paint } from "./bodies.ts";
 import { el } from "./dom.ts";
 import { holeOf } from "./looks.ts";
@@ -314,11 +315,34 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
           .sort((left, right) => right.physics.orbit - left.physics.orbit)[0];
         const about = within === undefined ? null : within.id;
         const cloud = createBelt(lane, disk, owner.body.seed + index, shine, coarse.matches);
-        return { ...cloud, about, owner };
+        cloud.points.visible = disk.gas === 0;
+        const lit = (reach: number) =>
+          tintOf(owner.body).multiplyScalar(
+            shownLight([seenGlow(heat) * (radius / reach) ** 2], 0).lamps[0],
+          );
+        const sheet =
+          disk.depth < SHEET_LEAST
+            ? null
+            : createSheet(lane, disk, owner.body.seed + index, {
+                near: lit(disk.inner),
+                far: lit(disk.outer),
+                warmth: heat * Math.sqrt(radius / (2 * disk.inner)),
+              });
+        const pole = poleOf(owner.body);
+        const lean = new Quaternion().setFromUnitVectors(
+          new Vector3(0, 1, 0),
+          new Vector3(pole.x, pole.y, pole.z),
+        );
+        cloud.points.quaternion.copy(lean);
+        sheet?.quaternion.copy(lean);
+        return { ...cloud, sheet, about, owner };
       }),
     );
   for (const belt of belts) {
     world.add(belt.points);
+    if (belt.sheet !== null) {
+      world.add(belt.sheet);
+    }
   }
   renderer.domElement.addEventListener("webglcontextrestored", () => {
     for (const look of looks) {
@@ -498,6 +522,7 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
         const middle = centreOf(system, belt.about, shown);
         belt.points.position.set(middle.x, middle.y, middle.z);
       }
+      belt.sheet?.position.copy(belt.points.position);
     }
 
     const to = lookOf(shift.to);

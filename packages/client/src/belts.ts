@@ -1,10 +1,26 @@
 import { createRandom, type Disk, EARTH_MASS, type Lane } from "@barycenter/sim";
-import { BufferAttribute, BufferGeometry, Color, Points, ShaderMaterial } from "three";
-import { BELT_FRAGMENT, BELT_VERTEX } from "./shaders.ts";
+import {
+  BufferAttribute,
+  BufferGeometry,
+  Color,
+  DoubleSide,
+  Mesh,
+  Points,
+  RingGeometry,
+  ShaderMaterial,
+  Vector2,
+} from "three";
+import { BELT_FRAGMENT, BELT_VERTEX, SHEET_FRAGMENT, SHEET_VERTEX } from "./shaders.ts";
 
 export interface Belt {
   points: Points;
   turn(tick: number, dense: number, scale: number): void;
+}
+
+export interface Glow {
+  near: Color;
+  far: Color;
+  warmth: number;
 }
 
 const ROCK = 0x8a8076;
@@ -12,6 +28,10 @@ const ICE = 0xcdd6dd;
 const LEAN = 0.06;
 const LEAST = 300;
 const MOST = 1800;
+const DUST = 0xb39474;
+const FROST = 0xaab4bd;
+const SHEET_STEPS = 128;
+export const SHEET_LEAST = 1e-4;
 
 export function createBelt(
   lane: Lane,
@@ -59,4 +79,32 @@ export function createBelt(
       uniforms.scale.value = scale;
     },
   };
+}
+
+export function createSheet(lane: Lane, disk: Disk, seed: number, glow: Glow): Mesh {
+  const geometry = new RingGeometry(lane.inner, lane.outer, SHEET_STEPS, 1);
+  geometry.rotateX(-Math.PI / 2);
+  const uniforms = {
+    hoop: { value: new Vector2(lane.inner, lane.outer) },
+    spread: { value: disk.outer / disk.inner },
+    depth: { value: disk.depth },
+    warmth: { value: glow.warmth },
+    grit: { value: seed % 1000 },
+    tint: { value: new Color(DUST).lerp(new Color(FROST), disk.ice) },
+    near: { value: glow.near },
+    far: { value: glow.far },
+  };
+  const sheet = new Mesh(
+    geometry,
+    new ShaderMaterial({
+      vertexShader: SHEET_VERTEX,
+      fragmentShader: SHEET_FRAGMENT,
+      uniforms,
+      transparent: true,
+      depthWrite: false,
+      side: DoubleSide,
+    }),
+  );
+  sheet.frustumCulled = false;
+  return sheet;
 }
