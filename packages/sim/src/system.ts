@@ -156,6 +156,7 @@ interface Draft {
   absent: boolean;
   share: number;
   held: number | null;
+  sprout: Sprung | null;
   setting: Setting | null;
   aged: ((age: number) => void) | null;
   strew: ((age: number) => void) | null;
@@ -694,18 +695,21 @@ function worn(physics: Physics, lot: Lot, share: number, age: number, torn: Feed
     return physics.disks.length === 0 ? physics : { ...physics, disks: [] };
   }
   const year = yearOf(rim.outer, physics.mass);
-  const fed = [...lot.breaks.map((at) => ({ at, mass: rim.mass })), ...torn].filter(
-    ({ at }) => at <= age,
-  );
+  const broken = lot.breaks.map((at): Feed => ({ at, mass: rim.mass, wreck: "break" }));
+  const fed = [...broken, ...torn].filter(({ at }) => at <= age);
   const mass = fed.reduce(
     (sum, { at, mass }) => sum + leftOf(mass, physics.mass, year, lot.wear, age - at),
     0,
   );
-  const since = age - Math.max(0, ...fed.map(({ at }) => at));
+  const last = fed.reduce<Feed | null>(
+    (latest, feed) => (latest === null || feed.at > latest.at ? feed : latest),
+    null,
+  );
   const disk = diskOf(rim.inner, rim.outer, rim.ice, {
     mass: mass * whole,
-    since,
+    since: age - (last?.at ?? 0),
     lasts: lot.wear,
+    wreck: last?.wreck ?? null,
   });
   return { ...physics, disks: disk.depth >= RING_LEAST ? [disk] : [] };
 }
@@ -782,7 +786,12 @@ function shaped(lot: Lot, site: Site, share = 1, fed = 0): Physics {
 export function formed(mass: number, site: Site, random: Random, locked = false): Physics {
   const lot = lotOf(mass, site, random, locked);
   const physics = shaped(lot, site);
-  return { ...physics, disks: physics.disks.map((disk) => ({ ...disk, lasts: lot.wear })) };
+  const disks = physics.disks.map((disk) => ({
+    ...disk,
+    lasts: lot.wear,
+    wreck: "break" as const,
+  }));
+  return { ...physics, disks };
 }
 
 function settled(star: Physics, orbit: number, stretch: number, random: Random): Physics {
@@ -1426,6 +1435,7 @@ function trimmed(physics: Physics): Physics {
       fade: trim(disk.fade),
       since: trim(disk.since),
       lasts: trim(disk.lasts),
+      wreck: disk.wreck,
     })),
   };
 }
@@ -1777,7 +1787,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
         return riders.flatMap((moon, at) => {
           const fate = fates.get(moon);
           return fate?.fell && courses[at].torn > whole
-            ? [{ at: fate.fall, mass: moon.physics.mass }]
+            ? [{ at: fate.fall, mass: moon.physics.mass, wreck: "tide" as const }]
             : [];
         });
       },
@@ -1845,6 +1855,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       absent: left(first) || drafts[parent].absent || prime < sprung,
       share: 1,
       held: null,
+      sprout: null,
       setting: { star: site.star, distance: site.distance, lent: moved.lent, past: null },
       aged: null,
       strew: null,
@@ -2107,6 +2118,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
         absent: false,
         share: 1,
         held: null,
+        sprout: null,
         setting: { star, distance, lent: zone.lent, past: null },
         aged: null,
         strew: null,
@@ -2243,7 +2255,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       );
       const shed = lot !== null && airborne && large ? lot.shed * planet.mass : 0;
       const feeds = (age: number) => [
-        ...(shed > 0 && done <= age ? [{ at: done, mass: shed }] : []),
+        ...(shed > 0 && done <= age ? [{ at: done, mass: shed, wreck: "gas" as const }] : []),
         ...sway.torn(age),
       ];
       turned.torn = feeds;
@@ -2330,7 +2342,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
               return null;
             }
           }
-          return orbit < edge ? null : { mass: moon.mass, orbit };
+          return orbit < edge ? null : { ...moon, orbit };
         };
         const first = parked(cycles(prime).moon);
         const sprig: Draft = {
@@ -2351,6 +2363,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
           absent: first === null,
           share: 1,
           held: null,
+          sprout: first,
           setting: { star, distance, lent: perch.lent, past: null },
           aged: null,
           strew: null,
@@ -2368,6 +2381,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
           const past = stand.past === null ? null : { ...stand.past, lent: perch.lent };
           const setting = { ...stand, lent: stand.lent + warmth, past };
           sprig.physics = grown(moon, { ...perch, ...setting, around: host.physics });
+          sprig.sprout = moon;
           sprig.beat = host.beat;
           sprig.setting = setting;
         };
@@ -2450,7 +2464,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       apart: false,
       sprung: false,
     };
-    const there = { gone: false, absent: false, share: 1, held: null, setting: null };
+    const there = { gone: false, absent: false, share: 1, held: null, sprout: null, setting: null };
     const made = { aged: null, strew: null };
     drafts.push({ physics, parent, tilt, slant, ...alone, ...there, ...made });
     const post: Post = { id, zones: [], belts: [], rows: [] };
@@ -2834,6 +2848,10 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
               year: 1,
               phase: beside,
             },
+      gathered:
+        live.sprout === null
+          ? null
+          : { since: trim(age - live.sprout.born), turn: live.sprout.turn },
     });
   }
   const settledOn = home === null ? null : bodies[home].physics;

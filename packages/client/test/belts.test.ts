@@ -18,6 +18,7 @@ const belt = (given: Partial<Disk>): Disk => ({
   fade: 0,
   since: 0,
   lasts: 0,
+  wreck: null,
   ...given,
 });
 const lane = { inner: 40, outer: 52, year: 1 };

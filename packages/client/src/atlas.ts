@@ -103,6 +103,7 @@ const bodyOf = (physics: Physics, own: number): Body => ({
   })),
   relief: reliefOf(physics, own),
   shared: null,
+  gathered: null,
 });
 
 const rows: Body[][] = masses.map((mass) =>

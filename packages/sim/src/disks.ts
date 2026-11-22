@@ -149,6 +149,7 @@ export function diskOf(
     fade: given.fade ?? 0,
     since: given.since ?? 0,
     lasts: given.lasts ?? 0,
+    wreck: given.wreck ?? null,
   };
 }
 

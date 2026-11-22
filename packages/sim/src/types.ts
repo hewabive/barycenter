@@ -47,7 +47,10 @@ export interface Disk {
   fade: number;
   since: number;
   lasts: number;
+  wreck: Wreck | null;
 }
+
+export type Wreck = "break" | "tide" | "return" | "gas";
 
 export interface Lane {
   inner: number;
@@ -108,6 +111,12 @@ export interface Body {
   disks: Lane[];
   relief: Relief;
   shared: Shared | null;
+  gathered: Gathered | null;
+}
+
+export interface Gathered {
+  since: number;
+  turn: number;
 }
 
 export interface StarSystem {

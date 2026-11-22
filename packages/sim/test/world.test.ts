@@ -327,7 +327,9 @@ test("the physics of every body holds together", () => {
           assert.ok(disk.depth < 1e3 && disk.gas === 0 && (disk.depth >= 2e-3 || !grown), label);
           const deep = disk.height * Math.sqrt(disk.inner * disk.outer);
           assert.ok(Math.abs(deep - 10) < 0.01 && disk.flare === -1 && disk.grain === 1, label);
+          assert.ok(disk.wreck !== null && disk.since >= 0 && disk.since <= physics.age, label);
         } else {
+          assert.equal(disk.wreck, null, label);
           assert.ok(disk.depth < 1e-4 || !grown, label);
           assert.ok(disk.depth < 2e-5 || physics.age < 2e9 * YEAR, `${label} dust`);
           assert.ok(disk.height > 0 && disk.height < 0.5 && disk.grain > 0, `${label} stands`);
@@ -695,6 +697,8 @@ test("a ring is the wreck of a moon: it comes late, thins and is gone", () => {
   let thinned = 0;
   let torn = 0;
   let gathered = 0;
+  let later = 0;
+  const wrecks = new Set<string>();
   let giants = 0;
   let ringed = 0;
   let dense = 0;
@@ -716,6 +720,8 @@ test("a ring is the wreck of a moon: it comes late, thins and is gone", () => {
         if (now !== undefined) {
           assert.ok(now.lasts >= 1e8 * YEAR && now.lasts <= 1e9 * YEAR, label);
           assert.ok(now.since >= 0 && now.since <= ages[at] * GIGAYEAR, label);
+          assert.ok(now.wreck !== null, label);
+          wrecks.add(now.wreck);
         }
         if (before === undefined && now !== undefined) {
           born += 1;
@@ -741,10 +747,21 @@ test("a ring is the wreck of a moon: it comes late, thins and is gone", () => {
       }
     }
     const known = new Set(looks[0].bodies.map((body) => body.name));
-    for (const body of looks.slice(1).flatMap((look) => look.bodies)) {
-      gathered += known.has(body.name) ? 0 : 1;
-      known.add(body.name);
-    }
+    looks.forEach((look, at) => {
+      for (const body of look.bodies) {
+        const label = `seed ${seed}, ${body.name} at ${ages[at]}`;
+        gathered += known.has(body.name) ? 0 : 1;
+        assert.ok(known.has(body.name) || body.gathered !== null, `${label}: new from a ring`);
+        known.add(body.name);
+        if (body.gathered !== null) {
+          const host = body.parent === null ? null : look.bodies[body.parent];
+          assert.ok(host !== null && host.parent !== null && !starborn(host.physics), label);
+          assert.ok(body.gathered.turn >= 1 && body.gathered.since >= 0, label);
+          assert.ok(body.gathered.since <= ages[at] * GIGAYEAR, label);
+          later += body.gathered.turn > 1 ? 1 : 0;
+        }
+      }
+    });
     for (const body of looks[5].bodies) {
       const host = body.parent === null ? null : looks[5].bodies[body.parent];
       if (host === null || !starborn(host.physics) || !wrapped(body.physics)) {
@@ -759,6 +776,8 @@ test("a ring is the wreck of a moon: it comes late, thins and is gone", () => {
   assert.ok(born > 20 && gone > 20 && thinned > 40, `${born} born, ${gone} gone, ${thinned}`);
   assert.ok(torn > 0, `${torn} rings came as a moon was lost`);
   assert.ok(gathered > 0, `${gathered} moons were gathered from a ring`);
+  assert.ok(later > 0, `${later} looks at a moon that followed another`);
+  assert.deepEqual([...wrecks].sort(), ["break", "gas", "return", "tide"]);
   assert.ok(ringed > 0.3 * giants && ringed < 0.65 * giants, `${ringed} of ${giants} ringed`);
   assert.ok(dense > 0.1 * giants && dense < 0.35 * giants, `${dense} of ${giants} dense`);
 });

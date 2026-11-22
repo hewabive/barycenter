@@ -47,6 +47,7 @@ import {
   syncOf,
   tornAt,
   turnover,
+  type Wreck,
   wrapped,
   YEAR,
 } from "@barycenter/sim";
@@ -151,6 +152,14 @@ const span = (seconds: number) =>
     : seconds >= 3 * DAY
       ? `${figure(seconds / DAY)} days`
       : `${figure(seconds / HOUR)} hours`;
+const WRECKS: Record<Wreck, string> = {
+  break: "a small moon that broke up",
+  tide: "a moon that tides drew down",
+  return: "the moon it had gathered, drawn back down",
+  gas: "the last moon its disk of gas dragged down",
+};
+const nth = (count: number) =>
+  `${count}${count % 10 === 1 && count !== 11 ? "st" : count % 10 === 2 && count !== 12 ? "nd" : count % 10 === 3 && count !== 13 ? "rd" : "th"}`;
 const tideFact = (moon: Physics, host: Physics): string => {
   const dense = densityOf(host.mass, host.radius);
   const torn = tornAt(host.radius, dense, densityOf(moon.mass, moon.radius));
@@ -409,6 +418,14 @@ function factsOf(body: Body): Fact[] {
             : `${span(physics.day)}, the month of ${holder.name}, one face to it`,
       ],
       ...(tide === null ? [] : [["Tides", tide] satisfies Fact]),
+      ...(body.gathered === null
+        ? []
+        : [
+            [
+              "Gathered",
+              `from a ring of ${parent.name} ${lived(body.gathered.since)} ago${body.gathered.turn > 1 ? ` · the ${nth(body.gathered.turn)} moon of its line, each a fifth of the one before and made of its wreck` : ""}`,
+            ] satisfies Fact,
+          ]),
       ["Tilt", `${degrees(body.tilt)} to the plane of the system`],
       ["Holds moons within", `${lengthOf(hill)} · ${figure(hill / physics.radius)} radii`],
     );
@@ -433,7 +450,7 @@ function factsOf(body: Body): Fact[] {
                 ]
               : [
                   "Ring",
-                  `${figure(disk.inner / physics.radius)} to ${figure(disk.outer / physics.radius)} radii · density ${figure(disk.depth)} · ice ${share(disk.ice)} · ${figure(disk.mass)} kg · grains of ${grainOf(disk.grain)} · ${grainOf(disk.height * Math.sqrt(disk.inner * disk.outer))} deep · last fed ${lived(disk.since)} ago · wears away by half every ${lived(Math.LN2 * disk.lasts)}`,
+                  `${figure(disk.inner / physics.radius)} to ${figure(disk.outer / physics.radius)} radii · density ${figure(disk.depth)} · ice ${share(disk.ice)} · ${figure(disk.mass)} kg · grains of ${grainOf(disk.grain)} · ${grainOf(disk.height * Math.sqrt(disk.inner * disk.outer))} deep · last fed ${lived(disk.since)} ago${disk.wreck === null ? "" : ` by ${WRECKS[disk.wreck]}`} · wears away by half every ${lived(Math.LN2 * disk.lasts)}`,
                 ],
         )),
     "Light now",

@@ -28,6 +28,7 @@ const disk = (inner: number, outer: number, given: Partial<Disk>): Disk => ({
   fade: 0,
   since: 0,
   lasts: 0,
+  wreck: null,
   ...given,
 });
 

@@ -192,7 +192,7 @@ test("a heavy ring gathers a moon that comes back as a lighter ring, time after 
     turn: yearOf(edge, mars.mass),
     wear: 3e8 * YEAR,
   };
-  const first = { at: 0, mass: 1e-5 * mars.mass };
+  const first = { at: 0, mass: 1e-5 * mars.mass, wreck: "tide" as const };
   const early = cycleOf(mars, first, rim, NEVER, 1e4 * YEAR);
   assert.deepEqual(early.feeds, [first]);
   assert.equal(early.moon, null);
@@ -200,6 +200,7 @@ test("a heavy ring gathers a moon that comes back as a lighter ring, time after 
   assert.ok(soon.moon !== null && soon.feeds.length === 1);
   assert.ok(Math.abs(soon.moon.mass / first.mass - 0.2) < 1e-9);
   assert.ok(soon.moon.orbit > edge && soon.moon.orbit < 1.59 * edge, `${soon.moon.orbit / edge}`);
+  assert.ok(soon.moon.turn === 1 && soon.moon.born > 0 && soon.moon.born < 2 * MYR);
   const later = cycleOf(mars, first, rim, NEVER, 10 * MYR);
   assert.ok(later.moon !== null && later.moon.orbit < soon.moon.orbit);
   const late = cycleOf(mars, first, rim, NEVER, 4 * GIGAYEAR);
@@ -207,12 +208,16 @@ test("a heavy ring gathers a moon that comes back as a lighter ring, time after 
   late.feeds.forEach((feed, at) => {
     assert.ok(at === 0 || feed.at > late.feeds[at - 1].at);
     assert.ok(Math.abs(feed.mass / first.mass - 0.2 ** at) < 1e-9);
+    assert.equal(feed.wreck, at === 0 ? "tide" : "return");
   });
+  const second = cycleOf(mars, first, rim, NEVER, 30 * MYR);
+  assert.ok(second.moon !== null && second.moon.turn === 2 && second.feeds.length === 2);
+  assert.ok(second.moon.born > second.feeds[1].at && second.moon.born < 30 * MYR);
   const quick: Turner = { ...mars, day: 5 * HOUR };
   assert.ok(syncOf(quick.mass, quick.day) < edge);
   const kept = cycleOf(quick, first, rim, NEVER, 4 * GIGAYEAR);
   assert.ok(kept.feeds.length === 1 && kept.moon !== null && kept.moon.orbit >= edge);
-  const light = cycleOf(mars, { at: 0, mass: 1e-9 * mars.mass }, rim, NEVER, 4 * GIGAYEAR);
+  const light = cycleOf(mars, { ...first, mass: 1e-9 * mars.mass }, rim, NEVER, 4 * GIGAYEAR);
   assert.ok(light.feeds.length === 1 && light.moon === null);
   const tight = cycleOf(mars, first, { ...rim, far: 1.2 * edge }, NEVER, 4 * GIGAYEAR);
   assert.ok(tight.feeds.length === 1 && tight.moon === null);

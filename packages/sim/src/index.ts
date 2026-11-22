@@ -231,6 +231,7 @@ export {
   GASES,
   type GameEvent,
   type Gas,
+  type Gathered,
   type HoldingOrders,
   type JointKind,
   type JointState,
@@ -255,6 +256,7 @@ export {
   type Terrain,
   type Vector,
   type WorldMap,
+  type Wreck,
 } from "./types.ts";
 export { angleBetween, cross, dot, normalize, slerp, subtract } from "./vector.ts";
 export {

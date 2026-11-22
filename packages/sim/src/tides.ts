@@ -1,5 +1,6 @@
 import { spreadOf } from "./disks.ts";
 import { densityOf, GRAVITY } from "./physics.ts";
+import type { Wreck } from "./types.ts";
 
 const TIDE_FLUID = 1e-6;
 const SOLID_LOSS = 100;
@@ -60,11 +61,14 @@ export interface Fate extends Tide {
 export interface Feed {
   at: number;
   mass: number;
+  wreck: Wreck;
 }
 
 export interface Sprung {
   mass: number;
   orbit: number;
+  born: number;
+  turn: number;
 }
 
 export interface Rim {
@@ -244,7 +248,7 @@ export function cycleOf(
   const never = Number.POSITIVE_INFINITY;
   let { at, mass } = first;
   for (let turn = 0; turn < TURNS_MOST && at <= age; turn++) {
-    feeds.push({ at, mass });
+    feeds.push({ at, mass, wreck: turn === 0 ? first.wreck : "return" });
     const spread = spreadOf(mass, host.mass, rim.turn);
     if (spread > rim.wear || rim.torn <= PLUNGE * host.radius) {
       break;
@@ -259,7 +263,7 @@ export function cycleOf(
     const last = tideOf(host, moon, reach, born, tied, never, false);
     if (!last.fell || last.fall > age) {
       const now = tideOf(host, moon, reach, born, tied, age, false);
-      return { feeds, moon: { mass: moon.mass, orbit: now.orbit } };
+      return { feeds, moon: { mass: moon.mass, orbit: now.orbit, born, turn: turn + 1 } };
     }
     at = last.fall;
     mass = moon.mass;
