@@ -2,6 +2,7 @@ import {
   anomalyOf,
   type Body,
   centreOf,
+  clearedBy,
   courseOf,
   createRandom,
   type Disk,
@@ -9,6 +10,8 @@ import {
   poleOf,
   poseOf,
   positionOf,
+  type Ridge,
+  ridgeOf,
   type Sketch,
   seenGlow,
   shownLight,
@@ -339,7 +342,12 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
       const { heat, radius } = owner.body.physics;
       const seen = seenGlow(heat) * ((2 * radius) / (disk.inner + disk.outer)) ** 2;
       const shine = tintOf(owner.body).multiplyScalar(shownLight([seen], 0).lamps[0]);
-      const cloud = createBelt(lane, disk, owner.body.seed + index, shine, coarse.matches);
+      const circling = system.bodies
+        .filter((body) => body.parent === owner.body.id && !starborn(body.physics))
+        .map((body) => body.physics);
+      const cleared = disk.gas > 0 ? [] : clearedBy(disk, circling, owner.body.physics.mass);
+      const seed = owner.body.seed + index;
+      const cloud = createBelt(lane, disk, seed, shine, coarse.matches, cleared);
       cloud.points.quaternion.copy(leanOf(owner));
       return { ...cloud, about: insideOf(owner, disk, false), owner };
     }),
@@ -355,24 +363,28 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
     const lit = (far: number) => seen * (radius / far) ** 2;
     return [...hubs].flatMap(([about, layers]) => {
       layers.sort((left, right) => left.disk.inner - right.disk.inner);
+      const ridges: Ridge[] = [];
       layers.forEach((layer, index) => {
         const beyond = layers[index + 1];
         if (beyond !== undefined && layer.disk.gas > 0 && beyond.disk.gas > 0) {
-          layer.thinned = system.bodies
+          const between = system.bodies
             .filter(
               ({ parent, physics }) =>
                 parent === owner.body.id &&
                 physics.orbit > layer.disk.outer &&
                 physics.orbit < beyond.disk.inner,
             )
-            .reduce(
-              (left, { physics }) => left * thinningOf(physics.mass, physics.orbit, mass, glow),
-              1,
-            );
+            .map(({ physics }) => physics);
+          layer.thinned = between.reduce(
+            (left, planet) => left * thinningOf(planet.mass, planet.orbit, mass, glow),
+            1,
+          );
+          ridges.push(...between.map((planet) => ridgeOf(planet.mass, planet.orbit, mass, glow)));
         }
       });
       const haze = createHaze(
         layers,
+        ridges,
         {
           girth: owner.body.radius,
           shine: tintOf(owner.body),
@@ -386,7 +398,8 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
       }
       haze.mesh.quaternion.copy(leanOf(owner));
       haze.mesh.renderOrder = HAZE_ORDER;
-      return [{ ...haze, about, owner }];
+      const lamps = about === null ? [owner.body.id] : [owner.body.id, about];
+      return [{ ...haze, about, owner, lamps }];
     });
   });
   for (const belt of belts) {
@@ -395,6 +408,7 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
   for (const haze of hazes) {
     world.add(haze.mesh);
   }
+  const veiled = Math.max(0, ...hazes.map((haze) => span(haze.owner.body.id) + haze.reach));
   renderer.domElement.addEventListener("webglcontextrestored", () => {
     for (const look of looks) {
       look.restore();
@@ -530,6 +544,7 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
   const glaring = looks.filter((look) => look.halo > 0);
   const axis = new Vector3();
   const seat = new Vector3();
+  const shaded = new Vector3();
   const stance = new Quaternion();
   const rays = [new Vector3(), new Vector3()];
   const facing = new Vector3();
@@ -658,7 +673,13 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
       lent.forEach(({ source, seen, reach }, at) => {
         const there = truly[source];
         const apart = (there.x - here.x) ** 2 + (there.y - here.y) ** 2 + (there.z - here.z) ** 2;
-        glares[index][at] = (seen * reach ** 2) / apart;
+        const passed = hazes
+          .filter((haze) => haze.lamps.includes(source))
+          .reduce(
+            (left, haze) => left * haze.passed(haze.mesh.worldToLocal(shaded.copy(place))),
+            1,
+          );
+        glares[index][at] = (passed * seen * reach ** 2) / apart;
       });
       const heat = swung[index] ? heatAt(system, index, shown) : look.body.physics.heat;
       turned = look.warm(heat, glares[index]) || turned;
@@ -794,7 +815,7 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
     const grounded = real && Number.isFinite(ground);
     const least = !real ? NEAR_LEAST : grounded ? GROUND_NEAR : REAL_NEAR;
     camera.near = Math.max(least, Math.min(20, (grounded ? ground : closest) * 0.25));
-    camera.far = (camera.position.distanceTo(world.position) + brim) * 1.2 + 50;
+    camera.far = (camera.position.distanceTo(world.position) + Math.max(brim, veiled)) * 1.2 + 50;
     camera.updateProjectionMatrix();
     for (const sky of skies) {
       sky.position.copy(camera.position);

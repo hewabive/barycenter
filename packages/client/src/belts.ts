@@ -1,4 +1,11 @@
-import { createRandom, type Disk, EARTH_MASS, type Lane } from "@barycenter/sim";
+import {
+  type Cleared,
+  createRandom,
+  type Disk,
+  EARTH_MASS,
+  type Lane,
+  type Ridge,
+} from "@barycenter/sim";
 import {
   BackSide,
   BufferAttribute,
@@ -28,6 +35,7 @@ import {
   SHADE_COLUMNS,
   SHADE_ROWS,
   shadeOf,
+  shadowAt,
 } from "./haze.ts";
 import {
   BELT_FRAGMENT,
@@ -56,6 +64,8 @@ export interface Haze {
   eye: Vector3;
   screens: Vector4[];
   bubbles: Vector4[];
+  reach: number;
+  passed(at: Vector3): number;
 }
 
 const ROCK = 0x8a8076;
@@ -63,10 +73,11 @@ const ICE = 0xcdd6dd;
 const LEAN_MOST = 3;
 const LEAST = 300;
 const MOST = 1800;
-const ROCKS = [1, 100];
+const BARED = [1e-3, 1e-4];
+const CLEARED_TURNS = 12;
 const DUST = 0xb39474;
 const FROST = 0xaab4bd;
-const HAZE_LEAST = 1e-6;
+const HAZE_LEAST = 2e-5;
 const HAZE_SIDES = 64;
 const HAZE_COARSE = 0.7;
 const SKINNED = 0.3;
@@ -78,6 +89,7 @@ export function createBelt(
   seed: number,
   shine: Color,
   sparse: boolean,
+  cleared: Cleared[] = [],
 ): Belt {
   const random = createRandom(seed + 113);
   const weight = Math.log10(disk.mass / EARTH_MASS) + 5;
@@ -85,10 +97,18 @@ export function createBelt(
   const count = sparse ? Math.round(full / 2) : full;
   const courses = new Float32Array(3 * count);
   const grains = new Float32Array(count);
+  const power = Math.log(disk.outer / disk.inner) / Math.log(lane.outer / lane.inner);
+  const kept = (reach: number) => {
+    const real = disk.inner * (reach / lane.inner) ** power;
+    return cleared.every(({ at, wide }) => Math.abs(real / at - 1) > wide);
+  };
   for (let index = 0; index < count; index++) {
-    const across = (random.next() + random.next()) / 2;
+    let reach = 0;
+    for (let turn = 0; turn < CLEARED_TURNS && (turn === 0 || !kept(reach)); turn++) {
+      reach = lane.inner + ((lane.outer - lane.inner) * (random.next() + random.next())) / 2;
+    }
     const lean = Math.sqrt(-2 * Math.log(1 - random.next()));
-    courses[3 * index] = lane.inner + (lane.outer - lane.inner) * across;
+    courses[3 * index] = reach;
     courses[3 * index + 1] = 2 * Math.PI * random.next();
     courses[3 * index + 2] = disk.height * Math.min(LEAN_MOST, lean);
     grains[index] = random.next();
@@ -96,7 +116,10 @@ export function createBelt(
   const geometry = new BufferGeometry();
   geometry.setAttribute("position", new BufferAttribute(courses, 3));
   geometry.setAttribute("grain", new BufferAttribute(grains, 1));
-  const rocky = Math.log(disk.grain / ROCKS[0]) / Math.log(ROCKS[1] / ROCKS[0]);
+  const rocky =
+    disk.gas > 0
+      ? 0
+      : Math.log(BARED[0] / Math.max(disk.depth, 1e-30)) / Math.log(BARED[0] / BARED[1]);
   const uniforms = {
     tick: { value: 0 },
     year: { value: lane.year },
@@ -134,8 +157,13 @@ function chart(values: number[], width: number, height: number, format: PixelFor
   return texture;
 }
 
-export function createHaze(layers: Layer[], lamp: Lamp, sparse: boolean): Haze | null {
-  const profile = profileOf(layers);
+export function createHaze(
+  layers: Layer[],
+  ridges: Ridge[],
+  lamp: Lamp,
+  sparse: boolean,
+): Haze | null {
+  const profile = profileOf(layers, ridges);
   if (profile.dense.every((seen) => seen < HAZE_LEAST)) {
     return null;
   }
@@ -187,5 +215,12 @@ export function createHaze(layers: Layer[], lamp: Lamp, sparse: boolean): Haze |
     }),
   );
   mesh.frustumCulled = false;
-  return { mesh, eye, screens, bubbles };
+  return {
+    mesh,
+    eye,
+    screens,
+    bubbles,
+    reach: Math.hypot(wide, shade.top),
+    passed: (at) => Math.exp(-shadowAt(profile, shade, Math.hypot(at.x, at.z), at.y)),
+  };
 }

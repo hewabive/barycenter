@@ -4,9 +4,11 @@ import {
   ICE_GRAIN,
   nebulaOf,
   ROCK_GRAIN,
+  rimOf,
   SOLID_YEARS,
   type Station,
   stirredHeight,
+  wearOf,
 } from "./disks.ts";
 import {
   ASTRONOMICAL_UNIT,
@@ -1312,6 +1314,7 @@ function trimmed(physics: Physics): Physics {
       grain: trim(disk.grain),
       height: trim(disk.height),
       flare: trim(disk.flare),
+      fade: trim(disk.fade),
     })),
   };
 }
@@ -1993,6 +1996,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
             diskOf(belt.inner * wider, belt.outer * wider, belt.ice, {
               mass: belt.mass,
               stirred,
+              wear: wearOf(Math.sqrt(belt.inner * belt.outer) * wider, zone.centre.mass, prime),
             }),
           ];
     });
@@ -2203,6 +2207,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
               diskOf(belt.inner * widened, belt.outer * widened, belt.ice, {
                 mass: belt.mass,
                 stirred,
+                wear: wearOf(Math.sqrt(belt.inner * belt.outer) * widened, zone.centre.mass, age),
               }),
             );
         }
@@ -2223,7 +2228,11 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
           })),
         ];
         const cloud = {
-          inner: Math.max(zone.inner, ground.young ? STAR_CLEARANCE * ground.centre.radius : 0),
+          inner: Math.max(
+            zone.inner,
+            ground.young ? STAR_CLEARANCE * ground.centre.radius : 0,
+            rimOf(ground.centre.glow),
+          ),
           outer: Math.min(zone.outer, DISK_REACH * OUTER_EDGE * lit),
           reach: DISK_REACH * OUTER_EDGE * lit,
           centre: zone.centre.mass,

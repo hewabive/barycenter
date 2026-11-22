@@ -235,6 +235,7 @@ const HALO_SHEET = 1.35;
 const BELT_COVER = 0.12;
 const HAZE_GAIN = 6;
 const HAZE_MOST_LIGHT = 1.4;
+const HAZE_DIM = 2e-6;
 const HAZE_SLACK = 1.1;
 const HAZE_CLEAR = 0.01;
 const HAZE_NEAR = 0.3;
@@ -1597,7 +1598,7 @@ void main() {
         last.height * last.stand + here.height * here.stand
       ).xzy;
       float sent = clear
-        * strip(last.shadow, last.lit, here.shadow, here.lit, through, gone)
+        * (strip(last.shadow, last.lit, here.shadow, here.lit, through, gone) + ${real(HAZE_DIM)} * (1.0 - gone))
         * glint(
           mix(${real(HAZE_DUST[0])}, ${real(HAZE_DUST[1])}, 0.5 * (last.fine + here.fine)),
           -dot(normalize(middle), ray)

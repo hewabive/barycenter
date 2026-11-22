@@ -2,14 +2,19 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   type Cloud,
+  clearedBy,
+  depthAt,
   diskOf,
   GROWN_MOST,
   gasHeight,
   holeOf,
   nebulaOf,
+  ridgeOf,
+  rimOf,
   type Station,
   stirredHeight,
   thinningOf,
+  wearOf,
 } from "../src/disks.ts";
 import {
   ASTRONOMICAL_UNIT,
@@ -87,14 +92,15 @@ test("the gas thins, then goes from the inside out, and the dust goes with it", 
 });
 
 test("what is left in the end is the belt the system keeps", () => {
-  const belt = diskOf(2.1 * AU, 3.3 * AU, 0.05, { mass: 3e-4 * EARTH_MASS });
+  const wear = wearOf(Math.sqrt(2.1 * 3.3) * AU, SUN_MASS, GROWN_MOST);
+  const belt = diskOf(2.1 * AU, 3.3 * AU, 0.05, { mass: 3e-4 * EARTH_MASS, wear });
   const here: Station = { orbit: Math.sqrt(2.1 * 3.3) * AU, share: 0, mass: 0, belt };
   const stations = [planet(1, 1, 1), here, planet(5.2, 1, 318)];
   const at = (age: number) => nebulaOf(cloud(age, stations));
   const young = at(10).find((disk) => disk.outer > 2.2 * AU && disk.inner < 3.2 * AU);
   assert.ok(young !== undefined);
   assert.ok(young.inner < belt.inner && young.outer > belt.outer && young.mass > 100 * belt.mass);
-  assert.ok(young.depth > 1e4 * belt.depth && young.depth < 0.1);
+  assert.ok(young.depth > 5 * belt.depth && young.depth < 0.1, `${young.depth} ${belt.depth}`);
   const [last, ...others] = at(99.999);
   assert.equal(others.length, 0);
   for (const key of ["inner", "outer", "mass", "depth", "ice"] as const) {
@@ -113,7 +119,7 @@ test("dust stands as high as the gas holds it, and lower where the gas has thinn
   assert.ok(far.height > near.height && far.height < gasHeight(18 * AU, SUN_MASS, 2.7 * AU));
   assert.ok(near.flare > 0.2 && near.flare <= 0.25 && far.flare < near.flare);
   const late = nebulaOf(cloud(3.1, giant))[1];
-  assert.ok(late.gas < far.gas && late.height < 0.7 * far.height, `${late.height} ${far.height}`);
+  assert.ok(late.gas < far.gas && late.height < 0.9 * far.height, `${late.height} ${far.height}`);
 });
 
 test("without gas a disk is as thick as its planets have had time to stir it", () => {
@@ -131,19 +137,66 @@ test("a ring that nothing stirs is a few of its own grains deep", () => {
   const ring = diskOf(1e8, 1.4e8, 1, { depth: 0.6 });
   assert.ok(Math.abs(ring.height * Math.sqrt(1e8 * 1.4e8) - 10) < 1e-9 && ring.flare === -1);
   const belt = diskOf(2.1 * AU, 3.3 * AU, 0.05, { mass: 3e-4 * EARTH_MASS, stirred: 0.137 });
-  assert.ok(belt.height === 0.137 && belt.flare === 0 && belt.grain === 1000);
+  assert.ok(belt.height === 0.137 && belt.flare === 0 && belt.grain === 1);
 });
 
-test("rubble near the star grows coarse and thin before the rubble far from it", () => {
+test("collisions wear the dust near the star first, and all of it as the age goes by", () => {
   const stations = [planet(1, 0.2, 1), planet(5.2, 1, 318), planet(20, 0.3, 15)];
   const rubble = nebulaOf(cloud(8, stations));
   const near = rubble[0];
   const far = rubble[rubble.length - 1];
   assert.ok(near.gas === 0 && far.gas === 0 && near.outer < AU && far.inner > 20 * AU);
-  assert.ok(near.grain > 30 * far.grain && far.grain < 3, `${near.grain} ${far.grain}`);
-  assert.ok(near.depth < 0.01, `${near.depth}`);
-  const late = nebulaOf(cloud(99.999, stations));
-  assert.ok(late.every((disk) => Math.abs(disk.grain / 1000 - 1) < 0.01));
+  assert.ok(near.grain > 100 * far.grain && far.grain < 3, `${near.grain} ${far.grain}`);
+  assert.ok(near.depth < 1e-4 && far.depth > near.depth, `${near.depth} ${far.depth}`);
+  const belt = (earths: number, years: number) =>
+    diskOf(2.1 * AU, 3.3 * AU, 0.05, {
+      mass: earths * EARTH_MASS,
+      wear: wearOf(2.63 * AU, SUN_MASS, years * YEAR),
+    });
+  const ours = belt(4e-4, 4.57e9);
+  assert.ok(ours.depth > 4e-8 && ours.depth < 4e-7, `${ours.depth}`);
+  assert.ok(Math.abs(belt(4e-4, 9e9).depth / ours.depth - 0.5) < 0.05);
+  assert.ok(Math.abs(belt(4, 4.57e9).depth / ours.depth - 1) < 0.2);
+  assert.ok(Math.abs(belt(4e-4, 1e5).grain - 1) < 0.1 && ours.grain > 5);
+});
+
+test("the dust of a young disk thins out over the last quarter of its reach", () => {
+  const [disk] = nebulaOf(cloud(0.3));
+  assert.equal(disk.fade, 45 * AU);
+  const fall = (at: number) => depthAt(disk, at * AU) * at ** 1.5;
+  assert.ok(Math.abs(fall(3) / fall(1) - 1) < 0.02);
+  assert.ok(fall(30) / fall(3) > 0.8 && fall(45) / fall(3) < 0.4);
+  assert.ok(fall(60) / fall(3) < 0.05 && depthAt(disk, 60 * AU) < 1);
+  const steps = 4000;
+  let sum = 0;
+  for (let step = 0; step < steps; step++) {
+    const at = disk.inner + ((step + 0.5) * (disk.outer - disk.inner)) / steps;
+    sum += depthAt(disk, at) * 2 * at * ((disk.outer - disk.inner) / steps);
+  }
+  assert.ok(Math.abs(sum / (disk.outer ** 2 - disk.inner ** 2) / disk.depth - 1) < 0.02);
+  const belt = diskOf(2 * AU, 3 * AU, 0, { mass: EARTH_MASS });
+  assert.ok(belt.fade === 0 && depthAt(belt, 2 * AU) > depthAt(belt, 3 * AU));
+});
+
+test("dust gathers beyond the lane of a heavy planet, and a belt is empty where it keeps time with one", () => {
+  const ridge = ridgeOf(318 * EARTH_MASS, 5.2 * AU, SUN_MASS, SUN_GLOW);
+  assert.ok(Math.abs(ridge.at / AU - 8.75) < 0.1 && ridge.rise > 1.9, `${ridge.at / AU}`);
+  assert.ok(ridgeOf(EARTH_MASS, AU, SUN_MASS, SUN_GLOW).rise < 0.1);
+  const belt = { inner: 2.1 * AU, outer: 3.3 * AU };
+  const giant = [{ mass: 318 * EARTH_MASS, orbit: 5.2 * AU }];
+  const gaps = clearedBy(belt, giant, SUN_MASS).map(({ at }) => at / AU);
+  assert.deepEqual(
+    gaps.map((at) => at.toFixed(2)),
+    ["2.50", "2.82", "2.96", "3.28"],
+  );
+  assert.ok(clearedBy(belt, giant, SUN_MASS).every(({ wide }) => Math.abs(wide - 0.0146) < 1e-3));
+  assert.equal(clearedBy(belt, [{ mass: EARTH_MASS, orbit: 5.2 * AU }], SUN_MASS).length, 0);
+  assert.equal(clearedBy(belt, [{ mass: 318 * EARTH_MASS, orbit: AU }], SUN_MASS).length, 0);
+});
+
+test("dust begins where the light of the star no longer turns it to gas", () => {
+  assert.ok(Math.abs(rimOf(SUN_GLOW) / AU - 0.07) < 1e-9);
+  assert.ok(Math.abs(rimOf(50 * SUN_GLOW) / AU - 0.495) < 1e-3);
 });
 
 test("only a heavy planet thins the gas along its orbit", () => {

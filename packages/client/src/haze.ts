@@ -1,4 +1,4 @@
-import type { Disk, Lane } from "@barycenter/sim";
+import { type Disk, depthAt, type Lane, type Ridge } from "@barycenter/sim";
 
 export const HAZE_COLUMNS = 384;
 export const SHADE_COLUMNS = 192;
@@ -9,7 +9,6 @@ export const LAMP_HEIGHT = 4 / (3 * Math.PI);
 
 const BELL = 1 / Math.sqrt(2 * Math.PI);
 const TAIL = [0.3435, 5.3954372];
-const FALL = 1.5;
 const SOFT = 1;
 const MARGIN = 4;
 const BRIM_LEAST = 4.5;
@@ -76,18 +75,12 @@ export function strip(before: number, after: number, through: number): number {
     : (through * (lit - Math.exp(-after - through))) / turn;
 }
 
-function fallOf({ inner, outer, depth }: Disk, at: number): number {
-  const reach = Math.min(outer, Math.max(inner, at));
-  const whole = (outer ** 2 - inner ** 2) / (4 * (Math.sqrt(outer) - Math.sqrt(inner)));
-  return depth * whole * reach ** -FALL;
-}
-
 function standOf({ inner, outer, height, flare }: Disk, at: number): number {
   const reach = Math.min(outer, Math.max(inner, at));
   return height * (reach / Math.sqrt(inner * outer)) ** flare;
 }
 
-export function profileOf(layers: Layer[]): Profile {
+export function profileOf(layers: Layer[], ridges: Ridge[] = []): Profile {
   const first = layers[0];
   const last = layers[layers.length - 1];
   const rough = Math.log(last.lane.outer / first.lane.inner) / HAZE_COLUMNS;
@@ -144,14 +137,14 @@ export function profileOf(layers: Layer[]): Profile {
       const edge = edges[index];
       const window =
         (1 - above((at - edge.from) / edge.rise)) * (1 - above((edge.to - at) / edge.fall));
-      sum += window * fallOf(disk, real);
+      sum += window * depthAt(disk, real);
       const beyond = layers[index + 1];
       if (thinned > 0 && beyond !== undefined) {
         const after = edges[index + 1];
         const wide = after.from - edge.to;
         const share = wide > 0 ? Math.max(0, Math.min(1, (at - edge.to) / wide)) : 0;
-        const near = fallOf(disk, disk.outer);
-        const away = fallOf(beyond.disk, beyond.disk.inner);
+        const near = depthAt(disk, disk.outer);
+        const away = depthAt(beyond.disk, beyond.disk.inner);
         const lane = above((edge.to - at) / edge.fall) * above((at - after.from) / after.rise);
         if (near > 0 && away > 0) {
           sum += thinned * lane * near ** (1 - share) * away ** share;
@@ -159,6 +152,17 @@ export function profileOf(layers: Layer[]): Profile {
       }
     });
     dense[column] = column === 0 || column === HAZE_COLUMNS - 1 ? 0 : sum;
+  }
+  const pace = Math.log(outer / inner) / (HAZE_COLUMNS - 1);
+  for (const { at, rise } of ridges) {
+    const crest = far.findIndex((real) => real >= at);
+    if (crest > 0) {
+      const wide = Math.max(rough, SOFT * tall[crest]);
+      dense.forEach((seen, column) => {
+        dense[column] =
+          seen * (1 + rise * Math.exp(-0.5 * (((column - crest) * pace) / wide) ** 2));
+      });
+    }
   }
   return { inner, outer, dense, tall, far, ice, fine };
 }
@@ -218,4 +222,25 @@ export function shadeOf(profile: Profile, lamp: number): Shade {
     }
   });
   return { depth, brims, top, steep, deepest };
+}
+
+export function shadowAt(profile: Profile, shade: Shade, reach: number, lift: number): number {
+  const { inner, outer, tall } = profile;
+  if (reach <= inner) {
+    return 0;
+  }
+  const far = Math.min(reach, outer);
+  const share = Math.log(far / inner) / Math.log(outer / inner);
+  const cell = share * (HAZE_COLUMNS - 1);
+  const whole = Math.min(HAZE_COLUMNS - 2, Math.floor(cell));
+  const stand = tall[whole] + (tall[whole + 1] - tall[whole]) * (cell - whole);
+  const height = Math.min(SHADE_REACH, (Math.abs(lift) * far) / reach / (stand * far));
+  const across = share * (SHADE_COLUMNS - 1);
+  const column = Math.min(SHADE_COLUMNS - 2, Math.floor(across));
+  const up = (height / SHADE_REACH) * (SHADE_ROWS - 1);
+  const row = Math.min(SHADE_ROWS - 2, Math.floor(up));
+  const read = (line: number, cut: number) => shade.depth[line * SHADE_COLUMNS + cut];
+  const blend = (line: number) =>
+    read(line, column) + (read(line, column + 1) - read(line, column)) * (across - column);
+  return Math.exp(blend(row) + (blend(row + 1) - blend(row)) * (up - row));
 }

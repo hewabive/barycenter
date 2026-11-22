@@ -11,6 +11,7 @@ import {
   SHADE_REACH,
   SHADE_ROWS,
   shadeOf,
+  shadowAt,
   strip,
 } from "../src/haze.ts";
 
@@ -24,6 +25,7 @@ const disk = (inner: number, outer: number, given: Partial<Disk>): Disk => ({
   grain: 1e-5,
   height: 0.05,
   flare: 0.25,
+  fade: 0,
   ...given,
 });
 
@@ -131,4 +133,29 @@ test("starlight skims a flat ring and is stopped in the skin of a thick flared d
   assert.ok(shade.deepest > 1e4 && shade.top > 60 && shade.top < 140, `${shade.top}`);
   assert.ok(shade.steep > 0.2 && shade.steep < 0.5);
   assert.ok(shade.depth[Math.round(0.5 * SHADE_COLUMNS)] > Math.log(1e3));
+});
+
+test("dust heaped beyond a lane stands out of the disk around it", () => {
+  const layers = [layer(10, 20, { depth: 100 }, 0.01), layer(26, 60, { depth: 30 })];
+  const plain = profileOf(layers);
+  const heaped = profileOf(layers, [{ at: 30, rise: 2 }]);
+  const crest = columnAt(plain, 30);
+  assert.ok(Math.abs(heaped.dense[crest] / plain.dense[crest] - 3) < 0.05);
+  const away = columnAt(plain, 45);
+  assert.ok(Math.abs(heaped.dense[away] / plain.dense[away] - 1) < 0.01);
+  assert.ok(heaped.dense[columnAt(plain, 15)] === plain.dense[columnAt(plain, 15)]);
+});
+
+test("a body deep in a thick disk gets no light of its star, and one above it or in its hole does", () => {
+  const cloud = profileOf([layer(2, 200, { depth: 300, height: 0.05, flare: 0.25 })]);
+  const shade = shadeOf(cloud, 0.4);
+  const stand = (reach: number) => cloud.tall[columnAt(cloud, reach)] * reach;
+  assert.ok(shadowAt(cloud, shade, 50, 0) > 100);
+  assert.ok(shadowAt(cloud, shade, 50, 0.5 * stand(50)) > 30);
+  assert.ok(shadowAt(cloud, shade, 50, -6.5 * stand(50)) < 0.05);
+  assert.equal(shadowAt(cloud, shade, 1, 0), 0);
+  assert.ok(shadowAt(cloud, shade, 400, 0) > 100);
+  assert.ok(shadowAt(cloud, shade, 400, 13 * stand(200)) < 0.05);
+  const thin = profileOf([layer(20, 30, { depth: 1e-4, height: 0.05, flare: 0, gas: 0 })]);
+  assert.ok(shadowAt(thin, shadeOf(thin, 0.4), 28, 0) < 0.01);
 });

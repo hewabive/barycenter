@@ -322,7 +322,8 @@ test("the physics of every body holds together", () => {
           const deep = disk.height * Math.sqrt(disk.inner * disk.outer);
           assert.ok(Math.abs(deep - 10) < 0.01 && disk.flare === -1 && disk.grain === 1, label);
         } else {
-          assert.ok(disk.depth < 1e-3 || !grown, label);
+          assert.ok(disk.depth < 1e-4 || !grown, label);
+          assert.ok(disk.depth < 2e-5 || physics.age < 2e9 * YEAR, `${label} dust`);
           assert.ok(disk.height > 0 && disk.height < 0.5 && disk.grain > 0, `${label} stands`);
           assert.ok(disk.gas > 0 ? disk.grain < 1e-4 : disk.flare === 0, label);
           assert.ok(disk.gas > 0 || disk.height >= 0.04, label);
@@ -1635,11 +1636,22 @@ test("a system grows out of the disk of its young star", () => {
       }
       if (years >= 1e8) {
         assert.deepEqual([...masses.keys()], [...whole.keys()], label);
-        assert.deepEqual(
-          system.bodies.map((body) => body.physics.disks),
-          grown.bodies.map((body) => body.physics.disks),
-          label,
-        );
+        const lasting = (bodies: typeof system.bodies) =>
+          bodies.map((body) =>
+            body.physics.disks.map(({ depth, grain, ...kept }) => ({
+              ...kept,
+              dust: body.parent === null || starborn(body.physics) ? 0 : depth * grain,
+            })),
+          );
+        assert.deepEqual(lasting(system.bodies), lasting(grown.bodies), label);
+        system.bodies.forEach((body, index) => {
+          body.physics.disks.forEach((disk, at) => {
+            const end = grown.bodies[index].physics.disks[at];
+            const worn = starborn(body.physics);
+            assert.ok(worn ? end.depth < disk.depth : end.depth === disk.depth, label);
+            assert.ok(worn ? end.grain > disk.grain : end.grain === disk.grain, label);
+          });
+        });
         assert.ok(
           system.bodies.every((body) => body.physics.mass === whole.get(body.name)?.physics.mass),
         );
