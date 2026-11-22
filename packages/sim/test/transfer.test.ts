@@ -168,7 +168,7 @@ test("a way down to the body a moon circles is found from the moon", () => {
       fly,
       flight: parked(named("Surais")),
       plan: [],
-      kick: blank,
+      kick: { ...blank, time: 20000 },
       target: home,
       height: 3e5,
     }),

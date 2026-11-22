@@ -16,7 +16,7 @@ import {
 } from "../src/index.ts";
 import { scatter } from "../src/sphere.ts";
 
-const bodies = [1, 2, 4, 6].flatMap(
+const bodies = [1, 2, 4, 6, 7].flatMap(
   (seed) => surveySystem(seed, { settled: true, star: null }).bodies,
 );
 const pocked = bodies.filter((body) => body.relief.craters > 0.5);

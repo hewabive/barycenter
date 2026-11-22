@@ -29,6 +29,8 @@ import {
   lampsOf,
   lightAt,
   moltenOf,
+  type Physics,
+  pullOf,
   rocheOf,
   roughOf,
   type Shown,
@@ -42,7 +44,10 @@ import {
   starHeat,
   surveySystem,
   swayOf,
+  syncOf,
+  tornAt,
   turnover,
+  wrapped,
   YEAR,
 } from "@barycenter/sim";
 import { button, el, required, write } from "./dom.ts";
@@ -146,6 +151,20 @@ const span = (seconds: number) =>
     : seconds >= 3 * DAY
       ? `${figure(seconds / DAY)} days`
       : `${figure(seconds / HOUR)} hours`;
+const tideFact = (moon: Physics, host: Physics): string => {
+  const dense = densityOf(host.mass, host.radius);
+  const torn = tornAt(host.radius, dense, densityOf(moon.mass, moon.radius));
+  const pace = moon.orbit ** 6.5 / pullOf({ ...host, fluid: wrapped(host) }, moon.mass);
+  if (moon.year === host.day) {
+    return "none, it circles as its planet turns";
+  }
+  if (0.065 * pace > 10 * GIGAYEAR) {
+    return "too weak to move it";
+  }
+  return moon.orbit > syncOf(host.mass, host.day)
+    ? `push it outward, a hundredth of its distance in ${lived(0.065 * pace)}`
+    : `draw it in · torn apart at ${figure(torn / host.radius)} radii in ${lived(pace * (1 - (torn / moon.orbit) ** 6.5))}`;
+};
 const lived = (seconds: number) =>
   seconds >= GIGAYEAR
     ? `${figure(seconds / GIGAYEAR)} billion years`
@@ -339,6 +358,10 @@ function factsOf(body: Body): Fact[] {
   }
   if (parent !== null) {
     const hill = hillOf(physics.orbit, physics.mass, parent.physics.mass);
+    const holder = system.bodies.find(
+      (moon) => moon.parent === body.id && moon.physics.year === physics.day,
+    );
+    const tide = sunny(parent) || shared !== null ? null : tideFact(physics, parent.physics);
     facts.push(
       "Orbit",
       [
@@ -379,8 +402,13 @@ function factsOf(body: Body): Fact[] {
       ["Year", span(physics.year)],
       [
         "Day",
-        physics.day === physics.year ? "locked to its year, one face inward" : span(physics.day),
+        physics.day === physics.year
+          ? "locked to its year, one face inward"
+          : holder === undefined
+            ? span(physics.day)
+            : `${span(physics.day)}, the month of ${holder.name}, one face to it`,
       ],
+      ...(tide === null ? [] : [["Tides", tide] satisfies Fact]),
       ["Tilt", `${degrees(body.tilt)} to the plane of the system`],
       ["Holds moons within", `${lengthOf(hill)} · ${figure(hill / physics.radius)} radii`],
     );

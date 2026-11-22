@@ -207,6 +207,7 @@ export {
   swayOf,
   weightOf,
 } from "./system.ts";
+export { pullOf, syncOf, tideOf, tornAt, yieldOf } from "./tides.ts";
 export {
   type Approach,
   approachOf,

@@ -67,6 +67,7 @@ import {
 import { createRandom, type Random } from "./random.ts";
 import { cratersOf, elevationAt, heightOf } from "./relief.ts";
 import { scatter } from "./sphere.ts";
+import { type Fate, MOONS_APART, syncOf, type Tide, tideOf, tornAt, trainOf } from "./tides.ts";
 import {
   type Body,
   type Disk,
@@ -138,6 +139,7 @@ interface Draft {
   gone: boolean;
   absent: boolean;
   share: number;
+  held: number | null;
   setting: Setting | null;
   aged: ((age: number) => void) | null;
 }
@@ -235,6 +237,8 @@ interface Lot {
 interface Kin {
   slant: number | null;
   lean: number | null;
+  tip: number | null;
+  level: number;
   physics: Physics;
   lot: Lot;
   site: Site;
@@ -247,6 +251,11 @@ interface Seat {
   orbit: number;
   far: number;
   mass: number;
+}
+
+interface Sway {
+  lead: Kin | null;
+  at(age: number): Map<Kin, Fate>;
 }
 
 interface Anchor {
@@ -375,6 +384,7 @@ const DISK_REACH = 1.5;
 const YOUNG_SHARE = 0.03;
 const YOUNG_AGES = [3e5, 1e8];
 const MOON_GRAIN = 2000;
+const DRIFT_LEAST = 1e-3;
 const BELT_SHARE = 0.6;
 const MOON_REST = 0.3;
 const SUBMOON_REST = 0.33;
@@ -383,7 +393,6 @@ const APART = 6;
 const ROOMY = [8, 10];
 const WEDGE_MOST = 0.75;
 const SPREAD_MOST = 3;
-const MOONS_APART = 5;
 const STEEP_LEAST = 0.68;
 const STEEP_TILT = 0.87;
 const HOME_MOST = 1.25 * EARTH_MASS;
@@ -795,7 +804,8 @@ function moonsOf(
     const caught = turns.next() < CAUGHT_SHARE && stray && !fluid;
     const stretch = (caught ? CAUGHT_STRETCH : MOON_STRETCH) * turns.next();
     const tip = caught ? Math.PI * turns.next() : null;
-    const far = beyond(orbit);
+    const level = laplaceOf(girth, host.orbit, host.stretch, host.mass, around.mass);
+    const far = orbit > level;
     const site = siteAt(orbit, stretch);
     const lot = lotOf(mass, site, random, true);
     const physics = shaped(lot, site);
@@ -817,6 +827,8 @@ function moonsOf(
       site,
       slant: far ? null : tip,
       lean: far ? gentle(tip ?? 0) : null,
+      tip,
+      level,
       moons,
       shared: null,
       apart: false,
@@ -833,6 +845,8 @@ function moonsOf(
       site,
       slant: lead.slant,
       lean: lead.lean,
+      tip: lead.tip,
+      level: lead.level,
       moons: [],
       shared: { ...share, lead },
       apart: true,
@@ -904,6 +918,8 @@ function moonsOf(
       site,
       slant: null,
       lean: beyond(orbit) ? 0 : null,
+      tip: null,
+      level: laplaceOf(girth, host.orbit, host.stretch, host.mass, around.mass),
       moons: [],
       shared: null,
       apart: true,
@@ -1132,6 +1148,9 @@ function arranged(bodies: Body[], anchor: Anchor): Body[] {
   return bodies.map((body) => {
     const year = body.parent === null ? 0 : pace(body.physics.year, anchor.year, HOME_YEAR);
     const locked = body.physics.day === body.physics.year;
+    const held = bodies.some(
+      (moon) => moon.parent === body.id && moon.physics.year === body.physics.day,
+    );
     const { shared } = body;
     const touch =
       shared === null
@@ -1152,7 +1171,11 @@ function arranged(bodies: Body[], anchor: Anchor): Body[] {
       radius: trim(radius[body.id]),
       orbit: trim(orbit[body.id]),
       year,
-      day: locked ? year : pace(body.physics.day, anchor.day, HOME_DAY),
+      day: locked
+        ? year
+        : held
+          ? pace(body.physics.day, anchor.year, HOME_YEAR)
+          : pace(body.physics.day, anchor.day, HOME_DAY),
       disks: lanes[body.id].map((lane) => ({
         inner: trim(lane.inner),
         outer: trim(lane.outer),
@@ -1451,6 +1474,11 @@ function paced(drafts: Draft[]): void {
       }
     }
   }
+  for (const draft of drafts) {
+    if (draft.held !== null) {
+      draft.physics = { ...draft.physics, day: drafts[draft.held].physics.year };
+    }
+  }
   const seasons = new Set<Beat>();
   for (const { beat, physics } of drafts) {
     if (beat !== null && !seasons.has(beat)) {
@@ -1600,10 +1628,96 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
     season: planet.year,
   });
   const adopted = new Map<Kin, number>();
-  const adopt = (moon: Kin, parent: number) => {
+  const swayed = (
+    host: Physics,
+    spin: number,
+    tied: number,
+    far: number,
+    moons: Kin[],
+    turning: boolean,
+    lying: boolean,
+  ): Sway => {
+    const riders = moons
+      .filter((moon) => moon.shared === null && !moon.apart)
+      .sort((left, right) => left.physics.orbit - right.physics.orbit);
+    const lead = turning
+      ? riders.reduce<Kin | null>(
+          (most, moon) => (most === null || moon.physics.mass > most.physics.mass ? moon : most),
+          null,
+        )
+      : null;
+    const turner = {
+      mass: host.mass,
+      radius: host.radius,
+      day: spin,
+      ice: host.ice,
+      fluid: wrapped(host),
+    };
+    const dense = densityOf(host.mass, host.radius);
+    const sync = syncOf(host.mass, spin);
+    const courses = riders.map((moon) => {
+      const { mass, radius, orbit, stretch } = moon.physics;
+      const reach = {
+        torn: tornAt(host.radius, dense, densityOf(mass, radius)),
+        born: orbit,
+        far: Math.min(far / (1 + stretch), lying ? moon.level : Number.POSITIVE_INFINITY),
+      };
+      const born = { mass, orbit };
+      const led = moon === lead;
+      const stood =
+        orbit > sync && tied > prime ? tideOf(turner, born, reach, 0, tied, prime, false) : null;
+      const kept = stood === null ? born : { mass, orbit: stood.orbit };
+      const set = stood === null ? 0 : prime;
+      return {
+        mass,
+        born: orbit,
+        stretch,
+        torn: reach.torn,
+        far: reach.far,
+        at: (age: number) => tideOf(turner, kept, reach, set, tied, age, led),
+      };
+    });
+    let last: { age: number; fates: Map<Kin, Fate> } | null = null;
+    return {
+      lead,
+      at(age) {
+        if (last?.age !== age) {
+          const train = trainOf(
+            courses.map(({ at, ...rider }) => ({ ...rider, tide: at(age) })),
+            host.mass,
+          );
+          last = { age, fates: new Map(riders.map((moon, at) => [moon, train[at]])) };
+        }
+        return last.fates;
+      },
+    };
+  };
+  const adopt = (moon: Kin, parent: number, sway: Sway) => {
     const own = drafts.length;
-    const { physics, slant, lean, apart, lot, site } = moon;
+    const { apart, lot, site } = moon;
     const lead = moon.shared === null ? undefined : adopted.get(moon.shared.lead);
+    const lieAt = (orbit: number) =>
+      orbit > moon.level
+        ? { slant: null, plane: parent, lean: gentle(moon.tip ?? 0) }
+        : { slant: moon.tip, plane: null, lean: null };
+    const around = drafts[parent].physics;
+    const course = (age: number) => sway.at(age).get(moon.shared?.lead ?? moon);
+    const settledAt = (fate: Fate | undefined) =>
+      fate === undefined || Math.abs(fate.orbit / site.orbit - 1) < DRIFT_LEAST
+        ? site.orbit
+        : fate.orbit;
+    const left = (fate: Fate | undefined) => fate !== undefined && (fate.fell || fate.lost);
+    const first = course(prime);
+    const stood = settledAt(first);
+    const glowing = glowOf(around.radius, around.heat);
+    const moved: Site = {
+      ...site,
+      orbit: stood,
+      lent: site.lent - lightAt(glowing, site.orbit) + lightAt(glowing, stood),
+    };
+    const beside = lead === undefined ? null : drafts[lead].physics.year;
+    const fresh = stood === site.orbit ? moon.physics : shaped(lot, moved);
+    const physics = beside === null ? fresh : { ...fresh, year: beside, day: beside };
     const shared =
       moon.shared === null || lead === undefined
         ? null
@@ -1619,41 +1733,45 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       physics,
       parent,
       tilt: null,
-      slant,
-      plane: lean === null ? null : parent,
-      lean,
+      ...lieAt(stood),
       beat: drafts[parent].beat,
       shared,
       apart,
       gone: false,
-      absent: false,
+      absent: left(first) || drafts[parent].absent,
       share: 1,
-      setting: { star: site.star, distance: site.distance, lent: site.lent, past: null },
+      held: null,
+      setting: { star: site.star, distance: site.distance, lent: moved.lent, past: null },
       aged: null,
     };
     draft.aged = (age) => {
       const host = drafts[parent];
       const stand = host.setting;
       const share = smooth(MOON_FROM, 1, host.share);
-      const near = site.orbit * (1 - site.stretch);
+      const fate = course(age);
+      const orbit = settledAt(fate);
+      const near = orbit * (1 - site.stretch);
       const early = share < BORN_SHARE || (moon.shared !== null && age < GROWN_MOST);
-      if (stand === null || early || near < MOON_CLEAR * host.physics.radius) {
+      if (stand === null || early || left(fate) || near < MOON_CLEAR * host.physics.radius) {
         draft.absent = true;
         return;
       }
-      const warmth = lightAt(glowOf(host.physics.radius, host.physics.heat), site.orbit);
+      const warmth = lightAt(glowOf(host.physics.radius, host.physics.heat), orbit);
       const past = stand.past === null ? null : { ...stand.past, lent: site.lent };
       const setting = { ...stand, lent: stand.lent + warmth, past };
-      const made = shaped(lot, { ...site, ...setting, around: host.physics }, share);
+      const made = shaped(lot, { ...site, ...setting, around: host.physics, orbit }, share);
       const beside = lead === undefined ? null : drafts[lead].physics.year;
       draft.physics = beside === null ? made : { ...made, year: beside, day: beside };
+      Object.assign(draft, lieAt(orbit));
       draft.beat = host.beat;
       draft.share = share;
       draft.setting = setting;
     };
     drafts.push(draft);
-    for (const lesser of moon.moons) {
-      adopt(lesser, own);
+    const hold = hillOf(stood * (1 - site.stretch), physics.mass, around.mass);
+    const lesser = swayed(physics, physics.day, 0, SUBMOON_REST * hold, moon.moons, false, false);
+    for (const small of moon.moons) {
+      adopt(small, own, lesser);
     }
   };
   const seat: { home: number | null; trojan: boolean } = {
@@ -1741,6 +1859,8 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
     const tiedAt = (years: number) =>
       TIED_REACH * Math.cbrt(star.mass / SUN_MASS) * (years / (10 * GIGAYEAR)) ** (1 / 6);
     const tiedWithin = tiedAt(prime);
+    const tiedFrom = (reach: number, heavy: number) =>
+      10 * GIGAYEAR * (reach / (TIED_REACH * Math.cbrt(star.mass / SUN_MASS) * heavy)) ** 6;
     const wedgeOf = (apart: number, left: number, right: number, centre = star.mass) =>
       Math.min(WEDGE_MOST, (apart / 2) * Math.cbrt((left + right) / (3 * centre)));
     const lightest = (apart: number, gap: number, reach: number, beside: number) =>
@@ -1869,8 +1989,13 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
         gone: false,
         absent: false,
         share: 1,
+        held: null,
         setting: { star, distance, lent: zone.lent, past: null },
         aged: null,
+      };
+      const turned: { by: ((age: number) => Tide | undefined) | null; lead: number } = {
+        by: null,
+        lead: 0,
       };
       const haste = youth.next();
       const airborne = lot !== null && lot.gas >= GAS_BEARING;
@@ -1935,7 +2060,10 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
           const past = same ? null : { star, distance, peak, lent: zone.lent, young };
           const setting = { star: ground.centre, distance: far, lent: ground.lent, past };
           here = { ...setting, around: ground.centre, orbit: reach, stretch: round, tied: bound };
-          draft.physics = shaped(lot, here, share, fed);
+          const made = shaped(lot, here, share, fed);
+          const tide = bound || turned.by === null ? undefined : turned.by(age);
+          draft.physics = tide === undefined ? made : { ...made, day: tide.day };
+          draft.held = tide?.held ? turned.lead : null;
           draft.share = share;
           draft.tilt = bound ? null : tilt;
           draft.beat = beatOf(draft.physics, ground.centre, far);
@@ -1948,8 +2076,27 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       }
       const lying = !tied && tilt > STEEP_TILT && tilt < Math.PI - STEEP_TILT;
       const moons = moonsOf(planet, star, star, distance, zone.lent, 0, lying, random, turns, rare);
+      const sway = swayed(
+        planet,
+        lot?.free ?? planet.day,
+        settledHere ? Number.POSITIVE_INFINITY : tiedFrom(orbit, heavy),
+        MOON_REST * hillOf(orbit * (1 - stretch), planet.mass, star.mass),
+        moons,
+        true,
+        lying,
+      );
       for (const moon of moons) {
-        adopt(moon, id);
+        adopt(moon, id, sway);
+      }
+      const { lead } = sway;
+      if (lead !== null) {
+        turned.by = (age) => sway.at(age).get(lead);
+        turned.lead = adopted.get(lead) ?? 0;
+        const tide = tied ? undefined : turned.by(prime);
+        if (tide !== undefined) {
+          draft.physics = { ...draft.physics, day: tide.day };
+          draft.held = tide.held ? turned.lead : null;
+        }
       }
       const retinue = moons.reduce((sum, moon) => sum + weightOfKin(moon), planet.mass);
       mine.mass = retinue;
@@ -2008,7 +2155,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
     const { tilt, slant } = star;
     const physics = { ...star.physics, light: lent };
     const alone = { plane: null, lean: null, beat: null, shared: null, apart: false };
-    const there = { gone: false, absent: false, share: 1, setting: null, aged: null };
+    const there = { gone: false, absent: false, share: 1, held: null, setting: null, aged: null };
     drafts.push({ physics, parent, tilt, slant, ...alone, ...there });
     const post: Post = { id, zones: [], belts: [], rows: [] };
     posts.set(star, post);
@@ -2258,6 +2405,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
     for (const draft of drafts) {
       draft.absent = false;
       draft.share = 1;
+      draft.held = null;
     }
     zoned(root, nowOf(root, moment), open, 0);
     const left = (id: number | null) => id !== null && drafts[id].gone;
@@ -2287,6 +2435,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
     .map((draft) => ({
       ...draft,
       parent: moved(draft.parent),
+      held: draft.held === null || seats[draft.held] < 0 ? null : seats[draft.held],
       shared: draft.shared === null ? null : { ...draft.shared, with: seats[draft.shared.with] },
     }));
   paced(present);

@@ -80,6 +80,7 @@ import {
 } from "../src/physics.ts";
 import { sidesOf } from "../src/sphere.ts";
 import { kindled } from "../src/system.ts";
+import { syncOf, tornAt } from "../src/tides.ts";
 
 const SEEDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 const LATE_SEEDS = [21, 24, 26, 68, 75, 204, 264];
@@ -585,27 +586,83 @@ test("the light of the star takes a thin wrap of gas from a body near it", () =>
   }
 });
 
-test("a moon has a moon of its own only where it holds one", () => {
-  let found = 0;
-  for (let seed = 1; seed <= 400; seed++) {
-    const { bodies } = sketchSystem(seed, { settled: false, star: null });
+test("tides have taken the moons they could reach and left a planet turning with a heavy one", () => {
+  let held = 0;
+  let near = 0;
+  let free = 0;
+  let tied = 0;
+  let nearer = 0;
+  for (let seed = 1; seed <= 300; seed++) {
+    const settled = seed % 2 === 0;
+    const drawn = sketchSystem(seed, { settled, star: null });
+    const { bodies } = surveySystem(seed, { settled, star: null });
+    const once = settled
+      ? []
+      : surveySystem(seed, { settled, star: null, age: 0.2 * GIGAYEAR }).bodies;
     for (const body of bodies) {
-      const moon = body.parent === null ? null : bodies[body.parent];
-      const planet = moon === null || moon.parent === null ? null : bodies[moon.parent];
-      if (moon === null || planet === null || planet.parent === null) {
+      const star = body.parent === null ? null : bodies[body.parent];
+      if (star === null || !starborn(star.physics) || starborn(body.physics)) {
         continue;
       }
-      if (starborn(planet.physics)) {
-        continue;
+      const label = `seed ${seed}, ${body.name}`;
+      const { mass, radius, day, year } = body.physics;
+      const moons = bodies.filter((moon) => moon.parent === body.id);
+      const bound = day === year;
+      tied += bound ? moons.length : 0;
+      free += bound ? 0 : moons.length;
+      const dense = densityOf(mass, radius);
+      for (const moon of moons) {
+        const grain = densityOf(moon.physics.mass, moon.physics.radius);
+        assert.ok(moon.physics.orbit > tornAt(radius, dense, grain), `${label}, ${moon.name}`);
+        near += moon.shared === null && moon.physics.orbit < syncOf(mass, day) ? 1 : 0;
+        const before = once.find((each) => each.name === moon.name);
+        const earlier = before !== undefined && body.physics.age > 0.5 * GIGAYEAR;
+        nearer += earlier && before.physics.orbit < 0.98 * moon.physics.orbit ? 1 : 0;
       }
-      found += 1;
-      const hold = hillOf(moon.physics.orbit, moon.physics.mass, planet.physics.mass);
-      assert.ok(body.physics.orbit < 0.34 * hold, `seed ${seed}, ${body.name}`);
-      assert.ok(body.physics.orbit >= 3 * moon.physics.radius, `seed ${seed}, ${body.name}`);
-      assert.ok(hold > 9 * moon.physics.radius, `seed ${seed}, ${body.name}`);
+      const holder = moons.find((moon) => moon.physics.year === day);
+      if (holder !== undefined) {
+        held += 1;
+        assert.ok(!bound, label);
+        assert.equal(body.id === drawn.home, false, label);
+        assert.equal(drawn.bodies[body.id].day, drawn.bodies[holder.id].year, label);
+        assert.ok(holder.physics.mass > 1e-4 * mass, `${label}: a heavy moon`);
+      }
     }
   }
-  assert.ok(found > 3 && found < 80, `found ${found}`);
+  assert.ok(held > 1 && held < 30, `${held} planets turn with a moon`);
+  assert.ok(
+    near > 50 && near < 0.12 * free,
+    `${near} of ${free} moons circle faster than the turn`,
+  );
+  assert.ok(tied < 0.05 * free, `${tied} moons of planets held by their star, ${free} of others`);
+  assert.ok(nearer > 20, `${nearer} moons were nearer when their system was young`);
+});
+
+test("a moon keeps no moon of its own for long, and one that still has it holds it", () => {
+  const found = [3e6, 3e7, null].map((years) => {
+    let count = 0;
+    for (let seed = 1; seed <= 150; seed++) {
+      const age = years === null ? null : years * YEAR;
+      const { bodies } = sketchSystem(seed, { settled: false, star: null, age });
+      for (const body of bodies) {
+        const moon = body.parent === null ? null : bodies[body.parent];
+        const planet = moon === null || moon.parent === null ? null : bodies[moon.parent];
+        if (moon === null || planet === null || planet.parent === null) {
+          continue;
+        }
+        if (starborn(planet.physics)) {
+          continue;
+        }
+        count += 1;
+        const hold = hillOf(moon.physics.orbit, moon.physics.mass, planet.physics.mass);
+        assert.ok(body.physics.orbit < 0.34 * hold, `seed ${seed}, ${body.name}`);
+        assert.ok(body.physics.orbit >= 1.4 * moon.physics.radius, `seed ${seed}, ${body.name}`);
+        assert.ok(hold > 9 * moon.physics.radius, `seed ${seed}, ${body.name}`);
+      }
+    }
+    return count;
+  });
+  assert.ok(found[2] < 3 && found[2] <= found[1], `found ${found}`);
 });
 
 test("a system sketched without a home has no life and can be given its star", () => {
@@ -1484,10 +1541,17 @@ test("a system can be given the age of its star", () => {
   assert.ok(icy > 3 && dried > 1, `${icy} bodies kept the ice they formed of, ${dried} lost it`);
 });
 
-test("a system is the same at every age, less what its star swallowed or let go", () => {
+test("a system is the same at every age, less what its star and its tides took", () => {
   const at = (seed: number, age: number) =>
     surveySystem(seed, { settled: false, star: SUN_MASS, age: age * GIGAYEAR });
   const names = (system: ReturnType<typeof at>) => system.bodies.map((body) => body.name);
+  const circling = (system: ReturnType<typeof at>, moons: boolean) =>
+    system.bodies
+      .filter(
+        ({ parent }) => moons === (parent !== null && !starborn(system.bodies[parent].physics)),
+      )
+      .map((body) => body.name);
+  let drawn = 0;
   let swallowed = 0;
   let crowded = 0;
   let kept = 0;
@@ -1498,8 +1562,22 @@ test("a system is the same at every age, less what its star swallowed or let go"
       const { parent } = system.bodies.find((body) => body.name === name) ?? { parent: null };
       return parent === null ? null : system.bodies[parent].name;
     };
-    assert.deepEqual(names(at(seed, 0.3)), names(prime), `seed ${seed} when young`);
-    assert.deepEqual(names(at(seed, 9.9)), names(prime), `seed ${seed} when old`);
+    const young = at(seed, 0.3);
+    const old = at(seed, 9.9);
+    assert.deepEqual(circling(young, false), circling(prime, false), `seed ${seed} when young`);
+    assert.deepEqual(circling(old, false), circling(prime, false), `seed ${seed} when old`);
+    const first = circling(young, true);
+    const then = circling(prime, true);
+    const last = circling(old, true);
+    assert.ok(
+      then.every((name) => first.includes(name)),
+      `seed ${seed}: no moon is new`,
+    );
+    assert.ok(
+      last.every((name) => then.includes(name)),
+      `seed ${seed}: no moon comes back`,
+    );
+    drawn += first.length - last.length;
     const lone = prime.bodies.filter((body) => starborn(body.physics)).length === 1;
     for (const age of [10.9, 11.3, 11.42, 11.56, 12.5]) {
       const late = at(seed, age);
@@ -1527,7 +1605,7 @@ test("a system is the same at every age, less what its star swallowed or let go"
         const near = once.physics.orbit * (1 - once.physics.stretch);
         const gone = !here.has(once.name);
         if (host !== prime.bodies[0].name) {
-          assert.equal(gone, !here.has(host), `${label}, ${once.name} goes with ${host}`);
+          assert.ok(gone || here.has(host), `${label}, ${once.name} goes with ${host}`);
           continue;
         }
         const taken = near < 1.5 * swell;
@@ -1545,6 +1623,7 @@ test("a system is the same at every age, less what its star swallowed or let go"
     }
   }
   assert.ok(swallowed > 100 && kept > 100, `${swallowed} swallowed, ${kept} kept`);
+  assert.ok(drawn > 5, `${drawn} moons drawn down between the ages`);
   assert.ok(crowded > 0 && crowded < 0.2 * kept, `${crowded} crowded out as the star shed mass`);
 });
 
@@ -1599,24 +1678,35 @@ test("a system grows out of the disk of its young star", () => {
     const grown = at(seed, 4.5e9);
     const whole = new Map(grown.bodies.map((body) => [body.name, body]));
     let before = new Map<string, number>();
+    let tided = new Set<string>();
     let gas = Number.POSITIVE_INFINITY;
     for (const years of ages) {
       const system = at(seed, years);
       const label = `seed ${seed} at ${years} years`;
       const masses = new Map(system.bodies.map((body) => [body.name, body.physics.mass]));
       for (const [name, mass] of before) {
-        assert.ok((masses.get(name) ?? 0) >= mass, `${label}, ${name} has not shrunk or gone`);
+        const now = masses.get(name) ?? (tided.has(name) ? mass : 0);
+        assert.ok(now >= mass, `${label}, ${name} has not shrunk or gone`);
       }
+      tided = new Set(
+        system.bodies
+          .filter(({ parent }) => parent !== null && !starborn(system.bodies[parent].physics))
+          .map((body) => body.name),
+      );
       for (const body of system.bodies) {
         const end = whole.get(body.name);
-        assert.ok(end !== undefined, `${label}, ${body.name} is of the grown system`);
-        assert.ok(body.physics.mass <= end.physics.mass, `${label}, ${body.name}`);
-        assert.equal(body.seed, end.seed, label);
+        assert.ok(
+          end !== undefined || tided.has(body.name),
+          `${label}, ${body.name} is of the grown system`,
+        );
+        assert.ok(body.physics.mass <= (end ?? body).physics.mass, `${label}, ${body.name}`);
+        assert.equal(body.seed, (end ?? body).seed, label);
         if (body.parent !== null && !starborn(body.physics)) {
           const host = system.bodies[body.parent].physics;
           const near = body.physics.orbit * (1 - body.physics.stretch);
           assert.ok(near > 1.4 * (host.radius + body.physics.radius), `${label}, ${body.name}`);
-          molten += body.physics.mass < end.physics.mass && body.physics.heat > 1000 ? 1 : 0;
+          const full = (end ?? body).physics.mass;
+          molten += body.physics.mass < full && body.physics.heat > 1000 ? 1 : 0;
         }
       }
       const disks = system.bodies.flatMap((body) => body.physics.disks);
@@ -1635,26 +1725,36 @@ test("a system grows out of the disk of its young star", () => {
         early += system.bodies.length;
       }
       if (years >= 1e8) {
-        assert.deepEqual([...masses.keys()], [...whole.keys()], label);
-        const lasting = (bodies: typeof system.bodies) =>
-          bodies.map((body) =>
-            body.physics.disks.map(({ depth, grain, ...kept }) => ({
-              ...kept,
-              dust: body.parent === null || starborn(body.physics) ? 0 : depth * grain,
-            })),
-          );
-        assert.deepEqual(lasting(system.bodies), lasting(grown.bodies), label);
-        system.bodies.forEach((body, index) => {
-          body.physics.disks.forEach((disk, at) => {
-            const end = grown.bodies[index].physics.disks[at];
-            const worn = starborn(body.physics);
-            assert.ok(worn ? end.depth < disk.depth : end.depth === disk.depth, label);
-            assert.ok(worn ? end.grain > disk.grain : end.grain === disk.grain, label);
-          });
-        });
-        assert.ok(
-          system.bodies.every((body) => body.physics.mass === whole.get(body.name)?.physics.mass),
+        const lasting = [...whole.keys()].filter((name) => !tided.has(name) || masses.has(name));
+        assert.deepEqual(
+          [...masses.keys()].filter((name) => whole.has(name)),
+          lasting,
+          label,
         );
+        assert.deepEqual(
+          lasting.filter((name) => !masses.has(name)),
+          [],
+          label,
+        );
+        const dust = (body: (typeof system.bodies)[number]) =>
+          body.physics.disks.map(({ depth, grain, ...kept }) => ({
+            ...kept,
+            dust: body.parent === null || starborn(body.physics) ? 0 : depth * grain,
+          }));
+        for (const body of system.bodies) {
+          const end = whole.get(body.name);
+          if (end === undefined) {
+            continue;
+          }
+          assert.deepEqual(dust(body), dust(end), `${label}, ${body.name}`);
+          body.physics.disks.forEach((disk, at) => {
+            const worn = starborn(body.physics);
+            const late = end.physics.disks[at];
+            assert.ok(worn ? late.depth < disk.depth : late.depth === disk.depth, label);
+            assert.ok(worn ? late.grain > disk.grain : late.grain === disk.grain, label);
+          });
+          assert.equal(body.physics.mass, end.physics.mass, `${label}, ${body.name}`);
+        }
       }
       before = masses;
       gas = left;
