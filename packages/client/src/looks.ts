@@ -688,10 +688,10 @@ const FROST = 0xe9e1d0;
 
 export function hoopOf(body: Body): Hoop | null {
   const { disks, radius } = body.physics;
-  if (familyOf(body.physics) === "star" || disks.length === 0) {
+  const ring = disks.find((disk) => disk.lasts > 0);
+  if (familyOf(body.physics) === "star" || ring === undefined) {
     return null;
   }
-  const ring = disks[0];
   const random = createRandom(body.seed + 97);
   const from = ring.inner / radius;
   const to = ring.outer / radius;
@@ -957,7 +957,7 @@ export function skinOf(body: Body, seen: number[], spare = 0): Skin {
   const tholin = { ...dirty, patch: 0.55 * (1 - smooth(55, 90, physics.heat)) };
   const skin = merged(temperate, tholin, icy);
 
-  const rough = roughOf(physics) * (physics.disks.length > 0 ? 0.4 : 1);
+  const rough = roughOf(physics) * (physics.disks.some((disk) => disk.lasts > 0) ? 0.4 : 1);
   const across = 1 - 0.35 * rough * random.next();
   const up = across * (1 - 0.3 * rough * random.next());
   return {

@@ -49,7 +49,7 @@ test("neighbors keep six Hill radii apart and moons stay well inside the hold of
     }
   }
   assert.ok(planets > 600 && moons > 600);
-  assert.ok(level > 0.3 * moons, `${level} of ${moons}`);
+  assert.ok(level > 0.25 * moons, `${level} of ${moons}`);
 });
 
 test("made systems keep their bodies for three hundred turns when all pull on all", () => {

@@ -426,7 +426,7 @@ function factsOf(body: Body): Fact[] {
       ? [[parent === null ? "Belts" : "Ring", "none"] satisfies Fact]
       : physics.disks.map(
           (disk): Fact =>
-            parent === null
+            parent === null || disk.lasts === 0
               ? [
                   disk.gas > 0 ? "Disk" : "Belt",
                   `${lengthOf(disk.inner)} to ${lengthOf(disk.outer)} · ${massOf(disk.mass)}${disk.gas > 0 ? ` of dust in ${massOf(disk.gas)} of gas` : ""} · ice ${share(disk.ice)} · density ${figure(disk.depth)} · grains of ${grainOf(disk.grain)} · ${figure(disk.height)} of its width in height${disk.fade > 0 ? ` · thins out beyond ${lengthOf(disk.fade)}` : ""}`,

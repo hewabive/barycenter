@@ -319,7 +319,11 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
   const dust = new Points(specks, speckMaterial);
   dust.frustumCulled = false;
   world.add(dust);
-  const rooted = looks.filter(({ body }) => body.parent === null || starborn(body.physics));
+  const strewn = ({ body }: Look) =>
+    body.physics.disks.flatMap((disk, index) =>
+      disk.lasts === 0 ? [{ disk, index, lane: body.disks[index] }] : [],
+    );
+  const rooted = looks.filter((owner) => strewn(owner).length > 0);
   const leanOf = (owner: Look) => {
     const pole = poleOf(owner.body);
     return new Quaternion().setFromUnitVectors(
@@ -337,8 +341,7 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
       )
       .sort((left, right) => right.physics.orbit - left.physics.orbit)[0]?.id ?? null;
   const belts = rooted.flatMap((owner) =>
-    owner.body.disks.map((lane, index) => {
-      const disk = owner.body.physics.disks[index];
+    strewn(owner).map(({ disk, index, lane }) => {
       const { heat, radius } = owner.body.physics;
       const seen = seenGlow(heat) * ((2 * radius) / (disk.inner + disk.outer)) ** 2;
       const shine = tintOf(owner.body).multiplyScalar(shownLight([seen], 0).lamps[0]);
@@ -353,12 +356,12 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
     }),
   );
   const hazes = rooted.flatMap((owner) => {
-    const { heat, radius, mass, glow, disks } = owner.body.physics;
+    const { heat, radius, mass, glow } = owner.body.physics;
     const hubs = new Map<number | null, Layer[]>();
-    owner.body.disks.forEach((lane, index) => {
-      const hub = insideOf(owner, disks[index], true);
-      hubs.set(hub, [...(hubs.get(hub) ?? []), { lane, disk: disks[index], thinned: 0 }]);
-    });
+    for (const { disk, lane } of strewn(owner)) {
+      const hub = insideOf(owner, disk, true);
+      hubs.set(hub, [...(hubs.get(hub) ?? []), { lane, disk, thinned: 0 }]);
+    }
     const seen = seenGlow(heat);
     const lit = (far: number) => seen * (radius / far) ** 2;
     return [...hubs].flatMap(([about, layers]) => {
