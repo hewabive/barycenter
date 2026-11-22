@@ -488,6 +488,71 @@ void main() {
 }
 `;
 
+export const TILE_VERTEX = `
+attribute vec3 heading;
+attribute vec3 grit;
+varying vec3 vAt;
+varying vec3 vPlace;
+varying vec3 vLean;
+varying vec3 vGrit;
+
+void main() {
+  vAt = heading;
+  vLean = normal;
+  vGrit = grit;
+  vPlace = (modelMatrix * vec4(position, 1.0)).xyz;
+  gl_Position = projectionMatrix * (modelViewMatrix * vec4(position, 1.0));
+}
+`;
+
+export const GRIT_SPAN = 256;
+const GRIT_SCALES = [0.125, 1, 4];
+const GRIT_DEPTHS = [0.12, 0.1, 0.08];
+
+const GRIT = `
+#ifdef TILED
+varying vec3 vGrit;
+uniform float gritty;
+
+float speck(ivec3 cell, int mask) {
+  uvec3 mixed = uvec3(cell & mask) * uvec3(0x9e3779b1u, 0x85ebca77u, 0xc2b2ae3du);
+  uint joined = (mixed.x ^ mixed.y ^ mixed.z) * 0x2c1b3c6du;
+  joined = (joined ^ (joined >> 15)) * 0x297a2d39u;
+  return float((joined ^ (joined >> 13)) >> 8) / 16777216.0 - 0.5;
+}
+
+float grains(vec3 at, int mask) {
+  vec3 cell = floor(at);
+  vec3 inside = at - cell;
+  vec3 share = inside * inside * (3.0 - 2.0 * inside);
+  ivec3 base = ivec3(cell);
+  float low = mix(
+    mix(speck(base, mask), speck(base + ivec3(1, 0, 0), mask), share.x),
+    mix(speck(base + ivec3(0, 1, 0), mask), speck(base + ivec3(1, 1, 0), mask), share.x),
+    share.y
+  );
+  float high = mix(
+    mix(speck(base + ivec3(0, 0, 1), mask), speck(base + ivec3(1, 0, 1), mask), share.x),
+    mix(speck(base + ivec3(0, 1, 1), mask), speck(base + ivec3(1, 1, 1), mask), share.x),
+    share.y
+  );
+  return mix(low, high, share.z);
+}
+
+float gritOf() {
+  vec3 spread = fwidth(vGrit);
+  float blur = max(spread.x, max(spread.y, spread.z));
+  float total = 0.0;
+${GRIT_SCALES.map(
+  (scale, index) =>
+    `  total += ${real(GRIT_DEPTHS[index])} * (1.0 - smoothstep(${real(0.25 / scale)}, ${real(1 / scale)}, blur))
+    * grains(vGrit * ${real(scale)}, ${Math.round(GRIT_SPAN * scale) - 1});`,
+).join("\n")}
+  return 1.0 + 2.0 * gritty * total;
+}
+#endif
+`;
+
 const SOLID_UNIFORMS = `
 uniform vec2 melt;
 uniform vec2 ramp;
@@ -648,13 +713,17 @@ uniform mat4 modelMatrix;
 varying vec3 vAt;
 varying vec3 vPlace;
 varying vec3 vLean;
-
+${GRIT}
 void main() {
   vec3 at = normalize(vAt);
   vec3 lean = normalize(vLean);
   mat3 pose = mat3(modelMatrix);
   vec3 bulge = vec3(1.0, squash, 1.0);
+#ifdef TILED
+  vec3 round = normalize(pose * (at * bulge));
+#else
   vec3 round = normalize(pose * (lean * bulge));
+#endif
   vec3 eye = normalize(cameraPosition - vPlace);
   vec3 sun = suns[0];
   vec3 emit = vec3(0.0);
@@ -676,7 +745,12 @@ void main() {
   float depth = bump * mix(1.0, 0.3, wet);
   vec3 charted = albedo * hillshade(at, slope, depth);
 
+#ifdef TILED
+  albedo *= mix(gritOf(), 1.0, wet);
+  vec3 normal = normalize(pose * (lean + tilted(at, slope, depth) - at));
+#else
   vec3 normal = normalize(pose * ((lean + tilted(at, slope, depth) - at) * bulge));
+#endif
   vec3 shone = vec3(0.0);
   vec3 veiled = vec3(0.0);
   float rim = 0.0;

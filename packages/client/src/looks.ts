@@ -4,6 +4,7 @@ import {
   EARTH_MASS,
   flatOf,
   type Gas,
+  groundFlat,
   HOUR,
   moltenOf,
   type Physics,
@@ -117,7 +118,6 @@ export interface Skin {
 
 export const WIEN = 14388;
 export const WAVES = [0.61, 0.55, 0.465];
-const FLAT_LEAST = 0.008;
 const NO_FROST = 2;
 const DARK: Ember = [0, 0, 0, 0];
 const UNLIT: Shown = { lamps: [], sky: 0, glow: 0 };
@@ -209,7 +209,7 @@ export function flatnessOf(physics: Physics): number {
   if (familyOf(physics) === "fluid") {
     return flat;
   }
-  return flat >= FLAT_LEAST && roughOf(physics) === 0 ? flat : 0;
+  return groundFlat(physics);
 }
 
 const ROSSBY_QUIET = 3;

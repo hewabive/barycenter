@@ -1,3 +1,4 @@
+import type { Crust } from "./ground.ts";
 import { GRAVITY } from "./physics.ts";
 import { anomalyOf, courseOf, type Pose, poleOf, posesOf, treeOf } from "./system.ts";
 import type { Sketch, Vector } from "./types.ts";
@@ -33,6 +34,7 @@ export interface Burn {
   heading: Heading;
   about: number;
   held: Vector;
+  swirl?: Vector | null;
 }
 
 export interface Flight {
@@ -100,6 +102,7 @@ const WEIGHTS = [
 const FINE = [0, 0, 0, 0, 0, 34 / 105, 9 / 35, 9 / 35, 9 / 280, 9 / 280, 0, 41 / 840, 41 / 840];
 const DOUBT = 41 / 840;
 const STILL: Pose = { shift: 0, scale: 1, drift: 0, swell: 0 };
+const UNTURNED: Vector = { x: 0, y: 0, z: 0 };
 
 export function railsOf(system: Sketch): Rails {
   const { bodies } = system;
@@ -275,8 +278,9 @@ export function createFlight(time: number, state: ArrayLike<number>): Flight {
   return { time, state: Float64Array.from(state), stride: 0, wrecked: null };
 }
 
-export function createFlyer(rails: Rails): Flyer {
+export function createFlyer(rails: Rails, crust: Crust | null = null): Flyer {
   const { count, pulls, radii } = rails;
+  const ceilings = crust?.ceilings ?? radii;
   const places = Array.from({ length: MOMENTS }, () => new Float64Array(3 * count));
   const speeds = Array.from({ length: MOMENTS }, () => new Float64Array(3 * count));
   const stamps = new Float64Array(MOMENTS).fill(Number.NaN);
@@ -309,22 +313,15 @@ export function createFlyer(rails: Rails): Flyer {
     if (thrust !== null) {
       const base = 3 * thrust.about;
       const moving = speeds[slot];
-      headingOf(
-        thrust.heading,
-        thrust.held,
-        state[0] - at[base],
-        state[1] - at[base + 1],
-        state[2] - at[base + 2],
-        state[3] - moving[base],
-        state[4] - moving[base + 1],
-        state[5] - moving[base + 2],
-        aim,
-      );
-      const swift = Math.hypot(
-        state[3] - moving[base],
-        state[4] - moving[base + 1],
-        state[5] - moving[base + 2],
-      );
+      const swirl = thrust.swirl ?? UNTURNED;
+      const rx = state[0] - at[base];
+      const ry = state[1] - at[base + 1];
+      const rz = state[2] - at[base + 2];
+      const vx = state[3] - moving[base] - (swirl.y * rz - swirl.z * ry);
+      const vy = state[4] - moving[base + 1] - (swirl.z * rx - swirl.x * rz);
+      const vz = state[5] - moving[base + 2] - (swirl.x * ry - swirl.y * rx);
+      headingOf(thrust.heading, thrust.held, rx, ry, rz, vx, vy, vz, aim);
+      const swift = Math.hypot(vx, vy, vz);
       const eased = thrust.heading === "retrograde" ? swift / Math.hypot(swift, EASE) : 1;
       const push = (eased * thrust.force) / state[6];
       ax += push * aim[0];
@@ -436,7 +433,18 @@ export function createFlyer(rails: Rails): Flyer {
             ended[3 * body + 1] - state[1],
             ended[3 * body + 2] - state[2],
           );
-          if (apart < radii[body]) {
+          if (
+            apart < ceilings[body] &&
+            (crust === null ||
+              apart <
+                crust.surface(
+                  body,
+                  flight.time,
+                  state[0] - ended[3 * body],
+                  state[1] - ended[3 * body + 1],
+                  state[2] - ended[3 * body + 2],
+                ))
+          ) {
             flight.wrecked = body;
             break;
           }

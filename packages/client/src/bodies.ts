@@ -105,8 +105,10 @@ export interface Look {
   ember: Color;
   shine: Color;
   dusk: number;
+  paint: Paint | null;
   detail(): number;
   relief(): CubeTexture;
+  bare(next: boolean): void;
   light(rays: Vector3[], chart: number, tick: number): void;
   warm(heat: number, glare: number[]): boolean;
   refine(size: number): void;
@@ -114,6 +116,8 @@ export interface Look {
   restore(): void;
   dispose(): void;
 }
+
+export type Paint = Record<string, { value: unknown }>;
 
 export interface Glare {
   seen: number;
@@ -580,12 +584,13 @@ export function createStudio(renderer: WebGLRenderer): Studio {
   const baked = (body: Body, slot: { value: CubeTexture | null }, shown: Mesh[]) => {
     let size = 0;
     let far = false;
+    let stripped = false;
     let target: WebGLCubeRenderTarget | null = null;
     const settle = () => {
       slot.value = target?.texture ?? null;
-      for (const mesh of shown) {
-        mesh.visible = target !== null && !far;
-      }
+      shown.forEach((mesh, index) => {
+        mesh.visible = target !== null && !far && !(stripped && index === 0);
+      });
     };
     return {
       detail: () => size,
@@ -608,6 +613,12 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       recede(next: boolean) {
         if (next !== far) {
           far = next;
+          settle();
+        }
+      },
+      bare(next: boolean) {
+        if (next !== stripped) {
+          stripped = next;
           settle();
         }
       },
@@ -758,6 +769,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       ember,
       shine: new Color(0, 0, 0),
       dusk: 0,
+      paint: null,
       ...surface,
       warm: () => false,
       light(_rays, _chart, tick) {
@@ -1016,6 +1028,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       get dusk() {
         return dusk.value;
       },
+      paint: skin === null ? null : uniforms,
       ...surface,
       warm(heat, glare) {
         const moved = seen.some((was, at) => Math.abs(glare[at] - was) > GLARE_STEP * was);

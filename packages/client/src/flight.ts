@@ -1,16 +1,22 @@
 import "./style.css";
 import "./flight.css";
 import {
+  type Berth,
   type Burn,
   burnFor,
+  type Crust,
   centreOf,
   circling,
   classOf,
   createFlight,
   createFlyer,
   createForecast,
+  createLander,
+  createRover,
+  crustOf,
   DAY,
   type Drive,
+  drive,
   type Forecast,
   type Heading,
   HOUR,
@@ -18,12 +24,15 @@ import {
   hubOf,
   type Kick,
   lagrangeOf,
+  landable,
   type Outcome,
   orbitOf,
   passesOf,
   poleOf,
   primaryOf,
+  type Rover,
   railsOf,
+  SOFT_LANDING,
   STANDARD_GRAVITY,
   SUN_MASS,
   seek,
@@ -35,6 +44,7 @@ import {
   YEAR,
 } from "@barycenter/sim";
 import { Vector3 } from "three";
+import { BUGGY_REACH, createBuggy } from "./buggy.ts";
 import { createCourse, type Frame, type Sight } from "./course.ts";
 import { CRAFT_REACH, createCraft } from "./craft.ts";
 import { button, el, required, write } from "./dom.ts";
@@ -53,6 +63,7 @@ import {
   speedOf,
 } from "./readout.ts";
 import { createSpace } from "./space.ts";
+import { createTerrain } from "./terrain.ts";
 import { createTumbler, type Place } from "./tumbler.ts";
 
 type Steering = Heading | "plan";
@@ -122,6 +133,14 @@ const THROTTLE_RATE = 0.7;
 const WEATHER_SPAN = 72;
 const WEATHER_MOST = 16;
 const LOW_HEIGHT = 2e5;
+const PLUMB_FULL = 0.05;
+const STAND = 5.2;
+const ROVER_APART = 14;
+const SET_DOWN_TURN = 0.95;
+const ROVER_PACE = 4;
+const LIFT_CLEAR = 0.2;
+const SKIM_SHARE = 0.03;
+const PLUMB_NONE = 0.3;
 const LOW_SHARE = 0.05;
 const LABEL_GAP = 10;
 const SEEN_LEAST = 0.6;
@@ -249,6 +268,8 @@ const KEYS: [keys: string, deed: string][] = [
   ["Enter", "run time to the next push"],
   ["Delete", "drop the chosen push"],
   ["M", "the whole orbit and back to the ship"],
+  ["G", "set the rover down by a landed ship, then switch between the two"],
+  ["W S A D B", "in the rover: drive, steer and brake"],
   ["[ ]", "look at the next body"],
   ["H", "this list"],
 ];
@@ -263,6 +284,18 @@ const search = new URLSearchParams({ seed: String(seed), home: settled ? "1" : "
 if (starMass !== null) {
   search.set("star", String(starMass));
 }
+const wished = query.get("body");
+const lofty = Number.parseFloat(query.get("height") ?? "");
+if (wished !== null) {
+  search.set("body", wished);
+}
+if (Number.isFinite(lofty) && lofty > 0) {
+  search.set("height", String(lofty));
+}
+const grounded = query.get("land") === "1";
+if (grounded) {
+  search.set("land", "1");
+}
 history.replaceState(null, "", `?${search}`);
 
 const system = surveySystem(seed, {
@@ -271,7 +304,12 @@ const system = surveySystem(seed, {
 });
 const { unit, bodies } = system;
 const rails = railsOf(system);
-const fly = createFlyer(rails);
+const lander = createLander(system);
+const footed = (crust: Crust): Crust => ({
+  ...crust,
+  surface: (body, time, x, y, z) => crust.surface(body, time, x, y, z) + STAND,
+});
+const fly = createFlyer(rails, footed(lander.crust));
 const at = new Float64Array(3 * rails.count);
 const speed = new Float64Array(3 * rails.count);
 const candles = bodies.map(({ physics }) => seenGlow(physics.heat) * physics.radius ** 2);
@@ -312,6 +350,11 @@ let pace = 0;
 let dirty = true;
 let sinceReadout = Number.POSITIVE_INFINITY;
 let toast: { text: string; left: number } | null = null;
+let rested: Berth | null = null;
+let impact = 0;
+const drift = new Float64Array(3);
+const upNow = new Float64Array(3);
+const swirl = { x: 0, y: 0, z: 0 };
 
 const say = (text: string) => {
   toast = { text, left: TOAST_SPAN };
@@ -319,6 +362,7 @@ const say = (text: string) => {
 };
 const lowOver = (id: number) => Math.max(LOW_HEIGHT, LOW_SHARE * rails.radii[id]);
 const first =
+  bodies.find((body) => body.name === wished)?.id ??
   system.home ??
   bodies.find(
     (body) =>
@@ -326,7 +370,13 @@ const first =
   )?.id ??
   0;
 let flight = createFlight(0, [
-  ...circling(rails, system, first, lowOver(first), 0),
+  ...circling(
+    rails,
+    system,
+    first,
+    Number.isFinite(lofty) && lofty > 0 ? lofty : lowOver(first),
+    0,
+  ),
   engine.dry + engine.tank,
 ]);
 const fuelLeft = () => Math.max(0, flight.state[6] - engine.dry);
@@ -338,15 +388,53 @@ const probe = space.probe(CRAFT_REACH / unit);
 const craft = createCraft(unit);
 const course = createCourse(space.world, system, unit);
 const rail = createCourse(space.world, system, unit, RAIL_SHADE);
-const foresee = createFlyer(rails);
-const forelay = createFlyer(rails);
+const foresee = createFlyer(rails, footed(crustOf(system)));
+const forelay = createFlyer(rails, footed(crustOf(system)));
 const seeker = createFlyer(rails);
 const ball = createNavball();
-space.fore.add(craft.frame, craft.lights);
+const terrain = createTerrain(space, system);
+const plumbLine = new Vector3();
+const rig = space.probe(BUGGY_REACH / unit);
+const buggy = createBuggy(unit);
+buggy.frame.visible = false;
+space.fore.add(craft.frame, craft.lights, buggy.frame);
+const wheel = { throttle: 0, turn: 0, brake: false };
+const parked = { throttle: 0, turn: 0, brake: true };
+const roverAt = new Float64Array(3);
+const roverWay = new Float64Array(3);
+let rover: Rover | null = null;
+let driving = false;
 const tag = el("button", { class: "label craft", type: "button" }, "Ship");
 tag.addEventListener("click", () => space.focus(probe.id));
 space.labels.append(tag);
 let focused = probe.id;
+const onCraft = () => focused >= bodies.length;
+const ride = () => {
+  if (rover !== null) {
+    space.focus(driving ? probe.id : rig.id);
+    return;
+  }
+  if (rested === null || flight.wrecked !== null) {
+    say("Land the ship softly to set the rover down");
+    return;
+  }
+  const { body } = rested;
+  const { radius } = bodies[body].physics;
+  const flat = lander.crust.squash[body];
+  const far = Math.hypot(rested.x, rested.y / flat, rested.z);
+  const at = { x: rested.x / far, y: rested.y / flat / far, z: rested.z / far };
+  const east = Math.hypot(at.x, at.z) > 1e-3 ? { x: at.z, y: 0, z: -at.x } : { x: 1, y: 0, z: 0 };
+  const span = ROVER_APART / radius / Math.hypot(east.x, east.z);
+  rover = createRover(
+    lander.crust,
+    radius,
+    body,
+    { x: at.x + span * east.x, y: at.y, z: at.z + span * east.z },
+    east,
+  );
+  space.focus(rig.id);
+  say("The rover is down · W S drive · A D steer · B brakes · G back to the ship");
+};
 
 const relative = (id: number) => {
   const base = 3 * id;
@@ -358,6 +446,32 @@ const relative = (id: number) => {
     state[3] - speed[base],
     state[4] - speed[base + 1],
     state[5] - speed[base + 2],
+  ] as const;
+};
+const skimming = (id: number) => {
+  const base = 3 * id;
+  const { state } = flight;
+  const far = Math.hypot(state[0] - at[base], state[1] - at[base + 1], state[2] - at[base + 2]);
+  return landable(bodies[id]) && far < (1 + SKIM_SHARE) * rails.radii[id];
+};
+const swirlOf = (id: number) => {
+  const { pole, rate } = lander.crust.turns[id];
+  const share = skimming(id) ? rate : 0;
+  swirl.x = share * pole.x;
+  swirl.y = share * pole.y;
+  swirl.z = share * pole.z;
+  return swirl;
+};
+const passing = (id: number) => {
+  const [rx, ry, rz, vx, vy, vz] = relative(id);
+  const turn = swirlOf(id);
+  return [
+    rx,
+    ry,
+    rz,
+    vx - (turn.y * rz - turn.z * ry),
+    vy - (turn.z * rx - turn.x * rz),
+    vz - (turn.x * ry - turn.y * rx),
   ] as const;
 };
 const burning = () => throttle > 0 && (engine.endless || fuelLeft() > 0);
@@ -386,7 +500,14 @@ const settle = () => {
   if (steering === "plan" && sighted() && !burning()) {
     follow();
   }
-  headingOf(headingNow(), held, ...relative(about), aim);
+  if (rested !== null) {
+    lander.up(rested, flight.time, upNow);
+    steering = "hold";
+    held.x = upNow[0];
+    held.y = upNow[1];
+    held.z = upNow[2];
+  }
+  headingOf(headingNow(), held, ...passing(about), aim);
   square();
 };
 const upright = () => {
@@ -404,6 +525,7 @@ const burnNow = (): Burn | null =>
         heading: headingNow(),
         about,
         held: { ...held },
+        swirl: { ...swirlOf(about) },
       }
     : null;
 const point = (next: Steering) => {
@@ -481,6 +603,7 @@ const launch = (id: number, height: number) => {
   throttle = 0;
   warpTo = null;
   steering = "prograde";
+  rested = null;
   settle();
   upright();
   dirty = true;
@@ -488,20 +611,121 @@ const launch = (id: number, height: number) => {
 };
 const ground = (id: number) => {
   rails.place(flight.time, at, speed);
-  const { state } = flight;
-  const [rx, ry, rz] = relative(id);
-  const scale = rails.radii[id] / Math.hypot(rx, ry, rz);
-  for (let axis = 0; axis < 3; axis++) {
-    state[axis] = at[3 * id + axis] + [rx, ry, rz][axis] * scale;
-    state[3 + axis] = speed[3 * id + axis];
-  }
+  lander.slip(id, at, speed, flight.state, drift);
+  impact = Math.hypot(drift[0], drift[1], drift[2]);
+  rested = lander.touch(id, flight.time, at, flight.state, STAND);
+  lander.hold(rested, flight.time, at, speed, flight.state);
   throttle = 0;
   warpTo = null;
   level = 0;
+  if (impact <= SOFT_LANDING && landable(bodies[id])) {
+    flight.wrecked = null;
+    forecast = null;
+    brewing = null;
+    study();
+    say(`Landed on ${bodies[id].name} at ${speedOf(impact)}`);
+  }
+};
+const setDown = (id: number) => {
+  const body = bodies[id];
+  if (!landable(body)) {
+    say(`${body.name} has no ground to stand on`);
+    return;
+  }
+  const { time } = flight;
+  rails.place(time, at, speed);
+  const base = 3 * id;
+  let sun = 0;
+  let seen = 0;
+  for (let lamp = 0; lamp < rails.count; lamp++) {
+    const apart =
+      (at[3 * lamp] - at[base]) ** 2 +
+      (at[3 * lamp + 1] - at[base + 1]) ** 2 +
+      (at[3 * lamp + 2] - at[base + 2]) ** 2;
+    if (lamp !== id && candles[lamp] / apart > seen) {
+      seen = candles[lamp] / apart;
+      sun = lamp;
+    }
+  }
+  const pole = poleOf(body);
+  const lit = new Vector3(
+    at[3 * sun] - at[base],
+    at[3 * sun + 1] - at[base + 1],
+    at[3 * sun + 2] - at[base + 2],
+  ).normalize();
+  const aside = new Vector3(pole.x, pole.y, pole.z).cross(lit);
+  if (aside.lengthSq() < 1e-6) {
+    aside.set(1, 0, 0).cross(lit);
+  }
+  lit
+    .multiplyScalar(Math.cos(SET_DOWN_TURN))
+    .addScaledVector(aside.normalize(), Math.sin(SET_DOWN_TURN));
+  const far = 1.2 * rails.radii[id];
+  flight = createFlight(time, [
+    at[base] + far * lit.x,
+    at[base + 1] + far * lit.y,
+    at[base + 2] + far * lit.z,
+    speed[base],
+    speed[base + 1],
+    speed[base + 2],
+    engine.dry + engine.tank,
+  ]);
+  rested = lander.touch(id, time, at, flight.state, STAND);
+  lander.hold(rested, time, at, speed, flight.state);
+  rover = null;
+  throttle = 0;
+  warpTo = null;
+  level = 0;
+  forecast = null;
+  brewing = null;
+  study();
+  settle();
+  dirty = true;
+  space.focus(probe.id);
+  say(`The ship stands on ${body.name}`);
+};
+const stay = (until: number): boolean => {
+  if (rested === null) {
+    return false;
+  }
+  const site = rested;
+  const { state } = flight;
+  const burn = burnNow();
+  const far = Math.hypot(site.x, site.y, site.z);
+  lander.up(site, flight.time, upNow);
+  const lift =
+    burn === null
+      ? 0
+      : (burn.force / state[6]) * (aim[0] * upNow[0] + aim[1] * upNow[1] + aim[2] * upNow[2]);
+  if (lift > rails.pulls[site.body] / far ** 2) {
+    const clear = 1 + LIFT_CLEAR / far;
+    rails.place(flight.time, at, speed);
+    lander.hold(
+      { body: site.body, x: site.x * clear, y: site.y * clear, z: site.z * clear },
+      flight.time,
+      at,
+      speed,
+      state,
+    );
+    rested = null;
+    stalePlan = true;
+    say("Lift-off");
+    return false;
+  }
+  if (burn !== null && !burn.endless) {
+    state[6] = Math.max(burn.dry, state[6] - (burn.force / burn.exhaust) * (until - flight.time));
+  }
+  flight.time = until;
+  rails.place(until, at, speed);
+  lander.hold(site, until, at, speed, state);
+  return true;
 };
 const advance = (until: number) => {
   const started = performance.now();
   while (flight.time < until && flight.wrecked === null && performance.now() - started < BUDGET) {
+    if (stay(until)) {
+      break;
+    }
     let stop = until;
     const push = plan.length > 0 ? plan[0] : null;
     const size = push === null ? 0 : sizeOf(push);
@@ -558,6 +782,9 @@ const advance = (until: number) => {
   }
 };
 const brew = () => {
+  if (rested !== null) {
+    return;
+  }
   if (brewing === null) {
     const worn =
       forecast === null ||
@@ -588,6 +815,12 @@ const brew = () => {
 
 const pressed = (code: string) => (keys.has(code) ? 1 : 0);
 const steer = (elapsed: number) => {
+  wheel.throttle = driving ? pressed("KeyW") - pressed("KeyS") : 0;
+  wheel.turn = driving ? pressed("KeyD") - pressed("KeyA") : 0;
+  wheel.brake = driving && keys.has("KeyB");
+  if (driving) {
+    return;
+  }
   const pitch = pressed("KeyW") - pressed("KeyS");
   const yaw = pressed("KeyD") - pressed("KeyA");
   const roll = pressed("KeyE") - pressed("KeyQ");
@@ -646,7 +879,7 @@ const toTarget: Bearing = {
   edge: true,
 };
 const instrument = () => {
-  const [rx, ry, rz, vx, vy, vz] = relative(about);
+  const [rx, ry, rz, vx, vy, vz] = passing(about);
   const pairs: [Heading, Vector3, Vector3][] = [
     ["prograde", marked.prograde, marked.retrograde],
     ["normal", marked.normal, marked.antinormal],
@@ -694,12 +927,29 @@ space.onFrame((elapsed) => {
   if (tick > 0) {
     pace += 0.1 * ((flight.time - before) / tick - pace);
   }
+  if (rover !== null && !paused && flight.time > before) {
+    drive(
+      lander.crust,
+      rails.radii[rover.body],
+      rails.pulls[rover.body],
+      rover,
+      driving ? wheel : parked,
+      Math.min(flight.time - before, ROVER_PACE * tick),
+    );
+  }
   brew();
   if (dirty) {
     settle();
     space.clock(flight.time, 0, weather);
     dirty = false;
   }
+  const [overX, overY, overZ] = relative(about);
+  const high = Math.hypot(overX, overY, overZ) / rails.radii[about] - 1;
+  const standing = onCraft() && landable(bodies[about]);
+  space.plumb(
+    standing ? plumbLine.set(overX, overY, overZ) : null,
+    1 - Math.max(0, Math.min(1, (high - PLUMB_FULL) / (PLUMB_NONE - PLUMB_FULL))),
+  );
   instrument();
   gauge();
   sinceReadout += elapsed;
@@ -712,9 +962,28 @@ space.onFrame((elapsed) => {
 space.onArrange(() => {
   const { state } = flight;
   probe.frame.position.set(state[0] / unit, state[1] / unit, state[2] / unit);
+  if (rover !== null) {
+    const base = 3 * rover.body;
+    const far = rails.radii[rover.body] + rover.height;
+    lander.crust.turns[rover.body].spun(
+      flight.time,
+      rover.at.x * far,
+      lander.crust.squash[rover.body] * rover.at.y * far,
+      rover.at.z * far,
+      roverAt,
+    );
+    rig.frame.position.set(
+      (at[base] + roverAt[0]) / unit,
+      (at[base + 1] + roverAt[1]) / unit,
+      (at[base + 2] + roverAt[2]) / unit,
+    );
+  }
 });
 
 const shipAt = new Vector3();
+const roverSpot = new Vector3();
+const roverAhead = new Vector3();
+const roverUp = new Vector3();
 const eyeAt = new Vector3();
 const toward = new Vector3();
 const above = new Vector3();
@@ -915,6 +1184,7 @@ const balances = (id: number) => {
 };
 
 space.onPresent(() => {
+  terrain.update();
   const { world, camera } = space;
   const { state } = flight;
   course.place(flight.time, at, state);
@@ -959,7 +1229,28 @@ space.onPresent(() => {
   craft.frame.position.copy(shipAt);
   craft.frame.visible = !hidden && wide >= SEEN_LEAST;
   craft.pose(toward, above, burning() ? throttle : 0, sunward, lit);
-  space.depth(Math.max(gap - 3 * reach, 0.05 * gap), gap + 3 * reach);
+  let nearest = Math.max(gap - 3 * reach, 0.05 * gap);
+  let farthest = gap + 3 * reach;
+  buggy.frame.visible = false;
+  if (rover !== null) {
+    const turn = lander.crust.turns[rover.body];
+    roverSpot.copy(rig.frame.position).applyMatrix4(world.matrixWorld);
+    const apart = roverSpot.distanceTo(camera.position);
+    const size = BUGGY_REACH / unit;
+    buggy.frame.visible = (size * pixels) / Math.max(apart, 1e-12) >= SEEN_LEAST;
+    if (buggy.frame.visible) {
+      turn.spun(flight.time, rover.ahead.x, rover.ahead.y, rover.ahead.z, roverWay);
+      roverAhead.set(roverWay[0], roverWay[1], roverWay[2]).applyQuaternion(world.quaternion);
+      turn.spun(flight.time, rover.up.x, rover.up.y, rover.up.z, roverWay);
+      roverUp.set(roverWay[0], roverWay[1], roverWay[2]).applyQuaternion(world.quaternion);
+      buggy.frame.position.copy(roverSpot);
+      buggy.pose(roverAhead, roverUp);
+      const close = Math.max(apart - 3 * size, 0.05 * apart);
+      nearest = craft.frame.visible ? Math.min(nearest, close) : close;
+      farthest = craft.frame.visible ? Math.max(farthest, apart + 3 * size) : apart + 3 * size;
+    }
+  }
+  space.depth(nearest, farthest);
 
   const ahead = projected.copy(shipAt).applyMatrix4(camera.matrixWorldInverse).z < 0;
   const shown = !hidden && ahead && wide < TAG_MOST;
@@ -1149,6 +1440,8 @@ const choice = (
 };
 const named: [value: string, label: string][] = bodies.map((body) => [String(body.id), body.name]);
 
+const heightName = el("div", { class: "name" }, "Height");
+const speedName = el("div", { class: "name" }, "Speed");
 const readings = {
   height: el("div", { class: "big" }, ""),
   speed: el("div", { class: "big" }, ""),
@@ -1583,7 +1876,7 @@ const aimButton = button("Target", "Mark the nearest pass by this body on the pa
 });
 const orbitButton = button("Orbit it", "Set the ship into a round orbit of this body", () => {
   const typed = Number.parseFloat(heightField.value);
-  const id = focused === probe.id ? about : focused;
+  const id = onCraft() ? about : focused;
   launch(id, Number.isFinite(typed) && typed > 0 ? typed * 1000 : lowOver(id));
   space.focus(probe.id);
 });
@@ -1876,6 +2169,9 @@ const sees = el(
       aimButton,
       orbitButton,
       el("label", {}, "at", heightField, "km"),
+      button("Land on it", "Set the ship down on the sunlit ground of this body", () => {
+        setDown(onCraft() ? about : focused);
+      }),
       button("Ship", "Look at the ship again (M)", () => space.focus(probe.id)),
     ),
   ),
@@ -1935,6 +2231,9 @@ hud.append(
       "nav",
       { class: "tabs" },
       button("Map", "The whole orbit, and back to the ship (M)", () => chart()),
+      button("Rover", "Set the rover down by a landed ship, or switch to it and back (G)", () =>
+        ride(),
+      ),
       ...tabs.map(({ tab }) => tab),
     ),
     sees,
@@ -1948,14 +2247,7 @@ hud.append(
     el(
       "section",
       { class: "card panel" },
-      el(
-        "div",
-        { class: "gauge" },
-        el("div", { class: "name" }, "Height"),
-        readings.height,
-        el("div", { class: "name" }, "Speed"),
-        readings.speed,
-      ),
+      el("div", { class: "gauge" }, heightName, readings.height, speedName, readings.speed),
       el("div", { class: "throttle" }, throttleNote, throttleTrack),
       ball.frame,
       el(
@@ -1986,6 +2278,7 @@ space.onResize((width, height) => {
 });
 space.onFocus((id) => {
   focused = id;
+  driving = id === rig.id;
   sinceReadout = Number.POSITIVE_INFINITY;
 });
 
@@ -2017,8 +2310,26 @@ function refresh(): void {
   const orbit = orbitOf(rails.pulls[about], rx, ry, rz, vx, vy, vz, poleOf(body));
   const fuel = fuelLeft();
   const mass = flight.state[6];
-  write(readings.height, lengthOf(Math.max(0, Math.hypot(rx, ry, rz) - radius)));
-  write(readings.speed, speedOf(Math.hypot(vx, vy, vz)));
+  const [, , , gx, gy, gz] = passing(about);
+  const over = landable(body)
+    ? lander.clearance(about, flight.time, at, flight.state) - STAND
+    : Math.hypot(rx, ry, rz) - radius;
+  const swift = Math.hypot(gx, gy, gz);
+  write(readings.height, lengthOf(Math.max(0, over)));
+  write(readings.speed, speedOf(swift));
+  write(heightName, landable(body) ? "Over ground" : "Height");
+  write(speedName, skimming(about) ? "Ground speed" : "Speed");
+  const fate = flight.wrecked !== null ? "wrecked" : rested !== null ? "landed" : "flying";
+  document.body.dataset.flight = `${fate} ${over.toFixed(1)} ${swift.toFixed(2)}`;
+  if (driving && rover !== null) {
+    write(heightName, "Slope");
+    write(readings.height, `${((Math.atan(rover.slope) * 180) / Math.PI).toFixed(1)}°`);
+    write(speedName, "Rover speed");
+    write(readings.speed, speedOf(Math.abs(rover.speed)));
+  }
+  if (rover !== null) {
+    document.body.dataset.rover = `${rover.speed.toFixed(2)} ${rover.slope.toFixed(3)} ${rover.height.toFixed(1)}`;
+  }
   const closed = Number.isFinite(orbit.high);
   write(readings.high, closed ? lengthOf(orbit.high - radius) : "none");
   write(readings.highIn, closed ? `in ${spanOf(orbit.toHigh)}` : "the path is open");
@@ -2062,7 +2373,7 @@ function refresh(): void {
   });
   shipRow.classList.toggle("active", focused === probe.id);
 
-  const seeing = focused !== probe.id;
+  const seeing = !onCraft();
   sees.hidden = !seeing;
   if (seeing) {
     const [sx, sy, sz, wx, wy, wz] = relative(focused);
@@ -2152,6 +2463,7 @@ function refresh(): void {
 
   write(clock, hourOf(flight.time));
   write(date, dayOf(flight.time));
+  document.body.dataset.ground = `${terrain.shown()} ${terrain.waiting()}`;
   const wanted = WARPS[level];
   const slow = !paused && flight.wrecked === null && pace <= 0.8 * wanted;
   write(rate, slow ? `${rateOf(pace)} of ${rateOf(wanted)}` : rateOf(wanted));
@@ -2170,13 +2482,18 @@ function refresh(): void {
   wreck.hidden = lost === null && toast === null;
   wreck.classList.toggle("alert", lost !== null);
   again.hidden = lost === null;
-  write(notice, lost === null ? (toast?.text ?? "") : `The ship struck ${bodies[lost].name}`);
+  write(
+    notice,
+    lost === null
+      ? (toast?.text ?? "")
+      : `The ship struck ${bodies[lost].name} at ${speedOf(impact)}`,
+  );
 }
 
 const DIGITS = ["Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "Digit6", "Digit7", "Digit8"];
 const cycle = (by: number) => {
   const count = bodies.length + 1;
-  const now = focused === probe.id ? 0 : focused + 1;
+  const now = onCraft() ? 0 : focused + 1;
   const next = (now + by + count) % count;
   space.focus(next === 0 ? probe.id : next - 1);
 };
@@ -2223,6 +2540,8 @@ window.addEventListener("keydown", (event) => {
     point(MODES[digit].name);
   } else if (code === "KeyM") {
     chart();
+  } else if (code === "KeyG") {
+    ride();
   } else if (code === "BracketRight") {
     cycle(1);
   } else if (code === "BracketLeft") {
@@ -2267,5 +2586,8 @@ space.focus(probe.id);
 listPlan();
 gauge();
 say("H shows the keys");
+if (grounded) {
+  setDown(first);
+}
 refresh();
 document.body.dataset.done = "true";

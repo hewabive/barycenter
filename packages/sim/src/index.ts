@@ -38,6 +38,19 @@ export {
   railsOf,
   STANDARD_GRAVITY,
 } from "./flight.ts";
+export {
+  type Berth,
+  type Crust,
+  ceilingOf,
+  createLander,
+  crustOf,
+  groundFlat,
+  type Lander,
+  landable,
+  SOFT_LANDING,
+  type Turn,
+  turnOf,
+} from "./ground.ts";
 export type { Duty, Muster, Route } from "./muster.ts";
 export {
   assemble,
@@ -121,9 +134,13 @@ export { createRandom, type Random } from "./random.ts";
 export {
   bowlOf,
   cratersOf,
+  createGround,
+  depthOf,
   elevationAt,
   GRAIN_SHAPE,
   GROUND_GRAIN,
+  type Ground,
+  grainOf,
   groundAt,
   heightOf,
   PIT_SHAPE,
@@ -131,8 +148,10 @@ export {
   pitsAt,
   pitsOf,
   RELIEF_SHAPE,
+  TILE_CELLS,
 } from "./relief.ts";
 export { type ForceReport, forceReportFor } from "./report.ts";
+export { createRover, drive, ROVER, type Rover, type Wheel } from "./rover.ts";
 export { circumcenter, hullFaces } from "./sphere.ts";
 export {
   CAUSES,

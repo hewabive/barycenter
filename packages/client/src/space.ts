@@ -38,7 +38,7 @@ import {
 } from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { createBelt } from "./belts.ts";
-import { createLooks, type Look } from "./bodies.ts";
+import { createLooks, type Look, type Paint } from "./bodies.ts";
 import { el } from "./dom.ts";
 import { ORBIT, SKY } from "./palette.ts";
 import { SPECK_FRAGMENT, SPECK_VERTEX } from "./shaders.ts";
@@ -73,6 +73,12 @@ export interface Space {
   probe(radius: number): Probe;
   depth(near: number, far: number): void;
   visit(toward: Vector3): void;
+  frame(id: number): Group;
+  paint(id: number): Paint | null;
+  bare(id: number, next: boolean): void;
+  onClearance(listener: () => number): void;
+  sharpen(id: number | null): void;
+  plumb(up: Vector3 | null, share: number): void;
 }
 
 interface Shift {
@@ -118,6 +124,7 @@ const ORBIT_STEPS = 256;
 const ORBIT_CROWD = 3;
 const NEAR_LEAST = 0.02;
 const REAL_NEAR = 1e-5;
+const GROUND_NEAR = 3e-8;
 const REAL_ZOOM = 1.6;
 const LABEL_GAP = 12;
 const KIN_CLEARANCE = 70;
@@ -387,11 +394,12 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
   const frameOf = (id: number) => lookOf(id)?.frame ?? probes[id - looks.length].frame;
   const girthOf = (id: number) => lookOf(id)?.body.radius ?? probes[id - looks.length].radius;
 
+  let sharp: Look | null = null;
   const attend = (id: number, reach?: number) => {
     const look = lookOf(id);
     if (id !== shift.to) {
       const left = lookOf(shift.to);
-      if (left !== null && left !== home && left !== star) {
+      if (left !== null && left !== home && left !== star && left !== sharp) {
         left.refine(rough);
       }
       shift.from = shift.to;
@@ -446,6 +454,9 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
   const swing = new Quaternion();
   const partway = new Quaternion();
   const upward = new Vector3(0, 1, 0);
+  const clearances: (() => number)[] = [];
+  const plumbed = { up: new Vector3(0, 1, 0), share: 0 };
+  const stood = new Quaternion();
   const reachNow = () => {
     const from = girthOf(shift.from);
     return from + (girthOf(shift.to) - from) * eased(shift.share);
@@ -494,6 +505,9 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
     const loose = Math.min(outmost, Math.max(near * RIG_SPAN, RIG_CLEAR * spot.length()));
     const adrift = ramp(distance, loose / RIG_SPAN, loose);
     rig.copy(pose).slerp(still, away).invert();
+    if (real && plumbed.share > 0) {
+      rig.slerp(stood.setFromUnitVectors(plumbed.up, upward), plumbed.share);
+    }
     world.quaternion.copy(rig);
     world.position
       .copy(spot)
@@ -560,7 +574,7 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
       const wide = (look.body.radius * pixels) / Math.max(gap, 1e-6);
       tiny[index] = 2 * wide < SPECK_PIXELS;
       look.recede(tiny[index]);
-      if (look === home || look === star || look === to) {
+      if (look === home || look === star || look === to || look === sharp) {
         continue;
       }
       if (look.detail() === 0 && wide > widest) {
@@ -649,7 +663,13 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
         track.drawn = track.anomaly;
       }
     }
-    camera.near = Math.max(real ? REAL_NEAR : NEAR_LEAST, Math.min(20, closest * 0.25));
+    const ground = clearances.reduce(
+      (least, ask) => Math.min(least, ask()),
+      Number.POSITIVE_INFINITY,
+    );
+    const grounded = real && Number.isFinite(ground);
+    const least = !real ? NEAR_LEAST : grounded ? GROUND_NEAR : REAL_NEAR;
+    camera.near = Math.max(least, Math.min(20, (grounded ? ground : closest) * 0.25));
     camera.far = (camera.position.distanceTo(world.position) + brim) * 1.2 + 50;
     camera.updateProjectionMatrix();
     sky.position.copy(camera.position);
@@ -885,6 +905,31 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
     depth(near, far) {
       range.near = near;
       range.far = far;
+    },
+    frame: (id) => looks[id].frame,
+    paint: (id) => looks[id].paint,
+    bare(id, next) {
+      looks[id].bare(next);
+      stale = true;
+    },
+    onClearance: (listener) => clearances.push(listener),
+    sharpen(id) {
+      const next = id === null ? null : looks[id];
+      if (next === sharp) {
+        return;
+      }
+      if (sharp !== null && sharp !== home && sharp !== star && sharp !== lookOf(shift.to)) {
+        sharp.refine(rough);
+      }
+      sharp = next;
+      sharp?.refine(fine);
+      stale = true;
+    },
+    plumb(up, share) {
+      if (up !== null) {
+        plumbed.up.copy(up).normalize();
+      }
+      plumbed.share = up === null ? 0 : Math.max(0, Math.min(1, share));
     },
     visit(toward) {
       if (system.home === null) {
