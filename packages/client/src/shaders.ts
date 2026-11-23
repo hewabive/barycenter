@@ -643,7 +643,10 @@ uniform sampler2D bands;
 uniform vec4 stream;
 uniform vec2 shift;
 uniform vec3 mood;
+uniform int gales;
 uniform vec4 storms[${STORM_ROOM}];
+uniform vec3 sweeps[${STORM_ROOM}];
+uniform vec3 rises[${STORM_ROOM}];
 uniform vec4 whirls[${STORM_ROOM}];
 uniform vec4 stains[${STORM_ROOM}];
 `;
@@ -654,17 +657,15 @@ const GAS = `
   float churned = 0.0;
   float least = 1e9;
   float second = 1e9;
-  vec4 chief = vec4(0.0);
-  vec4 habit = vec4(1.0, 0.0, 0.0, 0.0);
-  vec4 stain = vec4(0.0);
+  int nearest = -1;
   vec2 seat = vec2(0.0);
-  vec3 along = vec3(0.0);
   for (int index = 0; index < ${STORM_ROOM}; index++) {
+    if (index >= gales) {
+      break;
+    }
     vec4 storm = storms[index];
     vec4 whirl = whirls[index];
-    vec3 east = normalize(cross(vec3(0.0, 1.0, 0.0), storm.xyz));
-    vec3 from = at - storm.xyz;
-    vec2 spot = vec2(dot(from, east) / whirl.x, dot(from, cross(storm.xyz, east))) / (storm.w + 1e-6);
+    vec2 spot = vec2(dot(at, sweeps[index]), dot(at, rises[index]));
     float reach = dot(spot, spot);
     bend -= storm.w * spot.y / max(reach, 1.0) * exp(-reach / 40.0);
     vec2 trail = (spot - vec2(whirl.z, -1.6 * sign(storm.y))) / vec2(${real(WAKE_REACH)}, 1.0);
@@ -672,14 +673,21 @@ const GAS = `
     if (reach < least) {
       second = least;
       least = reach;
-      chief = storm;
-      habit = whirl;
-      stain = stains[index];
+      nearest = index;
       seat = spot;
-      along = east;
     } else {
       second = min(second, reach);
     }
+  }
+  vec4 chief = vec4(0.0);
+  vec4 habit = vec4(1.0, 0.0, 0.0, 0.0);
+  vec4 stain = vec4(0.0);
+  vec3 along = vec3(0.0);
+  if (nearest >= 0) {
+    chief = storms[nearest];
+    habit = whirls[nearest];
+    stain = stains[nearest];
+    along = normalize(cross(vec3(0.0, 1.0, 0.0), chief.xyz));
   }
   float rank = sqrt(least);
   float alone = smoothstep(0.0, 0.6, 1.0 - least / second);
@@ -714,6 +722,29 @@ const GAS = `
   float vent = mix(vents, 1.0, tone.a) * (1.0 + 0.4 * mixed.g + 0.25 * mixed.b);
   emit = ember.rgb * ember.a * vent * (1.0 - 0.5 * inside * stain.a) * mix(0.45, 1.0, facing);
 `;
+
+const SOLID_STANCE = `
+  float depth = bump * mix(1.0, 0.3, wet);
+  vec3 charted = albedo * hillshade(at, slope, depth);
+
+#ifdef TILED
+  albedo *= mix(gritOf(), 1.0, wet);
+  vec3 normal = normalize(pose * (lean + tilted(at, slope, depth) - at));
+#else
+  vec3 normal = normalize(pose * ((lean + tilted(at, slope, depth) - at) * bulge));
+#endif`;
+
+const SOLID_GLINT = `
+  orbited += shines[0] * wet * midday * 0.3 * pow(max(dot(reflect(-sun, round), eye), 0.0), 40.0);`;
+
+const SOLID_FOG = `
+  orbited = mix(orbited, fog * (1.0 - murk) * (1.2 * dusk + veiled), cover);
+`;
+
+const SOLID_CHART = `
+  charted += haze * limb * air * 0.4;
+
+  gl_FragColor = vec4(mix(orbited, charted, chart), 1.0);`;
 
 export function bodyFragment(fluid: boolean): string {
   return `
@@ -766,15 +797,7 @@ void main() {
     float veil = texture2D(grit, vec2(across, 0.5)).a * step(0.0, drop) * step(0.0, across) * step(across, 1.0);
     shaded = ${real(RING_SHADE)} * veil;
   }
-  float depth = bump * mix(1.0, 0.3, wet);
-  vec3 charted = albedo * hillshade(at, slope, depth);
-
-#ifdef TILED
-  albedo *= mix(gritOf(), 1.0, wet);
-  vec3 normal = normalize(pose * (lean + tilted(at, slope, depth) - at));
-#else
-  vec3 normal = normalize(pose * ((lean + tilted(at, slope, depth) - at) * bulge));
-#endif
+${fluid ? "  vec3 normal = round;" : SOLID_STANCE}
   vec3 shone = vec3(0.0);
   vec3 veiled = vec3(0.0);
   float rim = 0.0;
@@ -790,15 +813,12 @@ void main() {
     midday = lamp == 0 ? day : midday;
   }
   vec3 orbited = albedo * (dusk + shone);
-  orbited += shines[0] * wet * midday * 0.3 * pow(max(dot(reflect(-sun, round), eye), 0.0), 40.0);
+${fluid ? "" : SOLID_GLINT}
   orbited += 1.0 - exp(-emit);
-  orbited = mix(orbited, fog * (1.0 - murk) * (1.2 * dusk + veiled), cover);
-
+${fluid ? "" : SOLID_FOG}
   float limb = pow(1.0 - max(dot(round, eye), 0.0), 3.0);
   orbited += haze * limb * air * rim;
-  charted += haze * limb * air * 0.4;
-
-  gl_FragColor = vec4(mix(orbited, charted, chart), 1.0);
+${fluid ? "  gl_FragColor = vec4(orbited, 1.0);" : SOLID_CHART}
   #include <colorspace_fragment>
 }
 `;

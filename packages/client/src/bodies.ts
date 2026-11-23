@@ -187,6 +187,7 @@ const RIBBON_STEPS = 48;
 const RIBBON_ROWS = 3;
 const RIBBON_LANES = 3;
 const PROMINENCE_DRIFT = 0.00004;
+const STORM_LEAST = 1e-6;
 const NOWHERE = new Vector3();
 
 function sightOf(camera: Camera, globe: Mesh): Sight | null {
@@ -895,6 +896,8 @@ export function createStudio(renderer: WebGLRenderer): Studio {
     const lanes = giant === null ? [] : bandsOf(body, giant);
     const storms = giant === null ? [] : stormsOf(body, giant, lanes);
     const spots = Array.from({ length: STORM_ROOM }, () => new Vector4(1, 0, 0, 0));
+    const sweeps = Array.from({ length: STORM_ROOM }, () => new Vector3());
+    const rises = Array.from({ length: STORM_ROOM }, () => new Vector3());
     const stream = new Vector4(0, 1, 0, 0);
     const shift = new Vector2();
     const flat = 1 - flatnessOf(body.physics);
@@ -989,7 +992,10 @@ export function createStudio(renderer: WebGLRenderer): Studio {
             stream: { value: stream },
             shift: { value: shift },
             mood: { value: new Vector3(giant.stir, giant.streak, giant.puff) },
+            gales: { value: storms.length },
             storms: { value: spots },
+            sweeps: { value: sweeps },
+            rises: { value: rises },
             whirls: {
               value: Array.from({ length: STORM_ROOM }, (_, index) => {
                 const storm = storms[index];
@@ -1155,12 +1161,15 @@ export function createStudio(renderer: WebGLRenderer): Studio {
         storms.forEach((storm, index) => {
           const angle = storm.turn + (2 * Math.PI * tick) / storm.year;
           const level = Math.cos(storm.height);
-          spots[index].set(
-            level * Math.cos(angle),
-            Math.sin(storm.height),
-            level * Math.sin(angle),
-            storm.size,
-          );
+          const lift = Math.sin(storm.height);
+          const span = storm.size + STORM_LEAST;
+          spots[index].set(level * Math.cos(angle), lift, level * Math.sin(angle), storm.size);
+          sweeps[index]
+            .set(Math.sin(angle), 0, -Math.cos(angle))
+            .divideScalar(storm.stretch * span);
+          rises[index]
+            .set(-lift * Math.cos(angle), level, -lift * Math.sin(angle))
+            .divideScalar(span);
         });
       },
       dispose() {
