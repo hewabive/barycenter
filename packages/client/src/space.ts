@@ -252,7 +252,13 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
   const invalidate = () => {
     stale = true;
   };
-  controls.addEventListener("change", invalidate);
+  const drawn = { position: new Vector3(), quaternion: new Quaternion() };
+  controls.addEventListener("change", () => {
+    stale =
+      stale ||
+      !camera.position.equals(drawn.position) ||
+      !camera.quaternion.equals(drawn.quaternion);
+  });
 
   const world = new Group();
   scene.add(world);
@@ -889,6 +895,8 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
     }
     looks.forEach(caption);
     renderer.render(scene, camera);
+    drawn.position.copy(camera.position);
+    drawn.quaternion.copy(camera.quaternion);
     if (fore.children.length > 0) {
       const { near, far } = camera;
       camera.near = range.near;
