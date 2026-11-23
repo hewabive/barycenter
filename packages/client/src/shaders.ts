@@ -203,7 +203,7 @@ const COARSE_PATCH = 0.6;
 const PENUMBRA = 1.3;
 const PORE = 0.003;
 const PLAGE = 0.6;
-const PLAGE_REACH = 6;
+export const PLAGE_REACH = 6;
 const RAGGED = 0.3;
 const RAGGED_LEAST = 0.004;
 const FRAY_FINE = 4;
@@ -226,12 +226,15 @@ const THREAD_RISE = 1.2;
 const PROMINENCE_DEPTH = 0.9;
 const PROMINENCE_SHADE = 0.25;
 const PROMINENCE_DUSK = 0.3;
+const PROMINENCE_CLEAR = [0.996, 1.002];
 const HALO_SOFT = 0.25;
 const HALO_RIM = 0.5;
 const HALO_WIDE = 0.12;
 const HALO_PEAK = HALO_RIM + HALO_WIDE;
 const HALO_WRAP = 2;
 const HALO_SHEET = 1.35;
+const HALO_CORE = 0.99;
+const HALO_EDGE = 2;
 const BELT_COVER = 0.12;
 const HAZE_GAIN = 6;
 const HAZE_MOST_LIGHT = 1.4;
@@ -816,6 +819,7 @@ uniform vec3 tint;
 uniform vec3 steep;
 uniform vec3 traits;
 uniform float coarse;
+uniform int crowd;
 uniform mat4 modelMatrix;
 varying vec3 vAt;
 varying vec3 vPlace;
@@ -829,6 +833,9 @@ void main() {
   float fray = 0.0;
   float stir = 0.0;
   for (int index = 0; index < ${REGION_ROOM}; index++) {
+    if (index >= crowd) {
+      break;
+    }
     vec4 region = regions[index];
     vec3 apart = at - region.xyz;
     float span = dot(apart, apart) / (region.w * region.w + 1e-9);
@@ -1035,11 +1042,27 @@ void main() {
 }
 `;
 
+const FILLED = `
+bool cornered(vec3 middle, float ball, vec2 corner) {
+  vec3 ray = normalize(vec3(corner.x / projectionMatrix[0][0], corner.y / projectionMatrix[1][1], -1.0));
+  float along = dot(middle, ray);
+  return along > 0.0 && length(ray * along - middle) < ball;
+}
+
+bool filled(vec3 middle, float ball) {
+  return cornered(middle, ball, vec2(-1.0, -1.0)) && cornered(middle, ball, vec2(1.0, -1.0))
+    && cornered(middle, ball, vec2(-1.0, 1.0)) && cornered(middle, ball, vec2(1.0, 1.0));
+}
+`;
+
 export const FLARE_VERTEX = `
+uniform vec4 screens[${SCREEN_ROOM}];
+uniform float suns[${SCREEN_ROOM}];
 uniform float reach;
+uniform float girth;
 varying vec3 vSight;
 varying vec3 vMiddle;
-
+${FILLED}
 void main() {
   vec4 placed = modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0);
   vMiddle = placed.xyz;
@@ -1050,6 +1073,15 @@ void main() {
     placed.xy += position.xy * reach * ${real(HALO_SHEET)};
     vSight = placed.xyz;
     gl_Position = projectionMatrix * placed;
+  }
+  bool buried = filled(vMiddle, ${real(HALO_CORE)} * girth);
+  for (int index = 0; index < ${SCREEN_ROOM}; index++) {
+    vec4 screen = screens[index];
+    buried = buried && (screen.w <= 0.0 || suns[index] > 0.5
+      || distance(screen.xyz, 0.5 * vMiddle) >= 0.5 * length(vMiddle) + screen.w);
+  }
+  if (buried) {
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
   }
 }
 `;
@@ -1088,6 +1120,7 @@ void main() {
   float along = dot(vMiddle, ray);
   vec3 aside = ray * along - vMiddle;
   float miss = length(aside);
+  float blur = fwidth(miss);
   if (miss >= reach) {
     discard;
   }
@@ -1118,46 +1151,52 @@ void main() {
       }
     }
   }
-  float rest = max(along + girth, 1e-3);
-  if (nearest > 0.0) {
-    rest = nearest * 0.999;
-  }
-  if (blaze > 0.0 && (nearest <= 0.0 || blaze < nearest)) {
-    rest = max(rest, past * 1.001);
-  }
-  vec4 clip = projectionMatrix * vec4(ray * rest, 1.0);
-  gl_FragDepth = 0.5 + 0.5 * clip.z / clip.w;
-  float bare = unveiled(along, miss, girth, nearest);
-  float mine = glared(miss, girth, reach) * bare;
-  float total = mine;
-  float room = 1.0 - mine / ${real(HALO_PEAK)};
-  for (int index = 0; index < ${SCREEN_ROOM}; index++) {
-    vec4 screen = screens[index];
-    if (screen.w <= 0.0) {
-      break;
+  if (along > 0.0
+    && miss + ${real(HALO_EDGE)} * blur < ${real(HALO_CORE)} * girth
+    && (nearest <= 0.0 || nearest > along)) {
+    discard;
+  } else {
+    float rest = max(along + girth, 1e-3);
+    if (nearest > 0.0) {
+      rest = nearest * 0.999;
     }
-    if (suns[index] > 0.5) {
-      float ahead = dot(screen.xyz, ray);
-      float wide = length(ray * ahead - screen.xyz);
-      float theirs = glared(wide, screen.w, screen.w * reach / girth)
-        * unveiled(ahead, wide, screen.w, nearest);
-      total += theirs;
-      room *= 1.0 - theirs / ${real(HALO_PEAK)};
+    if (blaze > 0.0 && (nearest <= 0.0 || blaze < nearest)) {
+      rest = max(rest, past * 1.001);
     }
+    vec4 clip = projectionMatrix * vec4(ray * rest, 1.0);
+    gl_FragDepth = 0.5 + 0.5 * clip.z / clip.w;
+    float bare = unveiled(along, miss, girth, nearest);
+    float mine = glared(miss, girth, reach) * bare;
+    float total = mine;
+    float room = 1.0 - mine / ${real(HALO_PEAK)};
+    for (int index = 0; index < ${SCREEN_ROOM}; index++) {
+      vec4 screen = screens[index];
+      if (screen.w <= 0.0) {
+        break;
+      }
+      if (suns[index] > 0.5) {
+        float ahead = dot(screen.xyz, ray);
+        float wide = length(ray * ahead - screen.xyz);
+        float theirs = glared(wide, screen.w, screen.w * reach / girth)
+          * unveiled(ahead, wide, screen.w, nearest);
+        total += theirs;
+        room *= 1.0 - theirs / ${real(HALO_PEAK)};
+      }
+    }
+    float blades = 0.0;
+    if (rise < ${real(FUZZ_REACH)}) {
+      mat3 turn = mat3(modelViewMatrix);
+      vec3 eye = normalize(-vMiddle) * turn;
+      vec3 outward = aside * turn;
+      vec3 limb = normalize(outward - dot(outward, eye) * eye);
+      blades = fuzz * exp(-rise / (${real(FUZZ_RISE)} * (0.4 + 1.2 * textureLod(relief, limb, 2.0).r)));
+    }
+    vec3 lit = rim * ${real(HALO_PEAK)} * (1.0 - room)
+      + ${HYDROGEN} * blades * ${real(FUZZ_GLOW)} * (0.15 + 0.5 * rim.r) * bare;
+    gl_FragColor = vec4(lit, 1.0);
+    #include <colorspace_fragment>
+    gl_FragColor.rgb *= mine / max(total, 1e-6);
   }
-  float blades = 0.0;
-  if (rise < ${real(FUZZ_REACH)}) {
-    mat3 turn = mat3(modelViewMatrix);
-    vec3 eye = normalize(-vMiddle) * turn;
-    vec3 outward = aside * turn;
-    vec3 limb = normalize(outward - dot(outward, eye) * eye);
-    blades = fuzz * exp(-rise / (${real(FUZZ_RISE)} * (0.4 + 1.2 * textureLod(relief, limb, 2.0).r)));
-  }
-  vec3 lit = rim * ${real(HALO_PEAK)} * (1.0 - room)
-    + ${HYDROGEN} * blades * ${real(FUZZ_GLOW)} * (0.15 + 0.5 * rim.r) * bare;
-  gl_FragColor = vec4(lit, 1.0);
-  #include <colorspace_fragment>
-  gl_FragColor.rgb *= mine / max(total, 1e-6);
 }
 `;
 
@@ -1171,7 +1210,7 @@ varying vec4 vSeat;
 varying vec4 vLean;
 varying vec3 vPlace;
 varying float vLane;
-
+${FILLED}
 void main() {
   int slot = int(position.z + 0.01);
   vec4 seat = seats[slot];
@@ -1195,7 +1234,10 @@ void main() {
   vLean = lean;
   vPlace = placed.xyz;
 
-  gl_Position = form.x > 0.0 ? projectionMatrix * viewMatrix * placed : vec4(2.0, 2.0, 2.0, 1.0);
+  gl_Position = form.x > 0.0
+    && !filled((viewMatrix * modelMatrix[3]).xyz, ${real(HALO_CORE)} * length(modelMatrix[0].xyz))
+    ? projectionMatrix * viewMatrix * placed
+    : vec4(2.0, 2.0, 2.0, 1.0);
 }
 `;
 
@@ -1214,6 +1256,14 @@ varying vec3 vPlace;
 varying float vLane;
 
 void main() {
+  vec3 heart = modelMatrix[3].xyz;
+  float girth = length(modelMatrix[0].xyz);
+  vec3 ray = normalize(vPlace - cameraPosition);
+  vec3 toward = heart - cameraPosition;
+  float miss = length(toward - ray * dot(toward, ray));
+  if (miss <= ${real(PROMINENCE_CLEAR[0])} * girth) {
+    discard;
+  }
   vec3 aside = cross(vSeat.xyz, vLean.xyz);
   float along = vPart.x * vSeat.w;
   float shift = drift + 0.07 * vLane;
@@ -1226,12 +1276,7 @@ void main() {
     vSeat.xyz + vLean.xyz * (along * ${real(THREADS)}) + aside * (vPart.y * vLean.w * ${real(THREAD_RISE)} + shift)
   )).r;
 
-  vec3 heart = modelMatrix[3].xyz;
-  float girth = length(modelMatrix[0].xyz);
-  vec3 ray = normalize(vPlace - cameraPosition);
-  vec3 toward = heart - cameraPosition;
-  float miss = length(toward - ray * dot(toward, ray));
-  float clear = smoothstep(0.996 * girth, 1.002 * girth, miss);
+  float clear = smoothstep(${real(PROMINENCE_CLEAR[0])} * girth, ${real(PROMINENCE_CLEAR[1])} * girth, miss);
   vec3 sight = mat3(viewMatrix) * ray;
   float sky = 1.0;
   for (int index = 0; index < ${SCREEN_ROOM}; index++) {

@@ -1,6 +1,6 @@
 import { createRandom, type Random } from "@barycenter/sim";
 import type { Flame } from "./looks.ts";
-import { MEMBER_ROOM, REGION_ROOM, SPOT_ROOM } from "./shaders.ts";
+import { MEMBER_ROOM, PLAGE_REACH, REGION_ROOM, SPOT_ROOM } from "./shaders.ts";
 
 const REGION_LIFE = 1400;
 const CYCLE_LIFE = 60000;
@@ -38,6 +38,8 @@ const SKIRT = 4.6;
 const EMERGING = 0.12;
 const PEAK = 0.15;
 const SPREADING = 0.3;
+const SIGHT_SLACK = 0.02;
+const LIMB_SLACK = 0.2;
 
 type Triple = [number, number, number];
 
@@ -76,6 +78,18 @@ export interface Activity {
   flash: Float32Array;
   burst: number;
   turn(tick: number): void;
+}
+
+export interface Sight {
+  eye: Triple;
+  ahead: Triple;
+  wide: number;
+}
+
+export interface Roll {
+  regions: Float32Array;
+  plages: Float32Array;
+  spots: Float32Array;
 }
 
 const clamp = (value: number, least: number, most: number) =>
@@ -339,4 +353,49 @@ export function createActivity(seed: number, flame: Flame): Activity {
     },
   };
   return activity;
+}
+
+export function createRoll(): Roll {
+  return {
+    regions: new Float32Array(4 * REGION_ROOM),
+    plages: new Float32Array(REGION_ROOM),
+    spots: new Float32Array(4 * SPOT_ROOM),
+  };
+}
+
+function inSight(sight: Sight, middle: Triple, reach: number): boolean {
+  const span = Math.sqrt(PLAGE_REACH) * reach + SIGHT_SLACK;
+  const far = Math.hypot(...sight.eye);
+  const horizon = Math.acos(Math.min(1, 1 / far)) + LIMB_SLACK;
+  const arc = 2 * Math.asin(Math.min(1, span / 2));
+  if (Math.acos(clamp(dot(middle, sight.eye) / far, -1, 1)) >= horizon + arc) {
+    return false;
+  }
+  const from: Triple = [
+    middle[0] - sight.eye[0],
+    middle[1] - sight.eye[1],
+    middle[2] - sight.eye[2],
+  ];
+  const along = dot(from, sight.ahead);
+  const aside = Math.sqrt(Math.max(dot(from, from) - along * along, 0));
+  return aside * Math.cos(sight.wide) - along * Math.sin(sight.wide) < span;
+}
+
+export function sift(activity: Activity, sight: Sight | null, roll: Roll): number {
+  roll.regions.fill(0);
+  roll.plages.fill(0);
+  roll.spots.fill(0);
+  let kept = 0;
+  for (let index = 0; index < REGION_ROOM; index++) {
+    const [east, north, south, reach] = activity.regions.subarray(4 * index, 4 * index + 4);
+    if (reach <= 0 || (sight !== null && !inSight(sight, [east, north, south], reach))) {
+      continue;
+    }
+    const members = 4 * MEMBER_ROOM;
+    roll.regions.set(activity.regions.subarray(4 * index, 4 * index + 4), 4 * kept);
+    roll.plages[kept] = activity.plages[index];
+    roll.spots.set(activity.spots.subarray(members * index, members * (index + 1)), members * kept);
+    kept += 1;
+  }
+  return kept;
 }

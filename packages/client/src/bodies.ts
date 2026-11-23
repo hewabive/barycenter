@@ -13,6 +13,7 @@ import {
   AdditiveBlending,
   BackSide,
   BufferGeometry,
+  type Camera,
   Color,
   CubeTexture,
   type Data3DTexture,
@@ -25,10 +26,12 @@ import {
   LinearFilter,
   LinearMipmapLinearFilter,
   MathUtils,
+  Matrix4,
   Mesh,
   MeshBasicMaterial,
   NearestFilter,
   OrthographicCamera,
+  PerspectiveCamera,
   PlaneGeometry,
   Quaternion,
   RedFormat,
@@ -93,7 +96,7 @@ import {
   STAR_FRAGMENT,
   STORM_ROOM,
 } from "./shaders.ts";
-import { createActivity } from "./spots.ts";
+import { createActivity, createRoll, type Sight, sift } from "./spots.ts";
 
 export interface Look {
   body: Body;
@@ -185,6 +188,21 @@ const RIBBON_ROWS = 3;
 const RIBBON_LANES = 3;
 const PROMINENCE_DRIFT = 0.00004;
 const NOWHERE = new Vector3();
+
+function sightOf(camera: Camera, globe: Mesh): Sight | null {
+  if (!(camera instanceof PerspectiveCamera)) {
+    return null;
+  }
+  const inward = new Matrix4().copy(globe.matrixWorld).invert();
+  const eye = new Vector3().setFromMatrixPosition(camera.matrixWorld).applyMatrix4(inward);
+  const ahead = camera.getWorldDirection(new Vector3()).transformDirection(inward);
+  const { elements } = camera.projectionMatrix;
+  return {
+    eye: [eye.x, eye.y, eye.z],
+    ahead: [ahead.x, ahead.y, ahead.z],
+    wide: Math.atan(Math.hypot(1 / elements[0], 1 / elements[5])),
+  };
+}
 
 function ribbonsOf(): BufferGeometry {
   const places: number[] = [];
@@ -651,6 +669,8 @@ export function createStudio(renderer: WebGLRenderer): Studio {
   const ignite = (body: Body): Look => {
     const flame = flameOf(body);
     const activity = createActivity(body.seed, flame);
+    const roll = createRoll();
+    const crowd = { value: 0 };
     const shuffle = 2 * Math.PI * createRandom(body.seed + 97).next();
     const prominences = createProminences(body.seed, flame);
     const drift = { value: 0 };
@@ -687,9 +707,10 @@ export function createStudio(renderer: WebGLRenderer): Studio {
           (GRANULE_PACE * GRAIN_LIFE) / Math.max(flame.cells, SUN_CELLS),
         ),
       },
-      regions: { value: activity.regions },
-      plages: { value: activity.plages },
-      spots: { value: activity.spots },
+      regions: { value: roll.regions },
+      plages: { value: roll.plages },
+      spots: { value: roll.spots },
+      crowd,
       flash: { value: activity.flash },
       burst: { value: 0 },
       boil: { value: boil },
@@ -705,6 +726,9 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       new ShaderMaterial({ vertexShader: BODY_VERTEX, fragmentShader: STAR_FRAGMENT, uniforms }),
     );
     globe.visible = false;
+    globe.onBeforeRender = (_renderer, _scene, camera) => {
+      crowd.value = sift(activity, sightOf(camera, globe), roll);
+    };
     const flare = new Mesh(
       sheet,
       new ShaderMaterial({
