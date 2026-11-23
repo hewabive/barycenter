@@ -126,6 +126,7 @@ export {
   SUN_HEAT,
   SUN_MASS,
   SUN_RADIUS,
+  scaleHeight,
   seaCover,
   seenGlow,
   seenShare,

@@ -31,6 +31,7 @@ const LOVE_SOLID = 0.93;
 const SPIN_MOST = 0.3;
 export const BOLTZMANN = 1.381e-23;
 export const DALTON = 1.661e-27;
+export const GAS_WEIGHT = 2.34;
 const EARTH_DENSITY = 5514;
 const IRON_DENSITY = 7900;
 const ROCK_DENSITY = 3400;
@@ -481,6 +482,12 @@ export function frostOf(glow: number): number {
 
 export function gravityOf(mass: number, radius: number): number {
   return (GRAVITY * mass) / radius ** 2;
+}
+
+export function scaleHeight(physics: Pick<Physics, "mass" | "radius" | "heat">): number {
+  return (
+    (BOLTZMANN * physics.heat) / (GAS_WEIGHT * DALTON * gravityOf(physics.mass, physics.radius))
+  );
 }
 
 export function escapeOf(mass: number, radius: number): number {

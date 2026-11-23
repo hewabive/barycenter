@@ -41,6 +41,7 @@ import {
   STAR_LEAST,
   SUN_GLOW,
   SUN_MASS,
+  scaleHeight,
   seaCover,
   seenGlow,
   seenShare,
@@ -1932,4 +1933,13 @@ test("a system grows out of the disk of its young star", () => {
     `${sheets} sheets of gas and dust, ${molten} molten bodies`,
   );
   assert.ok(heavy > 8, `${heavy} disks of 24 as heavy as a hundredth of a Sun`);
+});
+
+test("the air of a cold heavy giant is a thin skin and of a hot light one a deep one", () => {
+  const jupiter = scaleHeight({ mass: JUPITER_MASS, radius: 6.9911e7, heat: 125 });
+  assert.ok(jupiter > 15e3 && jupiter < 20e3, `Jupiter thins by e every ${jupiter} m`);
+  const puffed = { mass: 0.3 * JUPITER_MASS, radius: 8.4e7, heat: 1500 };
+  const share = scaleHeight(puffed) / puffed.radius;
+  assert.ok(share > 0.01 && share < 0.02, `a hot light giant at ${share} of its radius`);
+  assert.ok(scaleHeight({ ...puffed, heat: 750 }) < scaleHeight(puffed));
 });

@@ -4,11 +4,13 @@ import {
   type Body,
   createRandom,
   GIGAYEAR,
+  JUPITER_MASS,
   kindled,
+  type Physics,
   SUN_MASS,
   surveySystem,
 } from "@barycenter/sim";
-import { cellsOf, flameOf, flatnessOf, holeOf, hoopOf, livelyOf } from "../src/looks.ts";
+import { cellsOf, flameOf, flatnessOf, fringeOf, holeOf, hoopOf, livelyOf } from "../src/looks.ts";
 
 const star = (suns: number, age: number) =>
   kindled(suns * SUN_MASS, age * GIGAYEAR, { next: () => 0.5 });
@@ -86,4 +88,19 @@ test("a ring breaks into narrower and fainter bands as it thins", () => {
   });
   const gassy = { ...ring, gas: 1, lasts: 0 };
   assert.equal(hoopOf({ ...ringed, physics: { ...ringed.physics, disks: [gassy] } }), null);
+});
+
+test("the fringe of a gas giant is as deep as its air is high, and hides its clouds at the limb", () => {
+  const wrap = (mass: number, radius: number, heat: number) =>
+    ({ mass: mass * JUPITER_MASS, radius, heat }) as Physics;
+  const cold = fringeOf(wrap(1, 6.9911e7, 125), 0.07);
+  const hot = fringeOf(wrap(0.3, 8.4e7, 1500), 0.1);
+  assert.ok(cold.top > 0.001 && cold.top < 0.004, `a Jupiter at ${cold.top}`);
+  assert.ok(hot.top > 0.05 && hot.top < 0.12, `a hot light giant at ${hot.top}`);
+  for (const fringe of [cold, hot, fringeOf(wrap(0.05, 2.5e7, 60), 0.4)]) {
+    assert.ok(Math.exp(-fringe.depth) < 0.01);
+    const faint = 1 - Math.exp(-fringe.depth * Math.exp(-fringe.top / fringe.thin));
+    assert.ok(faint > 0.005 && faint < 0.011, `ends at ${faint}`);
+  }
+  assert.ok(fringeOf(wrap(1e-6, 8.4e7, 1500), 0.1).top < 0.25);
 });

@@ -4,6 +4,7 @@ import {
   DALTON,
   EARTH_MASS,
   frostOf,
+  GAS_WEIGHT,
   GRAVITY,
   hillOf,
   SUN_GLOW,
@@ -47,7 +48,6 @@ const GAP_HILL = 4;
 const DISK_LEAST = 1e-6 * EARTH_MASS;
 const JOINED = 1.01;
 const FROST_HEAT = 170;
-const GAS_WEIGHT = 2.34;
 const TURBULENCE = 3e-4;
 const FLARE = 0.25;
 const STIRRED = 2;

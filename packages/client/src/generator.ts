@@ -37,6 +37,7 @@ import {
   SUN_GLOW,
   SUN_MASS,
   SUN_RADIUS,
+  scaleHeight,
   seaCover,
   seenGlow,
   sketchSystem,
@@ -269,6 +270,14 @@ function factsOf(body: Body): Fact[] {
     ["Gravity", `${figure(gravityOf(physics.mass, physics.radius) / EARTH_GRAVITY)} g`],
     ["Escape speed", `${figure(escapeOf(physics.mass, physics.radius) / 1000)} km/s`],
     ["Flattening", figure(flatnessOf(physics))],
+    ...(family === "fluid"
+      ? [
+          [
+            "Scale height",
+            `${figure(scaleHeight(physics) / 1000)} km · ${share(scaleHeight(physics) / physics.radius)} of the radius`,
+          ] satisfies Fact,
+        ]
+      : []),
     [
       "Shape",
       rough === 0

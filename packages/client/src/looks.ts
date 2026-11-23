@@ -17,6 +17,7 @@ import {
   SUN_HEAT,
   SUN_MASS,
   SUN_RADIUS,
+  scaleHeight,
   seaCover,
   shareOf,
   shownLight,
@@ -217,6 +218,25 @@ export function flatnessOf(physics: Physics): number {
     return flat;
   }
   return groundFlat(physics);
+}
+
+const FRINGE_THIN = [1e-5, 0.03];
+const FRINGE_DEEP = 5;
+const FRINGE_FAINT = 0.01;
+
+export interface Fringe {
+  thin: number;
+  depth: number;
+  top: number;
+}
+
+export function fringeOf(physics: Physics, air: number): Fringe {
+  const thin = Math.max(
+    FRINGE_THIN[0],
+    Math.min(FRINGE_THIN[1], scaleHeight(physics) / physics.radius),
+  );
+  const depth = Math.max(FRINGE_DEEP, 2 * air * Math.sqrt(Math.PI / (2 * thin)));
+  return { thin, depth, top: thin * Math.log(depth / FRINGE_FAINT) };
 }
 
 const ROSSBY_QUIET = 3;

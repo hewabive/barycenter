@@ -184,6 +184,13 @@ const LUMP_SPAN = 0.06;
 const LAVA_FLOOR = -0.4;
 const LAVA_SPAN = 2;
 const CRUST_GLOW = 0.04;
+const DAY_EDGE = [-0.15, 0.25];
+const FOG_LIGHT = 0.95;
+const FOG_WRAP = 0.25;
+const FOG_DUSK = 1.2;
+const GRAZE = 1e-3;
+const FRINGE_CORE = 0.99;
+const FRINGE_SUNK = 4;
 const SHORE_GLOW = 0.3;
 
 const GRAIN_MEAN = 0.446;
@@ -738,13 +745,21 @@ const SOLID_GLINT = `
   orbited += shines[0] * wet * midday * 0.3 * pow(max(dot(reflect(-sun, round), eye), 0.0), 40.0);`;
 
 const SOLID_FOG = `
-  orbited = mix(orbited, fog * (1.0 - murk) * (1.2 * dusk + veiled), cover);
+  orbited = mix(orbited, fog * (1.0 - murk) * (${real(FOG_DUSK)} * dusk + veiled), cover);
 `;
 
-const SOLID_CHART = `
+const SOLID_LIMB = `
+  float limb = pow(1.0 - max(dot(round, eye), 0.0), 3.0);
+  orbited += haze * limb * air * rim;
   charted += haze * limb * air * 0.4;
 
   gl_FragColor = vec4(mix(orbited, charted, chart), 1.0);`;
+
+const FLUID_LIMB = `
+  float slant = 1.0 / max(dot(round, eye), ${real(GRAZE)}) - 1.0;
+  orbited = mix(orbited, haze * (${real(FOG_DUSK)} * dusk + veiled), 1.0 - exp(-air * slant));
+
+  gl_FragColor = vec4(orbited, 1.0);`;
 
 export function bodyFragment(fluid: boolean): string {
   return `
@@ -805,20 +820,17 @@ ${fluid ? "  vec3 normal = round;" : SOLID_STANCE}
   for (int lamp = 0; lamp < ${LAMP_ROOM}; lamp++) {
     float there = step(0.5, dot(suns[lamp], suns[lamp]));
     float high = dot(round, suns[lamp]);
-    float day = smoothstep(-0.15, 0.25, high) * there;
+    float day = smoothstep(${real(DAY_EDGE[0])}, ${real(DAY_EDGE[1])}, high) * there;
     float open = lamp == 0 ? 1.0 - shaded : 1.0;
     shone += shines[lamp] * (1.1 * clamp(dot(normal, suns[lamp]), 0.0, 1.0) * day * open);
-    veiled += shines[lamp] * (0.95 * day * open * clamp(high + 0.25, 0.0, 1.0));
+    veiled += shines[lamp] * (${real(FOG_LIGHT)} * day * open * clamp(high + ${real(FOG_WRAP)}, 0.0, 1.0));
     rim += max(shines[lamp].r, max(shines[lamp].g, shines[lamp].b)) * (0.1 + 0.9 * day) * there;
     midday = lamp == 0 ? day : midday;
   }
   vec3 orbited = albedo * (dusk + shone);
 ${fluid ? "" : SOLID_GLINT}
   orbited += 1.0 - exp(-emit);
-${fluid ? "" : SOLID_FOG}
-  float limb = pow(1.0 - max(dot(round, eye), 0.0), 3.0);
-  orbited += haze * limb * air * rim;
-${fluid ? "  gl_FragColor = vec4(orbited, 1.0);" : SOLID_CHART}
+${fluid ? FLUID_LIMB : SOLID_FOG + SOLID_LIMB}
   #include <colorspace_fragment>
 }
 `;
@@ -976,6 +988,61 @@ void main() {
 }
 `;
 
+const FILLED = `
+bool cornered(vec3 middle, float ball, vec2 corner) {
+  vec3 ray = normalize(vec3(corner.x / projectionMatrix[0][0], corner.y / projectionMatrix[1][1], -1.0));
+  float along = dot(middle, ray);
+  return along > 0.0 && length(ray * along - middle) < ball;
+}
+
+bool filled(vec3 middle, float ball) {
+  return cornered(middle, ball, vec2(-1.0, -1.0)) && cornered(middle, ball, vec2(1.0, -1.0))
+    && cornered(middle, ball, vec2(-1.0, 1.0)) && cornered(middle, ball, vec2(1.0, 1.0));
+}
+`;
+
+export const FRINGE_VERTEX = `
+uniform vec3 fringe;
+varying vec3 vAt;
+${FILLED}
+void main() {
+  vAt = position;
+  vec3 middle = (modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+  gl_Position = filled(middle, ${real(FRINGE_CORE)} * length(modelMatrix[1].xyz) / fringe.x)
+    ? vec4(2.0, 2.0, 2.0, 1.0)
+    : projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
+
+export const FRINGE_FRAGMENT = `
+uniform mat4 modelMatrix;
+uniform vec3 haze;
+uniform vec3 suns[${LAMP_ROOM}];
+uniform vec3 shines[${LAMP_ROOM}];
+uniform float dusk;
+uniform float squash;
+uniform vec3 eye;
+uniform vec3 fringe;
+varying vec3 vAt;
+
+void main() {
+  vec3 ray = normalize(vAt - eye);
+  vec3 foot = eye - ray * dot(eye, ray);
+  float lofty = (length(foot) * fringe.x - 1.0) / fringe.y;
+  float veil = 1.0 - exp(-fringe.z * exp(-max(lofty, ${real(-FRINGE_SUNK)})));
+  vec3 round = normalize(mat3(modelMatrix) * (normalize(foot) * vec3(1.0, squash, 1.0)));
+  vec3 lit = vec3(0.0);
+  for (int lamp = 0; lamp < ${LAMP_ROOM}; lamp++) {
+    float there = step(0.5, dot(suns[lamp], suns[lamp]));
+    float high = dot(round, suns[lamp]);
+    float day = smoothstep(${real(DAY_EDGE[0])}, ${real(DAY_EDGE[1])}, high) * there;
+    lit += shines[lamp] * (${real(FOG_LIGHT)} * day * clamp(high + ${real(FOG_WRAP)}, 0.0, 1.0));
+  }
+  gl_FragColor = vec4(haze * (${real(FOG_DUSK)} * dusk + lit), veil);
+  #include <colorspace_fragment>
+}
+`;
+
 export const SLAB = `
 float above(float height) {
   return 0.3989423 * exp(-0.5 * height * height)
@@ -1059,19 +1126,6 @@ void main() {
     + inner * pow(middle / near, 3.0) * (0.35 + 0.65 * dense) * veil;
   gl_FragColor = vec4(dust.rgb * dust.rgb * lamp, veil);
   #include <colorspace_fragment>
-}
-`;
-
-const FILLED = `
-bool cornered(vec3 middle, float ball, vec2 corner) {
-  vec3 ray = normalize(vec3(corner.x / projectionMatrix[0][0], corner.y / projectionMatrix[1][1], -1.0));
-  float along = dot(middle, ray);
-  return along > 0.0 && length(ray * along - middle) < ball;
-}
-
-bool filled(vec3 middle, float ball) {
-  return cornered(middle, ball, vec2(-1.0, -1.0)) && cornered(middle, ball, vec2(1.0, -1.0))
-    && cornered(middle, ball, vec2(-1.0, 1.0)) && cornered(middle, ball, vec2(1.0, 1.0));
 }
 `;
 

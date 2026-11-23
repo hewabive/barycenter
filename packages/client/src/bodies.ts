@@ -53,6 +53,7 @@ import {
   familyOf,
   flameOf,
   flatnessOf,
+  fringeOf,
   type Giant,
   giantOf,
   type Hoop,
@@ -74,6 +75,8 @@ import {
   EXPOSURE,
   FLARE_FRAGMENT,
   FLARE_VERTEX,
+  FRINGE_FRAGMENT,
+  FRINGE_VERTEX,
   GAS_BAKE_FRAGMENT,
   GAS_STEP_FRAGMENT,
   GAS_STEPS,
@@ -158,6 +161,7 @@ interface Storm {
 }
 
 const SHELL_SCALE = 1.04;
+const FRINGE_SLACK = 1.001;
 const FLARE_REACH = 3;
 const LUMP_SWELL = 1.75;
 const CLOUD_TURN = 2400;
@@ -1034,7 +1038,38 @@ export function createStudio(renderer: WebGLRenderer): Studio {
     frame.add(globe);
 
     const parts: Mesh<IcosahedronGeometry | RingGeometry, ShaderMaterial>[] = [globe];
-    if (uniforms.air.value > 0) {
+    if (giant !== null) {
+      const edge = fringeOf(body.physics, giant.air);
+      const reach = (1 + edge.top) * FRINGE_SLACK;
+      const eye = new Vector3();
+      const fringe = new Mesh(
+        ball,
+        new ShaderMaterial({
+          vertexShader: FRINGE_VERTEX,
+          fragmentShader: FRINGE_FRAGMENT,
+          side: BackSide,
+          transparent: true,
+          depthWrite: false,
+          uniforms: {
+            haze: uniforms.haze,
+            suns: uniforms.suns,
+            shines: uniforms.shines,
+            dusk,
+            squash: uniforms.squash,
+            eye: { value: eye },
+            fringe: { value: new Vector3(reach, edge.thin, edge.depth) },
+          },
+        }),
+      );
+      fringe.scale.copy(globe.scale).multiplyScalar(reach);
+      fringe.onBeforeRender = (_renderer, _scene, camera) => {
+        fringe.worldToLocal(eye.setFromMatrixPosition(camera.matrixWorld));
+      };
+      fringe.visible = false;
+      shown.push(fringe);
+      frame.add(fringe);
+      parts.push(fringe);
+    } else if (uniforms.air.value > 0) {
       const shell = new Mesh(
         ball,
         new ShaderMaterial({
