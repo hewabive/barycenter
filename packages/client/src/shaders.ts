@@ -1551,126 +1551,128 @@ void main() {
       to = met > 0.0 ? min(to, met) : inside < 0.0 ? 0.0 : to;
     }
   }
-  if (to <= from) {
+  vec2 entered = eye.xz + from * ray.xz;
+  vec2 left = eye.xz + to * ray.xz;
+  if (to <= from || max(dot(entered, entered), dot(left, left)) <= span.x * span.x) {
     discard;
-  }
-
-  float anchor = from;
-  float base = eye.y + from * ray.y;
-  vec2 legs[3];
-  legs[0] = vec2(0.0);
-  legs[1] = vec2(0.0);
-  legs[2] = vec2(0.0);
-  if (climb > hull.z * level) {
-    anchor = -eye.y / ray.y;
-    base = 0.0;
-    float most = hull.y / climb;
-    float back = min(anchor - from, most);
-    float fore = min(to - anchor, most);
-    float here = brimAt(length(eye.xz + anchor * ray.xz));
-    for (int turn = 0; turn < 2; turn++) {
-      float behind = brimAt(length(eye.xz + (anchor - back) * ray.xz));
-      float ahead = brimAt(length(eye.xz + (anchor + fore) * ray.xz));
-      back = min(back, ${real(HAZE_SLACK)} * max(here, behind) / climb);
-      fore = min(fore, ${real(HAZE_SLACK)} * max(here, ahead) / climb);
-    }
-    float first = max(from - anchor, -back);
-    float last = min(to - anchor, fore);
-    float split = clamp(0.0, first, last);
-    legs[0] = vec2(first, split);
-    legs[1] = vec2(split, last);
   } else {
-    float whole = to - from;
-    float bow = ray.y * ray.y - hull.z * hull.z * level * level;
-    float tilt = eye.y * ray.y - hull.z * hull.z * lean;
-    float found = tilt * tilt - bow * (eye.y * eye.y - hull.z * hull.z * aside);
-    vec2 clearing = vec2(0.0);
-    if (found > 0.0 && bow < -1e-12) {
-      float root = sqrt(found);
-      clearing = vec2((-tilt + root) / bow, (-tilt - root) / bow) - from;
-    }
-    float met = climb > 1e-9 ? -base / ray.y : -1.0;
-    vec2 nearer = vec2(0.0, min(whole, clearing.x));
-    vec2 farther = vec2(max(0.0, clearing.y), whole);
-    if (met > nearer.x && met < nearer.y) {
-      legs[0] = vec2(nearer.x, met);
-      legs[1] = vec2(met, nearer.y);
-      legs[2] = farther;
-    } else if (met > farther.x && met < farther.y) {
-      legs[0] = nearer;
-      legs[1] = vec2(farther.x, met);
-      legs[2] = vec2(met, farther.y);
+    float anchor = from;
+    float base = eye.y + from * ray.y;
+    vec2 legs[3];
+    legs[0] = vec2(0.0);
+    legs[1] = vec2(0.0);
+    legs[2] = vec2(0.0);
+    if (climb > hull.z * level) {
+      anchor = -eye.y / ray.y;
+      base = 0.0;
+      float most = hull.y / climb;
+      float back = min(anchor - from, most);
+      float fore = min(to - anchor, most);
+      float here = brimAt(length(eye.xz + anchor * ray.xz));
+      for (int turn = 0; turn < 2; turn++) {
+        float behind = brimAt(length(eye.xz + (anchor - back) * ray.xz));
+        float ahead = brimAt(length(eye.xz + (anchor + fore) * ray.xz));
+        back = min(back, ${real(HAZE_SLACK)} * max(here, behind) / climb);
+        fore = min(fore, ${real(HAZE_SLACK)} * max(here, ahead) / climb);
+      }
+      float first = max(from - anchor, -back);
+      float last = min(to - anchor, fore);
+      float split = clamp(0.0, first, last);
+      legs[0] = vec2(first, split);
+      legs[1] = vec2(split, last);
     } else {
-      legs[0] = nearer;
-      legs[1] = farther;
+      float whole = to - from;
+      float bow = ray.y * ray.y - hull.z * hull.z * level * level;
+      float tilt = eye.y * ray.y - hull.z * hull.z * lean;
+      float found = tilt * tilt - bow * (eye.y * eye.y - hull.z * hull.z * aside);
+      vec2 clearing = vec2(0.0);
+      if (found > 0.0 && bow < -1e-12) {
+        float root = sqrt(found);
+        clearing = vec2((-tilt + root) / bow, (-tilt - root) / bow) - from;
+      }
+      float met = climb > 1e-9 ? -base / ray.y : -1.0;
+      vec2 nearer = vec2(0.0, min(whole, clearing.x));
+      vec2 farther = vec2(max(0.0, clearing.y), whole);
+      if (met > nearer.x && met < nearer.y) {
+        legs[0] = vec2(nearer.x, met);
+        legs[1] = vec2(met, nearer.y);
+        legs[2] = farther;
+      } else if (met > farther.x && met < farther.y) {
+        legs[0] = nearer;
+        legs[1] = vec2(farther.x, met);
+        legs[2] = vec2(met, farther.y);
+      } else {
+        legs[0] = nearer;
+        legs[1] = farther;
+      }
     }
-  }
 
-  float nearest = level > 1e-6 ? -lean / (level * level) : anchor;
-  float miss = level > 1e-6 ? sqrt(max(aside - lean * lean / (level * level), 0.0)) : sqrt(aside);
-  float bend = level / max(miss, ${real(HAZE_NEAR)} * span.x);
-  float clear = 1.0;
-  float seen = 0.0;
-  float lent = 0.0;
-  float where = 0.0;
-  float glow = 0.0;
-  for (int leg = 0; leg < 3; leg++) {
-    float start = legs[leg].x;
-    float end = legs[leg].y;
-    if (end <= start || clear == 0.0) {
-      continue;
-    }
-    float low = asinh((anchor + start - nearest) * bend);
-    float high = asinh((anchor + end - nearest) * bend);
-    bool straight = level < 1e-4 || abs(high - low) < ${real(HAZE_LONG)};
-    int paces = min(count + int(${real(HAZE_ACROSS)} * abs(high - low)), ${HAZE_MOST});
-    float swell = exp(low);
-    float rate = exp((high - low) / float(paces));
-    Probe last = probe(ray, anchor, base, start);
-    float past = start;
-    for (int step = 1; step <= paces; step++) {
-      swell *= rate;
-      float next = straight
-        ? mix(start, end, float(step) / float(paces))
-        : nearest + 0.5 * (swell - 1.0 / swell) / bend - anchor;
-      Probe here = probe(ray, anchor, base, next);
-      float through = 0.5 * (last.thick + here.thick)
-        * spread(last.height, last.tail, here.height, here.tail)
-        * (next - past) / (0.5 * (last.stand + here.stand));
-      float gone = exp(-through);
-      vec3 middle = vec3(
-        last.spot + here.spot,
-        last.height * last.stand + here.height * here.stand
-      ).xzy;
-      float sent = clear
-        * (strip(last.shadow, last.lit, here.shadow, here.lit, through, gone) + ${real(HAZE_DIM)} * (1.0 - gone))
-        * glint(
-          mix(${real(HAZE_DUST[0])}, ${real(HAZE_DUST[1])}, 0.5 * (last.fine + here.fine)),
-          -dot(normalize(middle), ray)
-        );
-      seen += sent;
-      lent += sent * 0.5 * (last.lamp + here.lamp);
-      where += sent * 0.5 * (last.share + here.share);
-      if (here.share < hot) {
-        glow += clear * (1.0 - gone) * toneAt(here.share).g;
+    float nearest = level > 1e-6 ? -lean / (level * level) : anchor;
+    float miss = level > 1e-6 ? sqrt(max(aside - lean * lean / (level * level), 0.0)) : sqrt(aside);
+    float bend = level / max(miss, ${real(HAZE_NEAR)} * span.x);
+    float clear = 1.0;
+    float seen = 0.0;
+    float lent = 0.0;
+    float where = 0.0;
+    float glow = 0.0;
+    for (int leg = 0; leg < 3; leg++) {
+      float start = legs[leg].x;
+      float end = legs[leg].y;
+      if (end <= start || clear == 0.0) {
+        continue;
       }
-      clear *= gone;
-      if (clear < ${real(HAZE_CLEAR)}) {
-        clear = 0.0;
-        break;
+      float low = asinh((anchor + start - nearest) * bend);
+      float high = asinh((anchor + end - nearest) * bend);
+      bool straight = level < 1e-4 || abs(high - low) < ${real(HAZE_LONG)};
+      int paces = min(count + int(${real(HAZE_ACROSS)} * abs(high - low)), ${HAZE_MOST});
+      float swell = exp(low);
+      float rate = exp((high - low) / float(paces));
+      Probe last = probe(ray, anchor, base, start);
+      float past = start;
+      for (int step = 1; step <= paces; step++) {
+        swell *= rate;
+        float next = straight
+          ? mix(start, end, float(step) / float(paces))
+          : nearest + 0.5 * (swell - 1.0 / swell) / bend - anchor;
+        Probe here = probe(ray, anchor, base, next);
+        float through = 0.5 * (last.thick + here.thick)
+          * spread(last.height, last.tail, here.height, here.tail)
+          * (next - past) / (0.5 * (last.stand + here.stand));
+        float gone = exp(-through);
+        vec3 middle = vec3(
+          last.spot + here.spot,
+          last.height * last.stand + here.height * here.stand
+        ).xzy;
+        float sent = clear
+          * (strip(last.shadow, last.lit, here.shadow, here.lit, through, gone) + ${real(HAZE_DIM)} * (1.0 - gone))
+          * glint(
+            mix(${real(HAZE_DUST[0])}, ${real(HAZE_DUST[1])}, 0.5 * (last.fine + here.fine)),
+            -dot(normalize(middle), ray)
+          );
+        seen += sent;
+        lent += sent * 0.5 * (last.lamp + here.lamp);
+        where += sent * 0.5 * (last.share + here.share);
+        if (here.share < hot) {
+          glow += clear * (1.0 - gone) * toneAt(here.share).g;
+        }
+        clear *= gone;
+        if (clear < ${real(HAZE_CLEAR)}) {
+          clear = 0.0;
+          break;
+        }
+        last = here;
+        past = next;
       }
-      last = here;
-      past = next;
     }
+    float ice = toneAt(seen > 0.0 ? where / seen : 0.0).r;
+    float glare = sqrt(${real(HAZE_GAIN)} * seen);
+    float shown = seen > 0.0 ? lent / seen * glare / (1.0 + glare / ${real(HAZE_MOST_LIGHT)}) : 0.0;
+    float grain = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) - 0.5;
+    vec3 lamp = shine * mix(dust, frost, ice) * shown + ${HAZE_EMBER} * glow;
+    gl_FragColor = vec4(lamp, 1.0 - clear);
+    #include <colorspace_fragment>
+    gl_FragColor.rgb = max(gl_FragColor.rgb + grain / 255.0 * step(1e-4, shown + glow), 0.0);
   }
-  float ice = toneAt(seen > 0.0 ? where / seen : 0.0).r;
-  float glare = sqrt(${real(HAZE_GAIN)} * seen);
-  float shown = seen > 0.0 ? lent / seen * glare / (1.0 + glare / ${real(HAZE_MOST_LIGHT)}) : 0.0;
-  float grain = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) - 0.5;
-  vec3 lamp = shine * mix(dust, frost, ice) * shown + ${HAZE_EMBER} * glow;
-  gl_FragColor = vec4(lamp, 1.0 - clear);
-  #include <colorspace_fragment>
-  gl_FragColor.rgb = max(gl_FragColor.rgb + grain / 255.0 * step(1e-4, shown + glow), 0.0);
 }
 `;
 
