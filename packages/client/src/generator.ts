@@ -90,6 +90,8 @@ const ROCK_GRAIN = 3000;
 const ICE_GRAIN = 900;
 const AGE_LEAST = 1e-4;
 const AGE_MOST = 13;
+const FPS_SPAN = 0.5;
+const AT_REST = "at rest";
 
 const query = new URLSearchParams(location.search);
 const asked = Number.parseInt(query.get("seed") ?? "", 10);
@@ -526,6 +528,37 @@ space.onFrame((elapsed) => {
   }
 });
 
+const fps = el(
+  "span",
+  {
+    class: "fps",
+    title:
+      "Frames of the scene drawn a second; while nothing in it moves it is at rest and is not drawn again",
+  },
+  AT_REST,
+);
+let drew = false;
+let frames = 0;
+let drawing = 0;
+let waited = 0;
+space.onPresent(() => {
+  drew = true;
+});
+space.onFrame((elapsed) => {
+  waited += elapsed;
+  if (drew) {
+    frames += 1;
+    drawing += elapsed;
+    drew = false;
+  }
+  if (waited >= FPS_SPAN) {
+    write(fps, drawing > 0 ? `${Math.round(frames / drawing)} fps` : AT_REST);
+    frames = 0;
+    drawing = 0;
+    waited = 0;
+  }
+});
+
 const seedField = el("input", { type: "number", value: String(seed), min: "0", step: "1" });
 const starField = el("input", {
   type: "number",
@@ -629,6 +662,7 @@ required<HTMLElement>("#topbar").append(
     },
     "Fly",
   ),
+  fps,
 );
 
 const suns = system.bodies.filter((body) => sunny(body));
