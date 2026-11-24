@@ -89,16 +89,36 @@ test("a planet thins the dust along its orbit and leaves soft walls beside it", 
   assert.ok(empty.dense[lane] < 0.01 * empty.dense[before], `${empty.dense[lane]}`);
   assert.ok(thin.dense[lane] > 0.02 * thin.dense[before] && thin.dense[lane] < thin.dense[after]);
   assert.ok(full.dense[lane] < full.dense[before] && full.dense[lane] > full.dense[after]);
-  const wall = columnAt(empty, 20 * Math.exp(-3 * 0.04));
+  const wall = columnAt(empty, 20 * Math.exp(-2.5 * 1.5 * 0.04));
   assert.ok(empty.dense[wall] > 0.3 * empty.dense[before]);
   assert.ok(empty.dense[wall] < 0.7 * empty.dense[before]);
   assert.ok(empty.dense[columnAt(empty, 20)] < 0.01 * empty.dense[before]);
-  assert.ok(empty.dense[columnAt(empty, 26)] < 0.01 * empty.dense[after]);
-  assert.ok(empty.outer < 60 * Math.exp(0.06) && empty.inner > 10 * Math.exp(-0.05));
+  assert.ok(empty.dense[columnAt(empty, 26)] < 0.02 * empty.dense[after]);
+  assert.ok(empty.outer < 60 * Math.exp(0.09) && empty.inner > 10 * Math.exp(-0.06));
   assert.ok(empty.dense[0] < 1e-3 * empty.dense[before]);
   assert.ok(empty.dense[HAZE_COLUMNS - 1] < 1e-3 * empty.dense[after]);
-  assert.ok(empty.tall.every((stand) => stand > 0.02 && stand < 0.08));
+  assert.ok(empty.tall.every((stand) => stand > 0 && stand < 0.08));
   assert.ok(empty.far.every((far, column) => column === 0 || far > empty.far[column - 1]));
+});
+
+test("a layer stands lower where an edge thins its dust, and keeps its height at an inner wall", () => {
+  const profile = profileOf([
+    layer(10, 20, { depth: 100, height: 0.04, flare: 0 }),
+    layer(26, 60, { depth: 30, height: 0.05, flare: 0 }),
+  ]);
+  const stand = (reach: number) => profile.tall[columnAt(profile, reach)];
+  assert.ok(Math.abs(stand(14) - 0.04) < 1e-3 && Math.abs(stand(40) - 0.05) < 1e-3);
+  assert.ok(stand(19) < 0.6 * stand(14) && stand(19.8) < 0.3 * stand(14), `${stand(19)}`);
+  assert.ok(stand(23) < 0.1 * stand(14) && stand(23) > 0);
+  assert.ok(stand(32) > 0.95 * stand(40), `${stand(32)}`);
+  const kept = (reach: number) => profile.dense[columnAt(profile, reach)];
+  assert.ok(kept(19) < 0.2 * kept(14) && kept(27) < 0.2 * kept(40));
+  assert.ok(kept(32) < 0.8 * kept(40) * (40 / 32) ** 1.5);
+  const faded = profileOf([layer(10, 60, { depth: 30, height: 0.05, flare: 0, fade: 30 })]);
+  const rim = columnAt(faded, 58);
+  assert.ok(faded.dense[rim] < 1e-2 * faded.dense[columnAt(faded, 20)]);
+  assert.ok(faded.tall[rim] < 0.2 * faded.tall[columnAt(faded, 20)]);
+  assert.ok(faded.outer < 60 * Math.exp(0.02), `${faded.outer}`);
 });
 
 test("a drawn lane keeps the true distances of the disk it stands for", () => {
@@ -136,9 +156,21 @@ test("starlight skims a flat ring and is stopped in the skin of a thick flared d
   };
   assert.ok(skin(0.3) > 3 && skin(0.3) < 6, `${skin(0.3)}`);
   assert.ok(skin(0.8) > 2 && skin(0.8) < skin(0.3), `${skin(0.8)}`);
-  assert.ok(shade.deepest > 1e4 && shade.top > 60 && shade.top < 140, `${shade.top}`);
+  assert.ok(shade.deepest > 1e4 && shade.top > 40 && shade.top < 140, `${shade.top}`);
   assert.ok(shade.steep > 0.2 && shade.steep < 0.5);
   assert.ok(shade.depth[Math.round(0.5 * SHADE_COLUMNS)] > Math.log(1e3));
+  const radii = Array.from(
+    shade.hull,
+    (_, column) => cloud.inner * (cloud.outer / cloud.inner) ** (column / (HAZE_COLUMNS - 1)),
+  );
+  shade.hull.forEach((high, column) => {
+    const brim = cloud.dense[column] > 0 ? shade.brims[column] * cloud.tall[column] : 0;
+    assert.ok(high >= brim * radii[column] * (1 - 1e-6) && high <= shade.top * (1 + 1e-6));
+    if (column > 0) {
+      const slope = Math.abs(high - shade.hull[column - 1]) / (radii[column] - radii[column - 1]);
+      assert.ok(slope <= shade.steep * (1 + 1e-4), `${column}: ${slope}`);
+    }
+  });
 });
 
 test("dust heaped beyond a lane stands out of the disk around it", () => {
@@ -161,7 +193,8 @@ test("a body deep in a thick disk gets no light of its star, and one above it or
   assert.ok(shadowAt(cloud, shade, 50, -6.5 * stand(50)) < 0.05);
   assert.equal(shadowAt(cloud, shade, 1, 0), 0);
   assert.ok(shadowAt(cloud, shade, 400, 0) > 100);
-  assert.ok(shadowAt(cloud, shade, 400, 13 * stand(200)) < 0.05);
+  assert.ok(shadowAt(cloud, shade, 400, 0.5 * 400) < 0.05);
+  assert.ok(shadowAt(cloud, shade, 199, 0.5 * 199) < 0.05 && shadowAt(cloud, shade, 199, 0) > 100);
   const thin = profileOf([layer(20, 30, { depth: 1e-4, height: 0.05, flare: 0, gas: 0 })]);
   assert.ok(shadowAt(thin, shadeOf(thin, 0.4), 28, 0) < 0.01);
 });

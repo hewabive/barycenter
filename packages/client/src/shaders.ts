@@ -247,6 +247,7 @@ const HAZE_GAIN = 6;
 const HAZE_MOST_LIGHT = 1.4;
 const HAZE_DIM = 2e-6;
 const HAZE_SLACK = 1.1;
+const HAZE_TURNS = 3;
 const HAZE_CLEAR = 0.01;
 const HAZE_NEAR = 0.3;
 const HAZE_LONG = 0.25;
@@ -1554,7 +1555,7 @@ vec4 toneAt(float share) {
 }
 
 float brimAt(float reach) {
-  return exp(toneAt(along(reach)).b) * reach;
+  return exp(toneAt(along(reach)).b);
 }
 
 Probe probe(vec3 ray, float anchor, float base, float offset) {
@@ -1642,12 +1643,12 @@ void main() {
       float most = hull.y / climb;
       float back = min(anchor - from, most);
       float fore = min(to - anchor, most);
-      float here = brimAt(length(eye.xz + anchor * ray.xz));
-      for (int turn = 0; turn < 2; turn++) {
+      float drop = hull.z * level;
+      for (int turn = 0; turn < ${HAZE_TURNS}; turn++) {
         float behind = brimAt(length(eye.xz + (anchor - back) * ray.xz));
         float ahead = brimAt(length(eye.xz + (anchor + fore) * ray.xz));
-        back = min(back, ${real(HAZE_SLACK)} * max(here, behind) / climb);
-        fore = min(fore, ${real(HAZE_SLACK)} * max(here, ahead) / climb);
+        back = min(back, (${real(HAZE_SLACK)} * behind + drop * back) / (climb + drop));
+        fore = min(fore, (${real(HAZE_SLACK)} * ahead + drop * fore) / (climb + drop));
       }
       float first = max(from - anchor, -back);
       float last = min(to - anchor, fore);

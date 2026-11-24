@@ -122,6 +122,8 @@ const LIGHT_POWER = 0.1;
 const GLARE_POWER = 0.3;
 const LIGHT_MOST = 1.35;
 const FILL_LIGHT = 0.025;
+const DUST_POWER = 0.2;
+const DUST_MOST = 3;
 const GLOW_FROM = [650, 900];
 export const SKY_LIGHT = 3e-7;
 const GAS_STORE = 14300;
@@ -463,6 +465,10 @@ export function shownLight(lamps: number[], heat: number, spare = 0): Shown {
     sky: Math.max(part(sky), FILL_LIGHT * Math.max(0, ...shown)),
     glow: part(own) * smooth(GLOW_FROM[0], GLOW_FROM[1], heat),
   };
+}
+
+export function dustLight(seen: number): number {
+  return Math.min(DUST_MOST, (seen / EARTH_SEEN) ** DUST_POWER);
 }
 
 export function innerHeat(mass: number, age: number, vigor: number): number {

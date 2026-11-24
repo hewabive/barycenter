@@ -1,4 +1,4 @@
-import { type Disk, depthAt, type Lane, type Ridge } from "@barycenter/sim";
+import { type Disk, depthAt, type Lane, leftAt, type Ridge, settledBy } from "@barycenter/sim";
 
 export const HAZE_COLUMNS = 384;
 export const SHADE_COLUMNS = 192;
@@ -9,10 +9,11 @@ export const LAMP_HEIGHT = 4 / (3 * Math.PI);
 
 const BELL = 1 / Math.sqrt(2 * Math.PI);
 const TAIL = [0.3435, 5.3954372];
-const SOFT = 1;
+const SOFT = 1.5;
 const MARGIN = 1;
-const INSET = 3;
-const INSET_MOST = 0.3;
+const INSET = 2.5;
+const INSET_MOST = 0.4;
+const SETTLED_LEAST = 0.05;
 const BRIM_LEAST = 4.5;
 const SEEN_LEAST = 1e-12;
 const SKIN = Math.log(0.02);
@@ -37,6 +38,7 @@ export interface Profile {
 export interface Shade {
   depth: Float32Array;
   brims: Float32Array;
+  hull: Float32Array;
   top: number;
   steep: number;
   deepest: number;
@@ -90,7 +92,11 @@ export function profileOf(layers: Layer[], ridges: Ridge[] = []): Profile {
   const edges = layers.map(({ lane, disk }) => {
     const wide = Math.log(lane.outer / lane.inner);
     const rise = Math.min(soft(disk, disk.inner), (INSET_MOST * wide) / INSET);
-    const fall = Math.min(soft(disk, disk.outer), (INSET_MOST * wide) / INSET);
+    const cut = Math.sqrt(leftAt(disk, disk.outer));
+    const fall = Math.max(
+      rough,
+      Math.min(cut * soft(disk, disk.outer), (INSET_MOST * wide) / INSET),
+    );
     return {
       from: Math.log(lane.inner) + INSET * rise,
       to: Math.log(lane.outer) - INSET * fall,
@@ -126,8 +132,8 @@ export function profileOf(layers: Layer[], ridges: Ridge[] = []): Profile {
     const found = edges.findIndex((edge) => edge.to >= at);
     const here = found < 0 ? layers.length - 1 : found;
     const right = layers[here].disk;
+    let stand = standOf(right, real);
     if (here === 0 || at >= edges[here].from) {
-      tall[column] = standOf(right, real);
       ice[column] = right.ice;
       fine[column] = right.gas > 0 ? 1 : 0;
     } else {
@@ -135,16 +141,18 @@ export function profileOf(layers: Layer[], ridges: Ridge[] = []): Profile {
       const along = (at - edges[here - 1].to) / (edges[here].from - edges[here - 1].to);
       const low = Math.log(standOf(left, left.outer));
       const high = Math.log(standOf(right, right.inner));
-      tall[column] = Math.exp(low + (high - low) * along);
+      stand = Math.exp(low + (high - low) * along);
       ice[column] = left.ice + (right.ice - left.ice) * along;
       fine[column] = (left.gas > 0 ? 1 - along : 0) + (right.gas > 0 ? along : 0);
     }
     let sum = 0;
+    let kept = 0;
     layers.forEach(({ disk, thinned }, index) => {
       const edge = edges[index];
-      const window =
-        (1 - above((at - edge.from) / edge.rise)) * (1 - above((edge.to - at) / edge.fall));
-      sum += window * depthAt(disk, real);
+      const risen = 1 - above((at - edge.from) / edge.rise);
+      const fallen = 1 - above((edge.to - at) / edge.fall);
+      sum += risen * fallen * depthAt(disk, real);
+      kept = Math.max(kept, Math.min(1, 2 * risen) * fallen * leftAt(disk, real));
       const beyond = layers[index + 1];
       if (thinned > 0 && beyond !== undefined) {
         const after = edges[index + 1];
@@ -155,10 +163,12 @@ export function profileOf(layers: Layer[], ridges: Ridge[] = []): Profile {
         const lane = above((edge.to - at) / edge.fall) * above((at - after.from) / after.rise);
         if (near > 0 && away > 0) {
           sum += thinned * lane * near ** (1 - share) * away ** share;
+          kept = Math.max(kept, thinned * lane);
         }
       }
     });
     dense[column] = column === 0 || column === HAZE_COLUMNS - 1 ? 0 : sum;
+    tall[column] = stand * Math.max(SETTLED_LEAST, settledBy(Math.min(1, kept)));
   }
   const pace = Math.log(outer / inner) / (HAZE_COLUMNS - 1);
   for (const { at, rise } of ridges) {
@@ -222,13 +232,23 @@ export function shadeOf(profile: Profile, lamp: number): Shade {
   });
   let top = 0;
   let steep = 0;
+  const hull = new Float32Array(HAZE_COLUMNS);
   dense.forEach((seen, column) => {
     if (seen > SEEN_LEAST) {
-      top = Math.max(top, brims[column] * tall[column] * radii[column]);
+      hull[column] = brims[column] * tall[column] * radii[column];
+      top = Math.max(top, hull[column]);
       steep = Math.max(steep, brims[column] * tall[column]);
     }
   });
-  return { depth, brims, top, steep, deepest };
+  for (let column = 1; column < HAZE_COLUMNS; column++) {
+    const kept = hull[column - 1] - steep * (radii[column] - radii[column - 1]);
+    hull[column] = Math.max(hull[column], kept);
+  }
+  for (let column = HAZE_COLUMNS - 2; column >= 0; column--) {
+    const kept = hull[column + 1] - steep * (radii[column + 1] - radii[column]);
+    hull[column] = Math.max(hull[column], kept);
+  }
+  return { depth, brims, hull, top, steep, deepest };
 }
 
 export function shadowAt(profile: Profile, shade: Shade, reach: number, lift: number): number {
@@ -236,12 +256,21 @@ export function shadowAt(profile: Profile, shade: Shade, reach: number, lift: nu
   if (reach <= inner) {
     return 0;
   }
-  const far = Math.min(reach, outer);
-  const share = Math.log(far / inner) / Math.log(outer / inner);
-  const cell = share * (HAZE_COLUMNS - 1);
-  const whole = Math.min(HAZE_COLUMNS - 2, Math.floor(cell));
-  const stand = tall[whole] + (tall[whole + 1] - tall[whole]) * (cell - whole);
-  const height = Math.min(SHADE_REACH, (Math.abs(lift) * far) / reach / (stand * far));
+  const slope = Math.abs(lift) / reach;
+  const pace = Math.log(outer / inner) / (HAZE_COLUMNS - 1);
+  let cell = Math.min(HAZE_COLUMNS - 1, Math.log(reach / inner) / pace);
+  const standAt = (at: number) => {
+    const whole = Math.min(HAZE_COLUMNS - 2, Math.floor(at));
+    return tall[whole] + (tall[whole + 1] - tall[whole]) * (at - whole);
+  };
+  while (cell > 0 && slope > SHADE_REACH * standAt(cell)) {
+    cell = Math.max(0, Math.ceil(cell) - 1);
+  }
+  if (cell <= 0) {
+    return 0;
+  }
+  const share = cell / (HAZE_COLUMNS - 1);
+  const height = Math.min(SHADE_REACH, slope / standAt(cell));
   const across = share * (SHADE_COLUMNS - 1);
   const column = Math.min(SHADE_COLUMNS - 2, Math.floor(across));
   const up = (height / SHADE_REACH) * (SHADE_ROWS - 1);

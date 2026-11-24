@@ -82,6 +82,7 @@ const HAZE_SIDES = 64;
 const HAZE_COARSE = 0.7;
 const SKINNED = 0.3;
 const EMBER_LEAST = 0.004;
+const HULL_LEAST = 1e-12;
 
 export function createBelt(
   lane: Lane,
@@ -176,7 +177,7 @@ export function createHaze(
     const ember = lamp.ember(far);
     lanes.push(Math.log(Math.max(seen, 1e-13)), Math.log(profile.tall[column]), lamp.level(far));
     lanes.push(profile.fine[column]);
-    tones.push(profile.ice[column], ember, Math.log(shade.brims[column] * profile.tall[column]), 0);
+    tones.push(profile.ice[column], ember, Math.log(Math.max(shade.hull[column], HULL_LEAST)), 0);
     hot = ember > EMBER_LEAST ? (column + 1) / (HAZE_COLUMNS - 1) : hot;
   });
   const eye = new Vector3();

@@ -1230,7 +1230,7 @@ function arranged(bodies: Body[], anchor: Anchor): Body[] {
         edge = orbit[child.id] * (1 + oval) + span + gap + spare;
       } else if (belt !== null) {
         const inner = Math.max(drawn(belt.inner), edge);
-        const outer = inner + drawn(belt.outer) - drawn(belt.inner);
+        const outer = (inner * drawn(belt.outer)) / drawn(belt.inner);
         lanes[id].push({ inner, outer, year: turn(belt, physics.mass) });
         edge = outer + gap;
       }

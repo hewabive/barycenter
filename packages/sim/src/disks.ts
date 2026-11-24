@@ -24,7 +24,8 @@ export const SOLID_YEARS = 3e7;
 const DUST = 1e-5;
 const WORN = 200;
 const FALL = 1.5;
-const FADE = [0.75, 4];
+const FADE = [0.5, 3];
+const AIRS = 0.75;
 const SKIN = 1e-6;
 const RIM = 0.07 * ASTRONOMICAL_UNIT;
 const RIDGE = [10, 2];
@@ -55,6 +56,8 @@ const STIRRED_MOST = 0.3;
 const DUST_STANDS = 0.04;
 const GAP_DEPTH = 0.04;
 const SPREAD = 0.0425;
+const RIDES = 0.6;
+const SETTLES = 0.5;
 
 export interface Station {
   orbit: number;
@@ -115,6 +118,14 @@ export function depthAt(disk: Disk, at: number): number {
   const mean = means.get(disk) ?? (2 * summed(inner, outer, fade)) / (outer ** 2 - inner ** 2);
   means.set(disk, mean);
   return (depth * reach ** -FALL * faded(reach, fade)) / mean;
+}
+
+export function leftAt(disk: Disk, at: number): number {
+  return faded(Math.min(disk.outer, Math.max(disk.inner, at)), disk.fade);
+}
+
+export function settledBy(left: number): number {
+  return left > 0 ? 1 / Math.sqrt(1 + SETTLES * (1 / left - 1)) : 0;
 }
 
 export function wearOf(at: number, centre: number, age: number): number {
@@ -233,11 +244,12 @@ export function nebulaOf(cloud: Cloud): Disk[] {
   const hole = holeOf(cloud);
   const thin = 1 - GAS_THINNED * Math.min(1, age / (HOLE_FROM * airy));
   const sigma = SOLID_SIGMA * (centre / SUN_MASS) * ASTRONOMICAL_UNIT ** 1.5;
-  const fade = FADE[0] * reach;
+  const fade = FADE[0] * outer;
   const strip = (from: number, to: number, boost: number) =>
     to > from ? 2 * Math.PI * sigma * boost * summed(from, to, fade) : 0;
+  const airs = AIRS * reach;
   const aired = (from: number, to: number) =>
-    (Math.exp(-from / fade) - Math.exp(-to / fade)) / (1 - Math.exp(-reach / fade));
+    (Math.exp(-from / airs) - Math.exp(-to / airs)) / (1 - Math.exp(-reach / airs));
   const strewn = (from: number, to: number) =>
     strip(from, Math.min(to, frost), 1) + strip(Math.max(from, frost), to, ICE_BOOST);
   const stations = cloud.stations
@@ -339,7 +351,7 @@ export function nebulaOf(cloud: Cloud): Disk[] {
       const held = gasHeight(Math.sqrt(disk.inner * disk.outer), centre, frost);
       return {
         ...disk,
-        height: held / Math.sqrt(1 + loose),
+        height: (RIDES * held) / Math.sqrt(1 + loose),
         flare: FLARE - (0.5 * loose) / (1 + loose),
       };
     });

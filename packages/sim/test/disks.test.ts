@@ -8,11 +8,13 @@ import {
   GROWN_MOST,
   gasHeight,
   holeOf,
+  leftAt,
   leftOf,
   nebulaOf,
   ridgeOf,
   rimOf,
   type Station,
+  settledBy,
   stirredHeight,
   thinningOf,
   wearOf,
@@ -116,8 +118,8 @@ test("dust stands as high as the gas holds it, and lower where the gas has thinn
   assert.ok(Math.abs(held[0] - 0.033) < 0.002 && Math.abs(held[2] - 0.105) < 0.005, `${held}`);
   const giant = [planet(5.2, 0.5, 318)];
   const [near, far] = nebulaOf(cloud(0.3, giant));
-  assert.ok(near.height > 0.02 && near.height < gasHeight(0.5 * AU, SUN_MASS, 2.7 * AU));
-  assert.ok(far.height > near.height && far.height < gasHeight(18 * AU, SUN_MASS, 2.7 * AU));
+  assert.ok(near.height > 0.012 && near.height < 0.6 * gasHeight(0.5 * AU, SUN_MASS, 2.7 * AU));
+  assert.ok(far.height > near.height && far.height < 0.6 * gasHeight(25 * AU, SUN_MASS, 2.7 * AU));
   assert.ok(near.flare > 0.2 && near.flare <= 0.25 && far.flare < near.flare);
   const late = nebulaOf(cloud(3.1, giant))[1];
   assert.ok(late.gas < far.gas && late.height < 0.9 * far.height, `${late.height} ${far.height}`);
@@ -161,13 +163,19 @@ test("collisions wear the dust near the star first, and all of it as the age goe
   assert.ok(Math.abs(belt(4e-4, 1e5).grain - 1) < 0.1 && ours.grain > 5);
 });
 
-test("the dust of a young disk thins out over the last quarter of its reach", () => {
+test("the dust of a young disk thins out over the outer half of its width", () => {
   const [disk] = nebulaOf(cloud(0.3));
-  assert.equal(disk.fade, 45 * AU);
+  assert.equal(disk.fade, 30 * AU);
   const fall = (at: number) => depthAt(disk, at * AU) * at ** 1.5;
   assert.ok(Math.abs(fall(3) / fall(1) - 1) < 0.02);
-  assert.ok(fall(30) / fall(3) > 0.8 && fall(45) / fall(3) < 0.4);
-  assert.ok(fall(60) / fall(3) < 0.05 && depthAt(disk, 60 * AU) < 1);
+  assert.ok(fall(15) / fall(3) > 0.85 && fall(30) / fall(3) < 0.4);
+  assert.ok(fall(45) / fall(3) < 0.05 && depthAt(disk, 60 * AU) < 0.01);
+  assert.ok(Math.abs(leftAt(disk, 30 * AU) - Math.exp(-1)) < 1e-9 && leftAt(disk, AU) > 0.999);
+  const near = nebulaOf({ ...cloud(0.3), outer: 12 * AU })[0];
+  assert.equal(near.fade, 6 * AU);
+  assert.ok(depthAt(near, 12 * AU) < 1e-3 * depthAt(near, 3 * AU));
+  assert.ok(settledBy(1) === 1 && settledBy(0) === 0);
+  assert.ok(Math.abs(settledBy(0.1) - 1 / Math.sqrt(5.5)) < 1e-9);
   const steps = 4000;
   let sum = 0;
   for (let step = 0; step < steps; step++) {

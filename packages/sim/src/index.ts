@@ -4,8 +4,10 @@ export {
   type Cleared,
   clearedBy,
   depthAt,
+  leftAt,
   type Ridge,
   ridgeOf,
+  settledBy,
   thinningOf,
 } from "./disks.ts";
 export {
@@ -88,6 +90,7 @@ export {
   columnOf,
   DAY,
   densityOf,
+  dustLight,
   EARTH_AIR,
   EARTH_GRAVITY,
   EARTH_LIGHT,

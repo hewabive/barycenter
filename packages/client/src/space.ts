@@ -6,6 +6,7 @@ import {
   courseOf,
   createRandom,
   type Disk,
+  dustLight,
   heatAt,
   poleOf,
   poseOf,
@@ -397,7 +398,7 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
         {
           girth: owner.body.radius,
           shine: tintOf(owner.body),
-          level: (far) => shownLight([lit(far)], 0).lamps[0],
+          level: (far) => dustLight(lit(far)),
           ember: (far) => shownLight([lit(far)], heat * Math.sqrt(radius / (2 * far))).glow,
         },
         coarse.matches,
