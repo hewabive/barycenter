@@ -8,6 +8,7 @@ import {
   TIME_POWER,
 } from "@barycenter/sim";
 import {
+  AdditiveBlending,
   BackSide,
   BufferAttribute,
   BufferGeometry,
@@ -16,6 +17,7 @@ import {
   CylinderGeometry,
   DataTexture,
   DataUtils,
+  DoubleSide,
   HalfFloatType,
   LinearFilter,
   Matrix4,
@@ -50,6 +52,8 @@ import {
   HAZE_FRAGMENT,
   HAZE_STEPS,
   HAZE_VERTEX,
+  JET_FRAGMENT,
+  JET_VERTEX,
   MIST_FRAGMENT,
   MIST_VERTEX,
   SCREEN_ROOM,
@@ -69,6 +73,11 @@ export interface Belt {
   into: Matrix4;
   turn(tick: number, dense: number, scale: number): void;
   veil(shroud: Shroud): void;
+}
+
+export interface Jet {
+  mesh: Mesh;
+  turn(tick: number, away: number): void;
 }
 
 export interface Swarm extends Belt {
@@ -127,6 +136,10 @@ const ARC_MOST = 2;
 const ARC_GAIN = 0.9;
 const ARC_DEEP = 0.03;
 const ARC_SEED = 7.31e-9;
+const JET_STEPS = 48;
+const JET_OPEN = 0.008;
+const JET_FAR = [1.2, 2.5];
+const JET_YEARS = 36;
 const SWARM_LEAST = 120;
 const SWARM_MOST = 700;
 const SWARM_DENSE = 900;
@@ -489,6 +502,62 @@ export function createMist(): Mist {
       const high = Math.max(1, Math.ceil(height / MIST_PIXELS));
       target.setSize(wide, high);
       grid.set(wide, high);
+    },
+  };
+}
+
+export function createJet(
+  reach: number,
+  girth: number,
+  year: number,
+  strength: number,
+  shroud: Shroud,
+): Jet {
+  const spots: number[] = [];
+  const corners: number[] = [];
+  for (const pole of [1, -1]) {
+    for (let step = 0; step <= JET_STEPS; step++) {
+      spots.push(-1, step / JET_STEPS, pole, 1, step / JET_STEPS, pole);
+    }
+    const first = pole > 0 ? 0 : 2 * (JET_STEPS + 1);
+    for (let step = 0; step < JET_STEPS; step++) {
+      const low = first + 2 * step;
+      corners.push(low, low + 1, low + 2, low + 1, low + 3, low + 2);
+    }
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute("position", new BufferAttribute(new Float32Array(spots), 3));
+  geometry.setIndex(corners);
+  const uniforms = {
+    ...cloaked(),
+    reach: { value: reach },
+    girth: { value: new Vector2(girth, JET_OPEN) },
+    strength: { value: strength },
+    flow: { value: 0 },
+    shown: { value: 0 },
+  };
+  cloak(uniforms, shroud);
+  const mesh = new Mesh(
+    geometry,
+    new ShaderMaterial({
+      vertexShader: JET_VERTEX,
+      fragmentShader: JET_FRAGMENT,
+      uniforms,
+      transparent: true,
+      blending: AdditiveBlending,
+      depthWrite: false,
+      side: DoubleSide,
+    }),
+  );
+  mesh.frustumCulled = false;
+  return {
+    mesh,
+    turn(tick, away) {
+      const gone = tick / (JET_YEARS * year);
+      const far = Math.max(0, Math.min(1, (away - JET_FAR[0]) / (JET_FAR[1] - JET_FAR[0])));
+      uniforms.flow.value = gone - Math.floor(gone);
+      uniforms.shown.value = far * far * (3 - 2 * far);
+      mesh.visible = far > 0;
     },
   };
 }

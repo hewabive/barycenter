@@ -8,18 +8,21 @@ import {
   type Disk,
   dustLight,
   heatAt,
+  inflowOf,
   poleOf,
   poseOf,
   positionOf,
   type Ridge,
   ridgeOf,
   type Sketch,
+  SUN_MASS,
   seenGlow,
   shownLight,
   spinOf,
   starborn,
   swayOf,
   thinningOf,
+  YEAR,
 } from "@barycenter/sim";
 import {
   BufferAttribute,
@@ -44,7 +47,7 @@ import {
   WebGLRenderer,
 } from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { createBelt, createHaze, createMist, createSwarm } from "./belts.ts";
+import { createBelt, createHaze, createJet, createMist, createSwarm } from "./belts.ts";
 import { createLooks, type Look, type Paint } from "./bodies.ts";
 import { el } from "./dom.ts";
 import type { Layer } from "./haze.ts";
@@ -168,6 +171,9 @@ const SWARM_LEAN = 0.3;
 const SWARM_SHINE = 0.8;
 const SPIRAL_FROM = [-2.7, -2.2];
 const SPIRAL_GAIN = 0.7;
+const JET_LEAST = (1e-8 * SUN_MASS) / YEAR;
+const JET_LONG = 3;
+const JET_GIRTH = 0.25;
 const HAZE_BUBBLE = 6;
 const HAZE_NEAR = [10, 30];
 const TRACK_ORDER = 0.5;
@@ -451,7 +457,23 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
         .forEach((swarm, slot) => {
           swarm.slot = slot;
         });
-      return [{ ...haze, about, owner, lamps, swarms }];
+      const flow = starborn(owner.body.physics) ? inflowOf(owner.body) : 0;
+      const strength = Math.min(1, Math.log10(Math.max(1, flow / JET_LEAST)));
+      const jet =
+        strength > 0 && about === null
+          ? createJet(
+              JET_LONG * haze.shroud.span.y,
+              JET_GIRTH * owner.body.radius,
+              layers[0].lane.year,
+              strength,
+              haze.shroud,
+            )
+          : null;
+      if (jet !== null) {
+        jet.mesh.renderOrder = BELT_ORDER;
+        haze.mesh.add(jet.mesh);
+      }
+      return [{ ...haze, about, owner, lamps, swarms, jet }];
     });
   });
   for (const belt of belts) {
@@ -793,6 +815,7 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
       for (const haze of hazes) {
         haze.turn(shown, (2 * slope) / mist.grid.y);
         haze.mesh.worldToLocal(haze.eye.copy(camera.position));
+        haze.jet?.turn(shown, haze.eye.length() / haze.shroud.span.y);
         const parent = haze.owner.body.parent;
         const around = hazes.find((other) => other.owner.body.id === parent);
         if (around !== undefined) {

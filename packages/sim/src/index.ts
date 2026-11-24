@@ -4,6 +4,7 @@ export {
   type Cleared,
   clearedBy,
   depthAt,
+  inflowOf,
   leftAt,
   type Ridge,
   ridgeOf,

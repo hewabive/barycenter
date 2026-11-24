@@ -12,7 +12,8 @@ import {
   YEAR,
   yearOf,
 } from "./physics.ts";
-import type { Disk } from "./types.ts";
+import { createRandom } from "./random.ts";
+import type { Body, Disk } from "./types.ts";
 
 export const ROCK_GRAIN = 3000;
 export const ICE_GRAIN = 900;
@@ -58,6 +59,11 @@ const GAP_DEPTH = 0.04;
 const SPREAD = 0.0425;
 const RIDES = 0.6;
 const SETTLES = 0.5;
+const INFLOW = (1e-8 * SUN_MASS) / YEAR;
+const INFLOW_AGE = [1e5 * YEAR, 1e6 * YEAR];
+const INFLOW_FALL = 1.5;
+const INFLOW_SPREAD = 0.5;
+const INFLOW_SALT = 977;
 
 export interface Station {
   orbit: number;
@@ -126,6 +132,20 @@ export function leftAt(disk: Disk, at: number): number {
 
 export function settledBy(left: number): number {
   return left > 0 ? 1 / Math.sqrt(1 + SETTLES * (1 / left - 1)) : 0;
+}
+
+export function inflowOf(star: Pick<Body, "seed" | "physics">): number {
+  const { mass, age, disks } = star.physics;
+  const nearest = disks
+    .filter((disk) => disk.lasts === 0)
+    .sort((left, right) => left.inner - right.inner)[0];
+  if (nearest === undefined || nearest.gas <= 0) {
+    return 0;
+  }
+  const random = createRandom(star.seed + INFLOW_SALT);
+  const luck = 2 * (random.next() + random.next() + random.next() - 1.5);
+  const young = Math.max(age, INFLOW_AGE[0]) / INFLOW_AGE[1];
+  return INFLOW * (mass / SUN_MASS) ** 2 * young ** -INFLOW_FALL * 10 ** (INFLOW_SPREAD * luck);
 }
 
 export function wearOf(at: number, centre: number, age: number): number {

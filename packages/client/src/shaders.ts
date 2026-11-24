@@ -249,6 +249,10 @@ const HAZE_DIM = 2e-6;
 const HAZE_SLACK = 1.1;
 const HAZE_TURNS = 3;
 const SWARM_SWAY = 9;
+const JET_WIDE = 2.5;
+const JET_KNOTS = [5, 8];
+const JET_GLOW = 0.7;
+const JET_ASIDE = [0.1, 0.35];
 const ARC_WIDE = 2.4;
 const SPIRAL_TWIST = 5;
 const SPIRAL_REACH = 0.5;
@@ -1581,6 +1585,49 @@ varying float vClear;
 
 void main() {
   gl_FragColor = vec4(tint * shine * vGlint, vClear);
+  #include <colorspace_fragment>
+}
+`;
+
+export const JET_VERTEX = `
+uniform float reach;
+uniform vec2 girth;
+uniform float shown;
+varying float vAcross;
+varying float vHigh;
+varying float vClear;
+${SHROUD}
+void main() {
+  float high = reach * position.y * position.y;
+  vec3 pole = vec3(0.0, position.z, 0.0);
+  vec3 spot = pole * high;
+  vec4 placed = modelViewMatrix * vec4(spot, 1.0);
+  vec3 along = normalize((modelViewMatrix * vec4(pole, 0.0)).xyz);
+  vec3 across = cross(along, normalize(placed.xyz));
+  float lean = length(across);
+  placed.xyz += (lean > 1e-4 ? across / lean : vec3(0.0)) * position.x * ${real(JET_WIDE)} * (girth.x + girth.y * high);
+  vAcross = position.x;
+  vHigh = position.y * position.y;
+  vClear = passing(spot) * shown * smoothstep(${real(JET_ASIDE[0])}, ${real(JET_ASIDE[1])}, lean);
+  gl_Position = projectionMatrix * placed;
+}
+`;
+
+export const JET_FRAGMENT = `
+uniform float strength;
+uniform float flow;
+varying float vAcross;
+varying float vHigh;
+varying float vClear;
+
+void main() {
+  float edge = 1.0 - vAcross * vAcross;
+  float core = edge * edge * exp(-0.5 * ${real(JET_WIDE * JET_WIDE)} * vAcross * vAcross);
+  float first = 0.5 + 0.5 * sin(6.2831853 * ${real(JET_KNOTS[0])} * (vHigh - flow));
+  float second = 0.5 + 0.5 * sin(6.2831853 * ${real(JET_KNOTS[1])} * (vHigh - 0.875 * flow) + 1.7);
+  float knots = 0.3 + 0.7 * first * first * (0.4 + 0.6 * second);
+  float ends = smoothstep(0.0, 0.01, vHigh) * (1.0 - smoothstep(0.55, 1.0, vHigh));
+  gl_FragColor = vec4(${HYDROGEN} * ${real(JET_GLOW)} * strength * core * knots * ends * vClear, 1.0);
   #include <colorspace_fragment>
 }
 `;

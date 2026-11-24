@@ -9,7 +9,7 @@ import {
   TIME_POWER,
 } from "@barycenter/sim";
 import { Color, DataUtils, type ShaderMaterial } from "three";
-import { createBelt, createHaze, createSwarm } from "../src/belts.ts";
+import { createBelt, createHaze, createJet, createSwarm } from "../src/belts.ts";
 import { HAZE_COLUMNS } from "../src/haze.ts";
 
 const AU = ASTRONOMICAL_UNIT;
@@ -122,4 +122,25 @@ test("a planet in a lane of a disk has a swarm, and a heavy one holds two camps 
   const sparse = createSwarm(lane, 100, 1, 0.01, 0.1, 5, new Color(1, 1, 1), true);
   const count = sparse.points.geometry.getAttribute("camp").count;
   assert.ok(Math.abs(count - 0.5 * read(heavy).length) <= 1, `${count}`);
+});
+
+test("a jet shows from outside its disk only, and its knots come round", () => {
+  const disk = belt({ inner: AU, outer: 9 * AU, depth: 50, gas: EARTH_MASS, height: 0.03 });
+  const haze = createHaze(
+    [{ lane: { inner: 30, outer: 70, year: 400 }, disk, thinned: 0 }],
+    [],
+    { girth: 5, shine: new Color(1, 1, 1), level: () => 1, ember: () => 0 },
+    false,
+  );
+  assert.ok(haze !== null);
+  const jet = createJet(210, 1.2, 400, 0.6, haze.shroud);
+  const uniforms = (jet.mesh.material as ShaderMaterial).uniforms;
+  assert.ok(uniforms.lanes.value === haze.shroud.lanes && uniforms.veiled.value === 1);
+  jet.turn(0, 1);
+  assert.ok(!jet.mesh.visible && uniforms.shown.value === 0);
+  jet.turn(0, 1.85);
+  assert.ok(jet.mesh.visible && Math.abs(uniforms.shown.value - 0.5) < 1e-9);
+  jet.turn(36 * 400 * 2.25, 3);
+  assert.ok(uniforms.shown.value === 1 && Math.abs(uniforms.flow.value - 0.25) < 1e-9);
+  assert.equal(jet.mesh.geometry.getAttribute("position").count, 2 * 2 * 49);
 });

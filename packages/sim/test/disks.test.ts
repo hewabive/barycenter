@@ -8,6 +8,7 @@ import {
   GROWN_MOST,
   gasHeight,
   holeOf,
+  inflowOf,
   leftAt,
   leftOf,
   nebulaOf,
@@ -234,4 +235,25 @@ test("a ring spreads fast while it is heavy, lasts while it is light and is worn
   assert.ok(spread > 1.5e19 && spread < 1.5e20);
   assert.ok(Math.abs(leftOf(1e23, saturn, turn, never, 4 * late) / heavy - 0.5) < 0.01);
   assert.ok(leftOf(1e23, saturn, turn, wear, late) < 0.1 * heavy);
+});
+
+test("a young star takes in gas while its disk reaches it, less with every year", () => {
+  const disks = nebulaOf(cloud(1));
+  const star = (seed: number, age: number, given = disks) => ({
+    seed,
+    physics: { mass: SUN_MASS, age: age * MYR, disks: given } as never,
+  });
+  const unit = SUN_MASS / YEAR;
+  const rates = Array.from({ length: 400 }, (_, seed) => inflowOf(star(seed, 1)) / unit);
+  const sorted = [...rates].sort((left, right) => left - right);
+  assert.ok(Math.abs(Math.log10(sorted[200]) + 8) < 0.1, `${sorted[200]}`);
+  assert.ok(sorted[0] > 1e-10 && sorted[399] < 1e-6);
+  const wide = Math.log10(sorted[336] / sorted[64]);
+  assert.ok(Math.abs(wide - 1) < 0.2, `${wide}`);
+  assert.ok(Math.abs(inflowOf(star(7, 4)) / inflowOf(star(7, 1)) - 4 ** -1.5) < 1e-9);
+  assert.equal(inflowOf(star(7, 0.01)), inflowOf(star(7, 0.1)));
+  const holed = nebulaOf(cloud(3.9));
+  assert.ok(holed[0].gas === 0 && holed.some((disk) => disk.gas > 0));
+  assert.equal(inflowOf(star(7, 3.9, holed)), 0);
+  assert.equal(inflowOf(star(7, 1, [])), 0);
 });
