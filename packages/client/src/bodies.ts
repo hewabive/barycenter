@@ -48,6 +48,7 @@ import {
   WebGLCubeRenderTarget,
   type WebGLRenderer,
 } from "three";
+import { type Mate, mateOf, molded } from "./flows.ts";
 import {
   emberOf,
   familyOf,
@@ -70,7 +71,6 @@ import { createProminences } from "./prominences.ts";
 import {
   BAKE_FRAGMENT,
   BAKE_VERTEX,
-  BODY_VERTEX,
   bodyFragment,
   EXPOSURE,
   FLARE_FRAGMENT,
@@ -97,6 +97,7 @@ import {
   SHELL_VERTEX,
   STAR_BAKE_FRAGMENT,
   STAR_FRAGMENT,
+  STAR_VERTEX,
   STORM_ROOM,
 } from "./shaders.ts";
 import { createActivity, createRoll, type Sight, sift } from "./spots.ts";
@@ -116,6 +117,7 @@ export interface Look {
   shine: Color;
   dusk: number;
   paint: Paint | null;
+  toward: number | null;
   detail(): number;
   relief(): CubeTexture;
   bare(next: boolean): void;
@@ -136,7 +138,7 @@ export interface Glare {
 
 export interface Studio {
   shineOf(source: Body): Color;
-  shape(body: Body, lamps: Glare[], spare?: number): Look;
+  shape(body: Body, lamps: Glare[], spare?: number, mate?: Mate | null): Look;
 }
 
 interface Band {
@@ -439,6 +441,7 @@ export function createLooks(
         tint: studio.shineOf(system.bodies[source]),
       })),
       every[id].slice(LAMP_ROOM).reduce((sum, lamp) => sum + lamp.seen, 0),
+      mateOf(system, body),
     ),
   );
   return { looks, lamps, tintOf: studio.shineOf };
@@ -671,8 +674,11 @@ export function createStudio(renderer: WebGLRenderer): Studio {
     return new Color(red, green, blue).lerp(new Color(0xffffff), DIM_PALE);
   };
 
-  const ignite = (body: Body): Look => {
+  const ignite = (body: Body, mate: Mate | null): Look => {
     const flame = flameOf(body);
+    const mold = molded(body, mate, ball);
+    const girth = mold?.girth ?? body.radius;
+    const brim = girth * (mold?.least ?? 1);
     const activity = createActivity(body.seed, flame);
     const roll = createRoll();
     const crowd = { value: 0 };
@@ -727,8 +733,8 @@ export function createStudio(renderer: WebGLRenderer): Studio {
     };
     const frame = new Group();
     const globe = new Mesh(
-      ball,
-      new ShaderMaterial({ vertexShader: BODY_VERTEX, fragmentShader: STAR_FRAGMENT, uniforms }),
+      mold?.geometry ?? ball,
+      new ShaderMaterial({ vertexShader: STAR_VERTEX, fragmentShader: STAR_FRAGMENT, uniforms }),
     );
     globe.visible = false;
     globe.onBeforeRender = (_renderer, _scene, camera) => {
@@ -749,8 +755,8 @@ export function createStudio(renderer: WebGLRenderer): Studio {
           poles: { value: poles },
           suns: { value: suns },
           rim: { value: rim },
-          reach: { value: body.radius * FLARE_REACH },
-          girth: { value: body.radius },
+          reach: { value: girth * FLARE_REACH },
+          girth: { value: brim },
         },
       }),
     );
@@ -778,8 +784,8 @@ export function createStudio(renderer: WebGLRenderer): Studio {
     plumes.visible = false;
     plumes.frustumCulled = false;
     const { release, ...surface } = baked(body, uniforms.relief, [globe, plumes]);
-    globe.scale.setScalar(body.radius);
-    plumes.scale.setScalar(body.radius);
+    globe.scale.setScalar(girth);
+    plumes.scale.setScalar(brim);
     frame.add(globe, flare, plumes);
 
     const beat = (age: number) => {
@@ -797,10 +803,10 @@ export function createStudio(renderer: WebGLRenderer): Studio {
     return {
       body,
       frame,
-      girth: body.radius,
-      ball: body.radius,
+      girth,
+      ball: girth,
       flat: 1,
-      halo: body.radius * FLARE_REACH,
+      halo: girth * FLARE_REACH,
       screens,
       poles,
       suns,
@@ -809,6 +815,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       shine: new Color(0, 0, 0),
       dusk: 0,
       paint: null,
+      toward: mold === null || mate === null ? null : mate.body.id,
       ...surface,
       warm: () => false,
       light(_rays, _chart, tick) {
@@ -823,6 +830,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       },
       dispose() {
         release();
+        mold?.geometry.dispose();
         globe.material.dispose();
         plumes.material.dispose();
         flare.material.dispose();
@@ -858,6 +866,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       shine: dark,
       dusk: 0,
       paint: null,
+      toward: null,
       detail: () => shown.size,
       relief: () => blank,
       bare() {},
@@ -879,10 +888,10 @@ export function createStudio(renderer: WebGLRenderer): Studio {
     };
   };
 
-  const shape = (body: Body, lamps: Glare[], spare = 0): Look => {
+  const shape = (body: Body, lamps: Glare[], spare = 0, mate: Mate | null = null): Look => {
     const family = familyOf(body.physics);
     if (family === "star") {
-      return holeOf(body.physics) ? hollow(body) : ignite(body);
+      return holeOf(body.physics) ? hollow(body) : ignite(body, mate);
     }
     const seen = lamps.map((lamp) => lamp.seen);
     const giant = family === "fluid" ? giantOf(body, seen, spare) : null;
@@ -1154,6 +1163,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
         return dusk.value;
       },
       paint: skin === null ? null : uniforms,
+      toward: null,
       ...surface,
       warm(heat, glare) {
         const moved = seen.some((was, at) => Math.abs(glare[at] - was) > GLARE_STEP * was);

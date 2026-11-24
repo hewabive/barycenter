@@ -109,6 +109,7 @@ const bodyOf = (physics: Physics, own: number): Body => ({
   freed: null,
   lobe: 0,
   passages: [],
+  shell: null,
 });
 
 const rows: Body[][] = masses.map((mass) =>

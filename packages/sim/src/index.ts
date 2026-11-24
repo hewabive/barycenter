@@ -175,6 +175,7 @@ export {
   TILE_CELLS,
 } from "./relief.ts";
 export { type ForceReport, forceReportFor } from "./report.ts";
+export { innerPoint, type Lobe, lobeShape, streamOf } from "./roche.ts";
 export { createRover, drive, ROVER, type Rover, type Wheel } from "./rover.ts";
 export { circumcenter, hullFaces } from "./sphere.ts";
 export {
@@ -259,6 +260,7 @@ export {
   type Pressure,
   type Rejection,
   type Relief,
+  type Shell,
   type Sketch,
   type StarSystem,
   type State,

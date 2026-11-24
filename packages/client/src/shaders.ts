@@ -6,10 +6,7 @@ const real = (value: number) => (Number.isInteger(value) ? `${value}.0` : String
 const shape = RELIEF_SHAPE;
 const pit = PIT_SHAPE;
 
-const FIELD = `
-uniform uint seed;
-uniform vec3 shape;
-
+const NOISE = `
 uint scramble(ivec3 cell, uint salt) {
   uint mixed = uint(cell.x) * 0x9e3779b1u ^ uint(cell.y) * 0x85ebca77u ^ uint(cell.z) * 0xc2b2ae3du ^ salt;
   mixed = (mixed ^ (mixed >> 15)) * 0x2c1b3c6du;
@@ -45,7 +42,12 @@ float noise(vec3 at, uint salt) {
   );
   return mix(near, far, share.z);
 }
+`;
 
+const FIELD = `
+uniform uint seed;
+uniform vec3 shape;
+${NOISE}
 vec3 turned(vec3 at) {
   return 2.0 * vec3(
     -0.8 * at.y - 0.6 * at.z,
@@ -495,14 +497,16 @@ float hillshade(vec3 at, vec3 slope, float depth) {
 }
 `;
 
-export const BODY_VERTEX = `
+export const STAR_VERTEX = `
 varying vec3 vAt;
 varying vec3 vPlace;
+varying vec3 vOut;
 
 void main() {
   vAt = position;
   vec4 placed = modelMatrix * vec4(position, 1.0);
   vPlace = placed.xyz;
+  vOut = mat3(modelMatrix) * normal;
   gl_Position = projectionMatrix * viewMatrix * placed;
 }
 `;
@@ -871,9 +875,9 @@ uniform vec3 steep;
 uniform vec3 traits;
 uniform float coarse;
 uniform int crowd;
-uniform mat4 modelMatrix;
 varying vec3 vAt;
 varying vec3 vPlace;
+varying vec3 vOut;
 
 void main() {
   vec3 at = normalize(vAt);
@@ -951,8 +955,7 @@ void main() {
     grain += ${real(COARSE_GAIN)} * coarse * fine;
   }
 
-  vec3 round = normalize(mat3(modelMatrix) * at);
-  float facing = max(dot(round, normalize(cameraPosition - vPlace)), 0.0);
+  float facing = max(dot(normalize(vOut), normalize(cameraPosition - vPlace)), 0.0);
   float bright = wide.a * (0.15 + min(stir, 1.0)) * (0.25 + 0.5 * (1.0 - smoothstep(0.25, 0.9, facing)));
   float heat = 1.0 + traits.z * (at.y * at.y - 0.33)
     + traits.x * (grain * (0.35 + 0.65 * facing)
@@ -2048,6 +2051,155 @@ void main() {
   float land = smoothstep(-edge, edge, ground.a);
   float shade = hillshade(at, ground.rgb, 0.07);
   gl_FragColor = vec4(vTint.rgb * shade, vTint.a * land * fade);
+  #include <colorspace_fragment>
+}
+`;
+
+export const WHIRL_TALL = 0.3;
+const WHIRL_STEPS = 16;
+const WHIRL_THICK = 0.1;
+const WHIRL_VEILED = 0.06;
+
+export const GUSH_VERTEX = `
+attribute vec3 ahead;
+attribute vec2 seat;
+uniform vec2 girth;
+varying vec2 vSeat;
+
+void main() {
+  vec4 placed = modelMatrix * vec4(position, 1.0);
+  vec3 along = normalize(mat3(modelMatrix) * ahead);
+  vec3 across = cross(along, normalize(cameraPosition - placed.xyz));
+  float lean = length(across);
+  float wide = length(modelMatrix[0].xyz) * (girth.x + girth.y * seat.y);
+  placed.xyz += (lean > 1e-4 ? across / lean : vec3(0.0)) * seat.x * wide;
+  vSeat = seat;
+  gl_Position = projectionMatrix * viewMatrix * placed;
+}
+`;
+
+export const GUSH_FRAGMENT = `
+uniform vec3 tint;
+uniform float flow;
+uniform float might;
+varying vec2 vSeat;
+
+void main() {
+  float edge = 1.0 - vSeat.x * vSeat.x;
+  float knots = 0.86 + 0.14 * sin(6.2831853 * (5.0 * vSeat.y - flow));
+  float ends = smoothstep(0.0, 0.02, vSeat.y) * (1.0 - smoothstep(0.78, 1.0, vSeat.y));
+  gl_FragColor = vec4(tint * might * edge * edge * knots * ends, 1.0);
+  #include <colorspace_fragment>
+}
+`;
+
+export const WHIRL_VERTEX = `
+varying vec3 vAt;
+
+void main() {
+  vAt = position;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
+
+export const WHIRL_FRAGMENT = `
+uniform vec3 eye;
+uniform vec3 hot;
+uniform vec3 cool;
+uniform vec4 screen;
+uniform vec4 spot;
+uniform float inner;
+uniform float heart;
+uniform float turn;
+uniform float might;
+varying vec3 vAt;
+
+float entry(vec3 from, vec3 ray, vec3 middle, float ball) {
+  vec3 off = from - middle;
+  float toward = dot(off, ray);
+  float inside = toward * toward - dot(off, off) + ball * ball;
+  float met = -toward - sqrt(max(inside, 0.0));
+  return inside > 0.0 && met > 0.0 ? met : 1e9;
+}
+
+void main() {
+  vec3 ray = normalize(vAt - eye);
+  float steep = abs(ray.y) > 1e-5 ? ray.y : 1e-5;
+  float low = (-${real(WHIRL_TALL)} - eye.y) / steep;
+  float high = (${real(WHIRL_TALL)} - eye.y) / steep;
+  float level = max(dot(ray.xz, ray.xz), 1e-9);
+  float toward = dot(eye.xz, ray.xz);
+  float inside = toward * toward - level * (dot(eye.xz, eye.xz) - 1.0);
+  float first = max(max(min(low, high), (-toward - sqrt(max(inside, 0.0))) / level), 0.0);
+  float star = entry(eye, ray, vec3(0.0), heart);
+  float last = min(length(vAt - eye), min(star, entry(eye, ray, screen.xyz, screen.w)));
+  if (inside <= 0.0 || last <= first) {
+    discard;
+  }
+  float veiled = star < 1e8 ? ${real(WHIRL_VEILED)} : 1.0;
+  float pace = (last - first) / ${real(WHIRL_STEPS)};
+  float cold = pow(inner, 0.75);
+  vec3 sum = vec3(0.0);
+  for (int index = 0; index < ${WHIRL_STEPS}; index++) {
+    vec3 at = eye + ray * (first + (float(index) + 0.5) * pace);
+    float wide = length(at.xz);
+    if (wide > inner && wide < 1.0) {
+      float thick = ${real(WHIRL_THICK)} * wide * (0.5 + 0.5 * wide);
+      float dense = exp(-at.y * at.y / (thick * thick));
+      float rim = smoothstep(inner, 1.08 * inner, wide) * (1.0 - smoothstep(0.75, 1.0, wide));
+      float warmth = pow(inner / wide, 0.75);
+      vec3 hue = mix(cool, hot, clamp((warmth - cold) / max(1.0 - cold, 1e-3), 0.0, 1.0));
+      float bend = atan(at.z, at.x);
+      float arms = 0.78 + 0.22 * sin(2.0 * bend + 7.0 * log(wide) + turn)
+        + 0.08 * sin(9.0 * bend + 23.0 * log(wide) + 2.3 * turn);
+      vec2 off = at.xz - spot.xz;
+      float glint = spot.w * exp(-dot(off, off) / 0.012);
+      sum += (hue * (0.3 + 0.7 * pow(inner / wide, 1.2)) * arms + hot * glint) * dense * rim * pace;
+    }
+  }
+  gl_FragColor = vec4(sum * might * veiled, 1.0);
+  #include <colorspace_fragment>
+}
+`;
+
+export const HUSK_VERTEX = `
+varying vec3 vPlace;
+
+void main() {
+  vec4 placed = modelMatrix * vec4(position, 1.0);
+  vPlace = placed.xyz;
+  gl_Position = projectionMatrix * viewMatrix * placed;
+}
+`;
+
+export const HUSK_FRAGMENT = `
+${NOISE}
+uniform mat4 modelMatrix;
+uniform vec3 warm;
+uniform vec3 keen;
+uniform float might;
+uniform float thin;
+uniform uint salt;
+varying vec3 vPlace;
+
+float wisps(vec3 at) {
+  return max(0.75 + 0.6 * noise(3.0 * at, salt) + 0.35 * noise(9.0 * at, salt + 7u), 0.2);
+}
+
+void main() {
+  vec3 ray = normalize(vPlace - cameraPosition);
+  vec3 off = cameraPosition - modelMatrix[3].xyz;
+  float ball = length(modelMatrix[0].xyz);
+  float toward = dot(off, ray);
+  float graze = sqrt(max(1.0 - (dot(off, off) - toward * toward) / (ball * ball), 0.0));
+  mat3 inward = transpose(mat3(modelMatrix));
+  float lit = wisps(normalize(inward * (off + ray * (ball * graze - toward))));
+  if (dot(off, off) > ball * ball) {
+    lit += wisps(normalize(inward * (off - ray * (ball * graze + toward))));
+  }
+  float path = thin / max(graze, thin);
+  vec3 hue = mix(keen, warm, smoothstep(0.15, 0.85, path));
+  gl_FragColor = vec4(hue * might * pow(path, 1.8) * lit, 1.0);
   #include <colorspace_fragment>
 }
 `;

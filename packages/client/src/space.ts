@@ -50,6 +50,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { createBelt, createHaze, createJet, createMist, createSwarm } from "./belts.ts";
 import { createLooks, type Look, type Paint } from "./bodies.ts";
 import { el } from "./dom.ts";
+import { createGush, createHusk, stanceOf } from "./flows.ts";
 import type { Layer } from "./haze.ts";
 import { holeOf } from "./looks.ts";
 import { ORBIT, SKY } from "./palette.ts";
@@ -261,12 +262,16 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
     const { parent, orbit, physics } = system.bodies[id];
     return parent === null ? 0 : span(parent) + orbit * (1 + physics.stretch);
   };
-  const widest = Math.max(...system.bodies.map((body) => span(body.id)));
+  const widest = Math.max(
+    ...system.bodies.map((body) => span(body.id) + (body.shell?.radius ?? 0)),
+  );
   const outmost = Math.max(FARTHEST, FAR_VIEW * widest);
   controls.maxDistance = outmost;
   const brim = Math.max(
     ...system.bodies.map(
-      (body) => span(body.id) + Math.max(body.radius, ...body.disks.map((lane) => lane.outer)),
+      (body) =>
+        span(body.id) +
+        Math.max(body.radius, body.shell?.radius ?? 0, ...body.disks.map((lane) => lane.outer)),
     ),
   );
 
@@ -314,6 +319,39 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
   }
   for (const look of looks) {
     world.add(look.frame);
+  }
+  const sweepOf = (from: number, to: number) => {
+    const apart = (tick: number) => {
+      const [here, there] = [positionOf(system, from, tick), positionOf(system, to, tick)];
+      return new Vector3(there.x - here.x, there.y - here.y, there.z - here.z);
+    };
+    const turned = apart(0).cross(apart(1e-3 * Math.max(1, system.bodies[to].year)));
+    return turned.lengthSq() > 0 ? turned.normalize() : new Vector3(0, 1, 0);
+  };
+  const gushes = looks.flatMap((giver) => {
+    const taker = giver.toward === null ? undefined : looks[giver.toward];
+    const gush =
+      taker === undefined ? null : createGush(giver.body, taker.body, giver.girth, giver.tone);
+    if (gush === null || taker === undefined) {
+      return [];
+    }
+    const child = taker.body.parent === giver.body.id ? taker.body.id : giver.body.id;
+    const head = child === taker.body.id ? giver.body.id : taker.body.id;
+    return [{ ...gush, giver, taker, sweep: sweepOf(head, child) }];
+  });
+  for (const gush of gushes) {
+    for (const mesh of gush.meshes) {
+      mesh.renderOrder = BELT_ORDER;
+      world.add(mesh);
+    }
+  }
+  const husks = looks.flatMap((owner) => {
+    const husk = createHusk(owner.body);
+    return husk === null ? [] : [{ ...husk, owner }];
+  });
+  for (const husk of husks) {
+    husk.mesh.renderOrder = BELT_ORDER;
+    world.add(husk.mesh);
   }
   const spots = new BufferAttribute(new Float32Array(3 * looks.length), 3);
   const girths = new BufferAttribute(new Float32Array(looks.length), 1);
@@ -666,6 +704,23 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
       turn.set(look.body.tilt, look.body.swing, 0);
       twirl.setFromAxisAngle(upward, spinOf(look.body, shown));
       look.frame.quaternion.setFromEuler(turn).multiply(twirl);
+    }
+    for (const look of looks) {
+      if (look.toward !== null) {
+        const mate = looks[look.toward];
+        const head = mate.body.parent === look.body.id ? look.body : mate.body;
+        const pole = poleOf(head);
+        axis.set(pole.x, pole.y, pole.z);
+        stanceOf(look.frame.position, mate.frame.position, axis, look.frame.quaternion);
+      }
+    }
+    for (const gush of gushes) {
+      const [from, to] = [gush.giver.frame.position, gush.taker.frame.position];
+      gush.place(from, to, stanceOf(from, to, gush.sweep, stance));
+      gush.turn(shown);
+    }
+    for (const husk of husks) {
+      husk.mesh.position.copy(husk.owner.frame.position);
     }
     for (const track of tracks) {
       const middle = centreOf(system, track.about, shown);

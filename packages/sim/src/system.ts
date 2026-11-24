@@ -411,6 +411,9 @@ const SPENT_SHARE = 0.07;
 const LATE_STARS = [1, 2.5, 8];
 const LATE_AGE = 12;
 const SWALLOWED = 1.5;
+const SHELL_SPEED = 25000;
+const SHELL_YEARS = 5e4;
+const SNUG = [0.5, 0.9];
 const SHED_AFTER = 1.001;
 const COMPANION_SHARE = [0.03, 0.06];
 const COMPANION_MOST = 0.08;
@@ -1237,6 +1240,11 @@ function arranged(bodies: Body[], anchor: Anchor): Body[] {
     Math.max(1, Math.round(ticks * (span / unit) ** TIME_POWER));
   const turn = (disk: Disk, around: number) =>
     pace(yearOf((disk.inner + disk.outer) / 2, around), anchor.year, HOME_YEAR);
+  const snug = (star: Body, other: Body) =>
+    star.lobe <= SNUG[0]
+      ? 0
+      : (smooth(SNUG[0], SNUG[1], star.lobe) * radius[star.id]) /
+        (lobeOf(star.physics.mass / other.physics.mass) * star.lobe);
   const reach = (id: number): number => {
     const { physics, parent } = bodies[id];
     const sun = parent === null || starborn(physics);
@@ -1269,7 +1277,10 @@ function arranged(bodies: Body[], anchor: Anchor): Body[] {
         const spare = (room - 1) * Math.max(0, wide - own);
         const oval = child.physics.stretch;
         const clear = (edge + span + spare) / (1 - oval);
-        orbit[child.id] = Math.max(drawn(child.physics.orbit), clear);
+        const tight = starborn(child.physics)
+          ? Math.max(snug(child, bodies[id]), snug(bodies[id], child))
+          : 0;
+        orbit[child.id] = Math.max(drawn(child.physics.orbit), clear, tight);
         for (const other of sharers) {
           orbit[other.id] = orbit[child.id];
         }
@@ -1313,6 +1324,13 @@ function arranged(bodies: Body[], anchor: Anchor): Body[] {
             },
       radius: trim(radius[body.id]),
       orbit: trim(orbit[body.id]),
+      shell:
+        body.shell === null
+          ? null
+          : {
+              ...body.shell,
+              radius: trim(HOME_ORBIT * (body.shell.reach / anchor.orbit) ** ORBIT_POWER),
+            },
       year,
       day: locked
         ? year
@@ -1437,6 +1455,7 @@ function measured(bodies: Body[], unit: number): Body[] {
       shared: shared === null ? null : { ...shared, year: shared.chase },
       radius: physics.radius / unit,
       orbit: physics.orbit / unit,
+      shell: body.shell === null ? null : { ...body.shell, radius: body.shell.reach / unit },
       year: body.parent === null ? 0 : physics.year,
       day: physics.day,
       disks: physics.disks.map((disk) => ({
@@ -3261,6 +3280,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       freed: freedOf(live),
       lobe: 0,
       passages: [],
+      shell: null,
     });
   }
 
@@ -3351,6 +3371,40 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
     });
     const lobe = bond?.stars[career.seat]?.lobe ?? 0;
     bodies[seat] = { ...bodies[seat], lobe: trim(Math.min(1, lobe)), passages };
+  }
+  for (const [star, career] of careers) {
+    const at = posts.get(star)?.id ?? -1;
+    const seat = at < 0 ? -1 : seats[at];
+    if (seat < 0) {
+      continue;
+    }
+    const phase = career.phase(age);
+    const { passages } = bodies[seat];
+    const ended = age - phase.spent;
+    const bared = passages.some(
+      ({ until }) => until !== null && Math.abs(until / ended - 1) < 1e-6,
+    );
+    const shed =
+      phase.ending === "dwarf" && phase.spent > 1 && !bared
+        ? [
+            {
+              kind: "shed" as const,
+              with: null,
+              mass: trim(career.phase(ended * (1 - 1e-9)).mass - phase.mass),
+              from: ended,
+              until: ended,
+              since: phase.spent,
+              rate: 0,
+            },
+          ]
+        : [];
+    const all = [...passages, ...shed].sort((left, right) => left.from - right.from);
+    const last = all.findLast(({ kind }) => kind === "shed");
+    const fresh = last !== undefined && last.since < SHELL_YEARS * YEAR;
+    const shell = fresh
+      ? { radius: 0, reach: SHELL_SPEED * last.since, since: last.since, mass: last.mass }
+      : null;
+    bodies[seat] = { ...bodies[seat], passages: all, shell };
   }
   for (const body of bodies) {
     body.swallowed.sort((left, right) => left.since - right.since);

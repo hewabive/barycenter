@@ -117,6 +117,14 @@ export interface Body {
   freed: Freed | null;
   lobe: number;
   passages: Passage[];
+  shell: Shell | null;
+}
+
+export interface Shell {
+  radius: number;
+  reach: number;
+  since: number;
+  mass: number;
 }
 
 export interface Passage {
