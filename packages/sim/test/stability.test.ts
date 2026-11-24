@@ -34,8 +34,9 @@ test("neighbors keep six Hill radii apart and moons stay well inside the hold of
           continue;
         }
         moons += 1;
+        const fed = system.bodies[host.parent].passages.some(({ kind }) => kind === "took");
         assert.ok(
-          hold < 0.301 || (id === parent + 1 && parent === system.home),
+          hold < (fed ? 0.491 : 0.301) || (id === parent + 1 && parent === system.home),
           `${label}: ${hold}`,
         );
         assert.ok(led || gap > 4.99, `${label}: ${gap}`);

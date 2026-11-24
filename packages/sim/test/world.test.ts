@@ -1680,10 +1680,13 @@ test("a system can be given the age of its star", () => {
   const plan = { settled: false, star: SUN_MASS, age: 11.39 * GIGAYEAR };
   let icy = 0;
   let dried = 0;
+  let lone = 0;
   for (const seed of SEEDS) {
     const system = surveySystem(seed, plan);
     const centre = system.bodies[0].physics;
-    assert.equal(classOf(centre), "red giant");
+    const calm = system.bodies.every((body) => body.passages.length === 0);
+    lone += calm ? 1 : 0;
+    assert.ok(!calm || classOf(centre) === "red giant", `seed ${seed}: ${classOf(centre)}`);
     assert.ok(system.bodies.every((body) => body.physics.age === centre.age));
     for (const body of system.bodies.filter((other) => other.parent === 0)) {
       const near = body.physics.orbit * (1 - body.physics.stretch);
@@ -1703,6 +1706,7 @@ test("a system can be given the age of its star", () => {
     assert.equal(classOf(home), "yellow star");
   }
   assert.ok(icy > 3 && dried > 1, `${icy} bodies kept the ice they formed of, ${dried} lost it`);
+  assert.ok(lone >= 8, `${lone} of ${SEEDS.length} stars were left alone by their companions`);
 });
 
 test("a system is the same at every age, less what its star and its tides took", () => {

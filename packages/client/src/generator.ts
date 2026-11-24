@@ -407,7 +407,7 @@ function factsOf(body: Body): Fact[] {
       (moon) => moon.parent === body.id && moon.physics.year === physics.day,
     );
     const tide =
-      shared !== null
+      shared !== null || starborn(physics)
         ? null
         : sunny(parent)
           ? pulledFact(body, parent)
@@ -479,7 +479,54 @@ function factsOf(body: Body): Fact[] {
       ["Holds moons within", `${lengthOf(hill)} · ${figure(hill / physics.radius)} radii`],
     );
   } else {
-    facts.push("Spin", ["Day", span(physics.day)]);
+    const holder = system.bodies.find(
+      (other) => other.parent === body.id && other.physics.year === physics.day,
+    );
+    facts.push("Spin", [
+      "Day",
+      holder === undefined
+        ? span(physics.day)
+        : `${span(physics.day)}, the year of ${holder.name}, one face to it`,
+    ]);
+  }
+  const mate =
+    system.bodies
+      .filter((other) => other.parent === body.id && starborn(other.physics))
+      .sort((left, right) => left.physics.orbit - right.physics.orbit)[0] ?? parent;
+  if (starborn(physics) && mate !== null && (body.lobe > 0 || body.passages.length > 0)) {
+    const when = (seconds: number) => `${(seconds / GIGAYEAR).toFixed(6)} billion years`;
+    const yearly = (rate: number) => `${figure((rate * YEAR) / SUN_MASS)} suns a year`;
+    facts.push(
+      "Beside a star",
+      [
+        "Room",
+        body.lobe >= 0.999
+          ? `fills all the room it has beside ${mate.name}, and its gas spills toward it`
+          : `fills ${share(body.lobe)} of the width it may have beside ${mate.name}`,
+      ],
+      ...body.passages.map((passage): Fact => {
+        const { kind, mass, from, until, since, rate } = passage;
+        const other = passage.with ?? "its companions";
+        if (kind === "shed") {
+          const close = passage.with === null ? "" : ` · ${other} was inside it and came out near`;
+          return [
+            "Threw off",
+            `its envelope, ${massOf(mass)}, ${lived(since)} ago, at ${when(from)}${close}`,
+          ];
+        }
+        const way = kind === "gave" ? "to" : "from";
+        if (until === null) {
+          return [
+            kind === "gave" ? "Gives gas" : "Takes gas",
+            `${yearly(rate)} ${way} ${other} · ${massOf(mass)} since ${when(from)}, ${lived(since)} ago`,
+          ];
+        }
+        return [
+          kind === "gave" ? "Gave gas" : "Took gas",
+          `${massOf(mass)} ${way} ${other} · from ${when(from)} for ${lived(until - from)}, ended ${lived(since - (until - from))} ago`,
+        ];
+      }),
+    );
   }
   facts.push(
     "Around it",

@@ -77,6 +77,7 @@ export {
   type Track,
   type Watch,
 } from "./nbody.ts";
+export { type Bond, limitOf, lobeOf, loneOf, type Pairing, type Phase, pairOf } from "./pairs.ts";
 export {
   ASTRONOMICAL_UNIT,
   BROWN_LEAST,
@@ -252,6 +253,7 @@ export {
   type MapJoint,
   type MapRegion,
   type Neighbor,
+  type Passage,
   type Physics,
   type PowerState,
   type Pressure,

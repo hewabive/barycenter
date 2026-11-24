@@ -115,6 +115,18 @@ export interface Body {
   drawn: Drawn | null;
   swallowed: Swallowed[];
   freed: Freed | null;
+  lobe: number;
+  passages: Passage[];
+}
+
+export interface Passage {
+  kind: "gave" | "took" | "shed";
+  with: string | null;
+  mass: number;
+  from: number;
+  until: number | null;
+  since: number;
+  rate: number;
 }
 
 export interface Gathered {

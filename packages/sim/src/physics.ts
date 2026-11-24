@@ -88,6 +88,8 @@ const BARED_SHARE = 0.55;
 const BARED_RADIUS = [2, 10, 0.6];
 const SETTLING = 0.3;
 const EMBER_MASS = [0.394, 0.109];
+const CORE_LIGHT = 2.34e5;
+const CORE_HEAVY = [0.098, 1.35];
 const EMBER_RADIUS = [0.0127, 1.44];
 const EMBER_COOLING = [8.8e6 * YEAR, 1.4, 3e5 * YEAR];
 const EMBER_DAY = [0.25, 2];
@@ -288,25 +290,56 @@ export function holeRadius(mass: number): number {
   return (2 * GRAVITY * mass) / LIGHT_SPEED ** 2;
 }
 
-function emberOf(suns: number, spent: number): Pick<Life, "mass" | "radius" | "glow"> {
-  if (suns >= HOLE_LEAST / SUN_MASS) {
-    const mass = HOLE_SHARE * suns * SUN_MASS;
-    const radius = holeRadius(mass);
-    return { mass, radius, glow: glowOf(radius, (HOLE_HEAT * SUN_MASS) / mass) };
-  }
-  if (suns >= BURST_LEAST / SUN_MASS) {
-    const mass = SUN_MASS * (PULSAR_MASS[0] + PULSAR_MASS[1] * (suns - BURST_LEAST / SUN_MASS));
-    const heat = PULSAR_HEAT[0] / Math.sqrt(1 + spent / PULSAR_HEAT[1]);
-    return { mass, radius: PULSAR_RADIUS, glow: glowOf(PULSAR_RADIUS, heat) };
-  }
-  const left = EMBER_MASS[0] + EMBER_MASS[1] * suns;
+export type Ending = "dwarf" | "pulsar" | "hole" | "core";
+
+type Left = Pick<Life, "mass" | "radius" | "glow">;
+
+export function dwarfOf(mass: number, spent: number): Left {
+  const left = Math.min(mass / SUN_MASS, 0.999 * EMBER_RADIUS[1]);
   const squeezed = Math.sqrt(1 - (left / EMBER_RADIUS[1]) ** (4 / 3));
   const cooled = (EMBER_COOLING[0] / (spent + EMBER_COOLING[2])) ** EMBER_COOLING[1];
   return {
-    mass: left * SUN_MASS,
+    mass,
     radius: SUN_RADIUS * EMBER_RADIUS[0] * squeezed * left ** (-1 / 3),
     glow: SUN_GLOW * left * cooled,
   };
+}
+
+export function pulsarOf(mass: number, spent: number): Left {
+  const heat = PULSAR_HEAT[0] / Math.sqrt(1 + spent / PULSAR_HEAT[1]);
+  return { mass, radius: PULSAR_RADIUS, glow: glowOf(PULSAR_RADIUS, heat) };
+}
+
+export function holeOf(mass: number): Left {
+  const radius = holeRadius(mass);
+  return { mass, radius, glow: glowOf(radius, (HOLE_HEAT * SUN_MASS) / mass) };
+}
+
+export function endingOf(born: number): Ending {
+  return born >= HOLE_LEAST ? "hole" : born >= BURST_LEAST ? "pulsar" : "dwarf";
+}
+
+export function relicOf(born: number): number {
+  const suns = born / SUN_MASS;
+  if (born >= HOLE_LEAST) {
+    return HOLE_SHARE * born;
+  }
+  if (born >= BURST_LEAST) {
+    return SUN_MASS * (PULSAR_MASS[0] + PULSAR_MASS[1] * (suns - BURST_LEAST / SUN_MASS));
+  }
+  return Math.min(born, SUN_MASS * (EMBER_MASS[0] + EMBER_MASS[1] * suns));
+}
+
+export function emberOf(ending: Ending, mass: number, spent: number): Left {
+  return ending === "hole"
+    ? holeOf(mass)
+    : ending === "pulsar"
+      ? pulsarOf(mass, spent)
+      : dwarfOf(mass, spent);
+}
+
+export function bareRadius(mass: number): number {
+  return SUN_RADIUS * BARED_RADIUS[0] * (mass / (BARED_RADIUS[1] * SUN_MASS)) ** BARED_RADIUS[2];
 }
 
 export function lifeOf(born: number, age: number): Life {
@@ -368,7 +401,7 @@ export function lifeOf(born: number, age: number): Life {
   };
   const shape = (glow: number, red: number, shed = 0) => {
     const mass = born * (1 - BARED_SHARE * shed);
-    const bare = BARED_RADIUS[0] * (mass / (BARED_RADIUS[1] * SUN_MASS)) ** BARED_RADIUS[2];
+    const bare = bareRadius(mass) / SUN_RADIUS;
     return { mass, glow: SUN_GLOW * glow, radius: SUN_RADIUS * blend(wide(glow, red), bare, shed) };
   };
   const stages = [
@@ -400,7 +433,28 @@ export function lifeOf(born: number, age: number): Life {
     }
     since -= spans[index];
   }
-  return { ...emberOf(suns, since), swell, peak, spent: since };
+  return { ...emberOf(endingOf(born), relicOf(born), since), swell, peak, spent: since };
+}
+
+export function coreOf(born: number, age: number): number {
+  const suns = born / SUN_MASS;
+  const heavy = SUN_MASS * CORE_HEAVY[0] * suns ** CORE_HEAVY[1];
+  if (born >= BURST_LEAST) {
+    return heavy;
+  }
+  const whole = relicOf(born);
+  const lit = (peak: number) =>
+    Math.min(whole, Math.max(heavy, SUN_MASS * (peak / (CORE_LIGHT * SUN_GLOW)) ** (1 / 6)));
+  const stages = starStages(born);
+  const [from, to] = [stages[3], stages[4]];
+  if (age >= to) {
+    return whole;
+  }
+  if (age <= from) {
+    return lit(lifeOf(born, age).peak);
+  }
+  const first = lit(lifeOf(born, from).peak);
+  return first + ((whole - first) * (age - from)) / (to - from);
 }
 
 export interface Gain {
@@ -414,6 +468,7 @@ export function starTurn(
   life: Life,
   luck: number,
   gains: Gain[] = [],
+  ending: Ending = endingOf(born),
 ): number {
   if (life.spent <= 0) {
     const dwarf = starRadius(born);
@@ -435,12 +490,12 @@ export function starTurn(
     const fastest = Math.sqrt((SPIN_MOST * GRAVITY * life.mass) / life.radius ** 3);
     return (2 * Math.PI) / Math.min(fastest, (2 * Math.PI) / day + late / turning);
   }
-  if (born >= HOLE_LEAST) {
+  if (ending === "hole") {
     const spin = HOLE_SPIN[0] + HOLE_SPIN[1] * luck;
     const beat = (4 * Math.PI * GRAVITY * life.mass) / LIGHT_SPEED ** 3;
     return (beat * (1 + Math.sqrt(1 - spin ** 2))) / spin;
   }
-  if (born >= BURST_LEAST) {
+  if (ending === "pulsar") {
     return (PULSAR_DAY[0] + PULSAR_DAY[1] * luck) * Math.sqrt(1 + life.spent / PULSAR_DAY[2]);
   }
   return DAY * (EMBER_DAY[0] + EMBER_DAY[1] * luck);
