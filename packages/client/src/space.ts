@@ -67,6 +67,11 @@ export interface Probe {
   frame: Group;
 }
 
+export interface View {
+  focus: number;
+  camera: Vector3;
+}
+
 export interface Space {
   camera: PerspectiveCamera;
   labels: HTMLElement;
@@ -98,6 +103,8 @@ export interface Space {
   onClearance(listener: () => number): void;
   sharpen(id: number | null): void;
   plumb(up: Vector3 | null, share: number): void;
+  view(): View;
+  resume(view: View): void;
   dispose(): void;
 }
 
@@ -1254,6 +1261,16 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
         toward: toward.clone(),
         start: null,
       };
+      stale = true;
+    },
+    view: () => ({ focus: shift.to, camera: camera.position.clone() }),
+    resume(view) {
+      lookOf(view.focus)?.refine(fine);
+      shift.from = view.focus;
+      shift.to = view.focus;
+      shift.share = 1;
+      glide = null;
+      camera.position.copy(view.camera);
       stale = true;
     },
     dispose() {

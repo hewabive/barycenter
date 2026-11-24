@@ -831,10 +831,12 @@ panel.append(handle, sheet);
 
 const depthOf = (body: Body): number =>
   body.parent === null ? 0 : 1 + depthOf(system.bodies[body.parent]);
-const settle = () => {
+const settle = (kept: number | null) => {
   const star = system.bodies[0];
-  tick = 0;
-  weather = 0;
+  if (kept === null) {
+    tick = 0;
+    weather = 0;
+  }
   write(clock, dial());
   time();
   watch();
@@ -894,10 +896,20 @@ const settle = () => {
     return row;
   });
   roster.replaceChildren(...rows);
-  show(system.home ?? star.id);
-  sheet.scrollTop = 0;
+  show(kept ?? system.home ?? star.id);
+  if (kept === null) {
+    sheet.scrollTop = 0;
+  }
   document.body.dataset.done = "true";
 };
+const aged = (next: Choice) =>
+  next.seed === choice.seed &&
+  next.settled === choice.settled &&
+  next.star === choice.star &&
+  next.real === choice.real;
+const survivor = (body: Body, from: Body[]): Body | null =>
+  system.bodies.find((other) => other.name === body.name) ??
+  (body.parent === null ? null : survivor(from[body.parent], from));
 let pending: Choice | null = null;
 const build = () => {
   if (pending === null) {
@@ -908,12 +920,21 @@ const build = () => {
   if (next.real !== choice.real) {
     pace = 0;
   }
+  const held = aged(next) ? space.view() : null;
+  const before = system.bodies;
   choice = next;
   system = make(next);
   space.dispose();
   space = createSpace(stage, system, next.real);
   stage.classList.remove("making");
-  settle();
+  const kept = held === null ? null : survivor(before[held.focus], before);
+  if (held !== null && kept !== null) {
+    space.resume({ focus: kept.id, camera: held.camera });
+    if (kept.name !== before[held.focus].name) {
+      space.focus(kept.id);
+    }
+  }
+  settle(kept?.id ?? null);
 };
 const open = (next: Choice) => {
   seedField.value = String(next.seed);
@@ -925,4 +946,4 @@ const open = (next: Choice) => {
   }
   pending = next;
 };
-settle();
+settle(null);
