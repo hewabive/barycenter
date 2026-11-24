@@ -52,7 +52,7 @@ import {
   wrapped,
   YEAR,
 } from "@barycenter/sim";
-import { button, el, required, write } from "./dom.ts";
+import { button, dismissible, el, required, write } from "./dom.ts";
 import {
   DENSE_STAR,
   familyOf,
@@ -563,6 +563,7 @@ const speeds = paces.map(([rate, label, title], index) => {
     speeds.forEach((other, at) => {
       other.classList.toggle("active", at === index);
     });
+    control.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
   });
   control.classList.toggle("active", rate === pace);
   return control;
@@ -608,9 +609,18 @@ space.onFrame((elapsed) => {
   }
 });
 
-const seedField = el("input", { type: "number", value: String(seed), min: "0", step: "1" });
+const seedField = el("input", {
+  type: "number",
+  value: String(seed),
+  min: "0",
+  step: "1",
+  inputmode: "numeric",
+  enterkeyhint: "go",
+});
 const starField = el("input", {
   type: "number",
+  inputmode: "decimal",
+  enterkeyhint: "go",
   value: starMass === null ? "" : String(starMass),
   min: "0.013",
   max: "60",
@@ -619,6 +629,8 @@ const starField = el("input", {
 });
 const ageField = el("input", {
   type: "number",
+  inputmode: "decimal",
+  enterkeyhint: "go",
   value: starAge === null ? "" : String(starAge),
   min: String(AGE_LEAST),
   max: String(AGE_MOST),
@@ -667,52 +679,86 @@ ageSlide.addEventListener("change", () => {
   go(read());
 });
 
-required<HTMLElement>("#topbar").append(
-  el("strong", {}, "Generator"),
-  el("label", {}, "Seed", seedField),
-  button("Make", "Make the system of this seed", () => go(read())),
-  button("Next", "Make the system of the next seed", () => go(read() + 1)),
-  button("Random", "Make the system of a random seed", () => go(Math.floor(Math.random() * 1e6))),
+const topbar = required<HTMLElement>("#topbar");
+const strip = el("span", { class: "speeds" }, ...speeds);
+const edges = () => {
+  strip.classList.toggle("before", strip.scrollLeft > 1);
+  strip.classList.toggle("after", strip.scrollLeft + strip.clientWidth < strip.scrollWidth - 1);
+};
+strip.addEventListener("scroll", edges, { passive: true });
+new ResizeObserver(edges).observe(strip);
+const marked = <Item extends HTMLElement>(item: Item, name: string): Item => {
+  item.classList.add(name);
+  return item;
+};
+topbar.append(
+  el("strong", { class: "title" }, "Generator"),
   el(
-    "label",
-    {
-      title: "The mass of the centre at its birth in solar masses; below 0.075 it is a brown dwarf",
-    },
-    "Star",
-    starField,
+    "span",
+    { class: "more" },
+    el("label", { class: "seed" }, "Seed", seedField),
+    marked(
+      button("Make", "Make the system of this seed", () => go(read())),
+      "make",
+    ),
+    button("Random", "Make the system of a random seed", () => go(Math.floor(Math.random() * 1e6))),
+    el(
+      "label",
+      {
+        title:
+          "The mass of the centre at its birth in solar masses; below 0.075 it is a brown dwarf",
+      },
+      "Star",
+      starField,
+    ),
+    el(
+      "label",
+      {
+        class: "age",
+        title:
+          "The age of the system in billions of years, where there is no home; left empty, it is drawn with the seed",
+      },
+      "Age",
+      ageField,
+      ageSlide,
+      ageRead,
+    ),
+    el(
+      "label",
+      { title: "Make the system around a living home, as a game does" },
+      homeField,
+      "home",
+    ),
+    button(
+      real ? "Drawn scale" : "Real scale",
+      real
+        ? "Show the system on the scale of the game, squeezed to fit a screen"
+        : "Show the system in its real sizes and distances, with a clock in seconds",
+      () => go(read(), !real),
+    ),
+    el("a", { class: "away", href: "atlas.html" }, "Atlas"),
+    el(
+      "a",
+      {
+        class: "away",
+        href: `flight.html${address({ seed, settled, star: starMass, age: starAge, real: false })}`,
+        title: "Fly a ship through this system",
+      },
+      "Fly",
+    ),
   ),
-  el(
-    "label",
-    {
-      title:
-        "The age of the system in billions of years, where there is no home; left empty, it is drawn with the seed",
-    },
-    "Age",
-    ageField,
-    ageSlide,
-    ageRead,
+  marked(
+    button("Next", "Make the system of the next seed", () => go(read() + 1)),
+    "next",
   ),
-  el("label", { title: "Make the system around a living home, as a game does" }, homeField, "home"),
-  button(
-    real ? "Drawn scale" : "Real scale",
-    real
-      ? "Show the system on the scale of the game, squeezed to fit a screen"
-      : "Show the system in its real sizes and distances, with a clock in seconds",
-    () => go(read(), !real),
+  strip,
+  el("span", { class: "readings" }, clock, fps),
+  marked(
+    button("☰", "Seed, star, age, scale and other pages", () => topbar.classList.toggle("open")),
+    "menu",
   ),
-  ...speeds,
-  clock,
-  el("a", { href: "atlas.html" }, "Atlas"),
-  el(
-    "a",
-    {
-      href: `flight.html${address({ seed, settled, star: starMass, age: starAge, real: false })}`,
-      title: "Fly a ship through this system",
-    },
-    "Fly",
-  ),
-  fps,
 );
+dismissible(topbar, "open");
 
 const suns = system.bodies.filter((body) => sunny(body));
 const planets = system.bodies.filter(
@@ -760,6 +806,7 @@ const rows = system.bodies.map((body) => {
   return row;
 });
 const title = el("h3", {}, "");
+const heading = el("span", {});
 const facts = el("table", { class: "facts" });
 const raw = el("pre", { class: "raw" });
 const show = (id: number) => {
@@ -768,6 +815,7 @@ const show = (id: number) => {
     row.classList.toggle("active", at === id);
   });
   write(title, body.name);
+  write(heading, `${body.name} · ${classOf(body.physics)}`);
   const live: ((now: Moment) => void)[] = [];
   facts.replaceChildren(
     ...factsOf(body).map((fact) => {
@@ -797,7 +845,11 @@ const show = (id: number) => {
 space.onFocus(show);
 show(system.home ?? star.id);
 
-required<HTMLElement>("#panel").append(
+const panel = required<HTMLElement>("#panel");
+const handle = el("button", { type: "button", class: "handle" }, heading);
+handle.addEventListener("click", () => panel.classList.toggle("folded"));
+panel.append(
+  handle,
   el(
     "div",
     { class: "body" },

@@ -23,6 +23,20 @@ export function button(label: string, title: string, onClick: () => void): HTMLB
   return element;
 }
 
+export function dismissible(root: HTMLElement, state: string): void {
+  document.addEventListener(
+    "pointerdown",
+    (event) => {
+      const inside = event.target instanceof Node && root.contains(event.target);
+      if (!inside && root.classList.contains(state)) {
+        root.classList.remove(state);
+        event.stopPropagation();
+      }
+    },
+    { capture: true },
+  );
+}
+
 export function write(target: HTMLElement, text: string): void {
   if (target.textContent !== text) {
     target.textContent = text;

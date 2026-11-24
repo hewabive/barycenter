@@ -1,5 +1,5 @@
 import { SPEEDS, type Triggers } from "@barycenter/protocol";
-import { amount, button, el, write } from "./dom.ts";
+import { amount, button, dismissible, el, write } from "./dom.ts";
 import { type Game, summarize } from "./model.ts";
 import { css, powerColor } from "./palette.ts";
 
@@ -95,17 +95,7 @@ export function createTopbar(root: HTMLElement, actions: TopbarActions): Topbar 
     el("span", { class: "alerts" }, notice, status),
   );
 
-  document.addEventListener(
-    "pointerdown",
-    (event) => {
-      const inside = event.target instanceof Node && root.contains(event.target);
-      if (!inside && root.classList.contains("open")) {
-        root.classList.remove("open");
-        event.stopPropagation();
-      }
-    },
-    { capture: true },
-  );
+  dismissible(root, "open");
 
   return {
     show(game, text) {
