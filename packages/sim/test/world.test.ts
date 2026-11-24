@@ -1612,6 +1612,12 @@ test("systems with no home hold stars at every time of life", () => {
       const host = system.bodies[body.parent];
       const near = physics.orbit * (1 - physics.stretch);
       assert.ok(near > 1.4 * (host.physics.radius + physics.radius), label);
+      const sun = host.parent === null ? null : system.bodies[host.parent].physics;
+      if (sun !== null && starborn(sun) && !starborn(host.physics)) {
+        const nearest = host.physics.orbit * (1 - host.physics.stretch);
+        const far = physics.orbit * (1 + physics.stretch);
+        assert.ok(nearest - far > sun.radius, `${label} passes inside its star`);
+      }
       assert.ok(body.parent < body.id, `${label} is listed after what it circles`);
       assert.ok(physics.mass <= host.physics.mass, `${label} is lighter than what it circles`);
       if (starborn(physics)) {
@@ -1775,7 +1781,9 @@ test("a system is the same at every age, less what its star and its tides took",
         const near = once.physics.orbit * (1 - once.physics.stretch);
         const gone = !here.has(once.name);
         if (host !== prime.bodies[0].name) {
-          assert.ok(gone || here.has(host), `${label}, ${once.name} goes with ${host}`);
+          const freed = late.bodies.find((body) => body.name === once.name)?.freed ?? null;
+          const loose = freed !== null && freed.from === host;
+          assert.ok(gone || here.has(host) || loose, `${label}, ${once.name} goes with ${host}`);
           continue;
         }
         const taken = eaten.has(once.name);

@@ -114,6 +114,7 @@ export interface Body {
   gathered: Gathered | null;
   drawn: Drawn | null;
   swallowed: Swallowed[];
+  freed: Freed | null;
 }
 
 export interface Gathered {
@@ -129,8 +130,15 @@ export interface Drawn {
 
 export interface Swallowed {
   name: string;
+  of: string | null;
   mass: number;
   since: number;
+}
+
+export interface Freed {
+  from: string;
+  since: number;
+  falls: number | null;
 }
 
 export interface StarSystem {

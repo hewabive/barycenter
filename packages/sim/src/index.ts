@@ -236,6 +236,7 @@ export {
   type Constants,
   type Disk,
   type Drawn,
+  type Freed,
   GASES,
   type GameEvent,
   type Gas,

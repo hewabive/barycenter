@@ -182,7 +182,9 @@ const lived = (seconds: number) =>
     ? `${figure(seconds / GIGAYEAR)} billion years`
     : seconds >= 1e6 * YEAR
       ? `${figure(seconds / (1e6 * YEAR))} million years`
-      : `${figure(seconds / (1e3 * YEAR))} thousand years`;
+      : seconds >= 1e3 * YEAR
+        ? `${figure(seconds / (1e3 * YEAR))} thousand years`
+        : `${figure(seconds / YEAR)} years`;
 const massOf = (mass: number) =>
   mass >= 0.07 * SUN_MASS
     ? `${figure(mass / SUN_MASS)} suns`
@@ -446,6 +448,14 @@ function factsOf(body: Body): Fact[] {
             : `${span(physics.day)}, the month of ${holder.name}, one face to it`,
       ],
       ...(tide === null ? [] : [["Tides", tide] satisfies Fact]),
+      ...(body.freed === null
+        ? []
+        : [
+            [
+              "Torn from",
+              `${body.freed.from} by the pull of ${parent.name} ${lived(body.freed.since)} ago${body.drawn !== null ? "" : body.freed.falls === null ? ` · it outlasts ${parent.name}` : ` · falls into ${parent.name} in ${lived(body.freed.falls)}`}`,
+            ] satisfies Fact,
+          ]),
       ...(body.gathered === null
         ? []
         : [
@@ -469,7 +479,10 @@ function factsOf(body: Body): Fact[] {
           [
             "Swallowed",
             body.swallowed
-              .map((taken) => `${taken.name}, ${massOf(taken.mass)}, ${lived(taken.since)} ago`)
+              .map(
+                (taken) =>
+                  `${taken.name}${taken.of === null ? "" : `, a moon of ${taken.of}`}, ${massOf(taken.mass)}, ${lived(taken.since)} ago`,
+              )
               .join(" · "),
           ] satisfies Fact,
         ]),

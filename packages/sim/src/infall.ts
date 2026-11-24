@@ -47,6 +47,13 @@ export interface Sinker {
   at(age: number): Drift;
   fall(age: number): number | null;
   given(age: number): Gain[];
+  first(age: number, test: (orbit: number, stretch: number) => boolean): Mark | null;
+}
+
+export interface Mark {
+  time: number;
+  orbit: number;
+  stretch: number;
 }
 
 export interface Pulled {
@@ -152,18 +159,25 @@ function ratesOf(body: Pulled, star: Node, orbit: number, stretch: number): [num
   return [drag * pull + tied * (1 + 14.25 * square), 4.5 * drag * round + 2.375 * tied];
 }
 
-export function sinkerOf(track: Track, body: Pulled, orbit: number, stretch: number): Sinker {
+export function sinkerOf(
+  track: Track,
+  body: Pulled,
+  orbit: number,
+  stretch: number,
+  since = track.dawn,
+): Sinker {
   const born = track.born;
   const dense = densityOf(body.mass, body.radius);
   const tear = (star: Node) =>
     tornAt(star.radius, densityOf(star.mass, star.radius), dense, body.fluid);
-  const begin = { time: track.dawn, orbit, stretch, fell: null as number | null, index: 0 };
+  const opened = Math.max(track.dawn, since);
+  const begin = { time: opened, orbit, stretch, fell: null as number | null, index: 0 };
   let state = { ...begin };
   const swing = (at: number, oval: number) =>
     body.mass * Math.sqrt(GRAVITY * born * at * (1 - oval ** 2));
   const whole = swing(orbit, stretch);
-  const start = { time: track.dawn, spin: 0 };
-  let trail: { time: number; spin: number }[] = [start];
+  const start = { time: opened, spin: 0, orbit, stretch };
+  let trail: (Mark & { spin: number })[] = [start];
   const nodesTo = (until: number) => (until <= track.main ? track.early : lateOf(track));
   const quiet = (until: number) =>
     orbit * (1 - stretch) > FAR * lifeOf(born, Math.min(until, track.end)).swell;
@@ -202,13 +216,14 @@ export function sinkerOf(track: Track, body: Pulled, orbit: number, stretch: num
         now.stretch = 0;
       }
       now.time += step;
-      kept?.push({ time: now.time, spin: whole - swing(now.orbit, now.stretch) });
+      const spin = whole - swing(now.orbit, now.stretch);
+      kept?.push({ time: now.time, spin, orbit: now.orbit, stretch: now.stretch });
     }
     return now;
   };
   return {
     at(age) {
-      if (age <= track.dawn || quiet(age)) {
+      if (age <= opened || quiet(age)) {
         return { orbit, stretch, fell: null };
       }
       if (age < state.time) {
@@ -226,7 +241,7 @@ export function sinkerOf(track: Track, body: Pulled, orbit: number, stretch: num
       if (quiet(track.end)) {
         return null;
       }
-      return run(age <= track.dawn ? begin : state, track.end, null).fell;
+      return run(age <= opened ? begin : state, track.end, null).fell;
     },
     given(age) {
       const drift = this.at(age);
@@ -253,6 +268,13 @@ export function sinkerOf(track: Track, body: Pulled, orbit: number, stretch: num
       }
       gains.push({ at: last, spin: moved - laid });
       return gains;
+    },
+    first(age, test) {
+      this.at(age);
+      const mark = trail.find((point) => point.time <= age && test(point.orbit, point.stretch));
+      return mark === undefined
+        ? null
+        : { time: mark.time, orbit: mark.orbit, stretch: mark.stretch };
     },
   };
 }
