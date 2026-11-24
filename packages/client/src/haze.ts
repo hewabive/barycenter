@@ -18,6 +18,7 @@ const BRIM_LEAST = 4.5;
 const SEEN_LEAST = 1e-12;
 const SKIN = Math.log(0.02);
 const BRIM_SPARE = 0.3;
+const PASSING_STEPS = 16;
 
 export interface Layer {
   lane: Lane;
@@ -279,4 +280,43 @@ export function shadowAt(profile: Profile, shade: Shade, reach: number, lift: nu
   const blend = (line: number) =>
     read(line, column) + (read(line, column + 1) - read(line, column)) * (across - column);
   return Math.exp(blend(row) + (blend(row + 1) - blend(row)) * (up - row));
+}
+
+export function passingOf(
+  profile: Profile,
+  top: number,
+  from: { x: number; y: number; z: number },
+  eye: { x: number; y: number; z: number },
+): number {
+  const { inner, outer, dense, tall } = profile;
+  const toward = { x: eye.x - from.x, y: eye.y - from.y, z: eye.z - from.z };
+  const whole = Math.hypot(toward.x, toward.y, toward.z);
+  if (whole <= 0) {
+    return 1;
+  }
+  const climb = toward.y / whole;
+  const most = Math.max(
+    0,
+    Math.abs(climb) > 1e-9 ? Math.min(whole, (Math.sign(climb) * top - from.y) / climb) : whole,
+  );
+  let depth = 0;
+  let past = 0;
+  for (let pace = 1; pace <= PASSING_STEPS; pace++) {
+    const next = most * (pace / PASSING_STEPS) ** 2;
+    const share = (0.5 * (past + next)) / whole;
+    const reach = Math.hypot(from.x + share * toward.x, from.z + share * toward.z);
+    const cell =
+      Math.max(0, Math.min(1, Math.log(Math.max(reach, 1e-12) / inner) / Math.log(outer / inner))) *
+      (HAZE_COLUMNS - 1);
+    const column = Math.min(HAZE_COLUMNS - 2, Math.floor(cell));
+    const part = cell - column;
+    const stand = (tall[column] + (tall[column + 1] - tall[column]) * part) * reach;
+    const thick = dense[column] + (dense[column + 1] - dense[column]) * part;
+    const high = (from.y + share * toward.y) / Math.max(stand, 1e-12);
+    depth +=
+      (thick * Math.exp(-0.5 * high * high) * (next - past)) /
+      (Math.sqrt(2 * Math.PI) * Math.max(stand, 1e-12));
+    past = next;
+  }
+  return Math.exp(-depth);
 }

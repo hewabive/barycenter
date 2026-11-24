@@ -1,4 +1,4 @@
-import { PIT_SHAPE, RELIEF_SHAPE } from "@barycenter/sim";
+import { ORBIT_POWER, PIT_SHAPE, RELIEF_SHAPE, TIME_POWER } from "@barycenter/sim";
 import { HAZE_COLUMNS, SHADE_COLUMNS, SHADE_REACH, SHADE_ROWS } from "./haze.ts";
 import { GRIT_SPAN } from "./tile.ts";
 
@@ -248,6 +248,12 @@ const HAZE_MOST_LIGHT = 1.4;
 const HAZE_DIM = 2e-6;
 const HAZE_SLACK = 1.1;
 const HAZE_TURNS = 3;
+const SWARM_SWAY = 9;
+const ARC_WIDE = 2.4;
+const SPIRAL_TWIST = 5;
+const SPIRAL_REACH = 0.5;
+const SPIRAL_WIDE = 29;
+const SPIRAL_SECOND = 0.5;
 const STREAK_WIDE = 0.04;
 const STREAK_CELLS = [40, 23];
 const STREAK_GAIN = 0.3;
@@ -272,6 +278,8 @@ export const PROMINENCE_ROOM = 16;
 const GRAIN_BITS = 4;
 export const GRAIN_CELLS = 1 << GRAIN_BITS;
 export const SCREEN_ROOM = 6;
+export const ARC_ROOM = 3;
+export const SPIRAL_ROOM = 2;
 export const BUBBLE_ROOM = 2;
 export const LIMB = 0.28;
 export const LIMB_DEPTH = 0.4;
@@ -1473,6 +1481,55 @@ void main() {
 }
 `;
 
+export const SHROUD_STEPS = 10;
+
+const SHROUD = `
+uniform sampler2D lanes;
+uniform vec2 span;
+uniform vec3 hull;
+uniform vec3 eye;
+uniform mat4 into;
+uniform float veiled;
+
+float passing(vec3 spot) {
+  if (veiled < 0.5) {
+    return 1.0;
+  }
+  vec3 at = (into * vec4(spot, 1.0)).xyz;
+  vec3 toward = eye - at;
+  float whole = length(toward);
+  vec3 ray = toward / max(whole, 1e-12);
+  float most = abs(ray.y) > 1e-9 ? min(whole, (sign(ray.y) * hull.y - at.y) / ray.y) : whole;
+  most = max(most, 0.0);
+  float depth = 0.0;
+  float past = 0.0;
+  for (int pace = 1; pace <= ${SHROUD_STEPS}; pace++) {
+    float share = float(pace) / ${real(SHROUD_STEPS)};
+    float next = most * share * share;
+    vec3 here = at + 0.5 * (past + next) * ray;
+    float reach = length(here.xz);
+    float along = clamp(log(max(reach, 1e-12) / span.x) / log(span.y / span.x), 0.0, 1.0);
+    vec4 lane = textureLod(lanes, vec2((0.5 + ${real(HAZE_COLUMNS - 1)} * along) / ${real(HAZE_COLUMNS)}, 0.5), 0.0);
+    float stand = exp(lane.g) * reach;
+    float high = here.y / max(stand, 1e-12);
+    depth += exp(lane.r - 0.5 * high * high) * (next - past) / (2.5066283 * max(stand, 1e-12));
+    past = next;
+  }
+  return exp(-depth);
+}
+`;
+
+const BELT_PLACED = `
+  vec4 placed = modelViewMatrix * vec4(at, 1.0);
+  float size = dense * (1.0 + grain * grain);
+  float wide = scale / max(-placed.z, 1e-3);
+  float kept = ${real(BELT_COVER)} * room * wide * wide / (size * size);
+  vGlint = 0.22 + 0.45 * grain;
+  vClear = passing(at);
+  gl_PointSize = size;
+  gl_Position = grain + kept < 1.0 ? vec4(2.0, 2.0, 2.0, 1.0) : projectionMatrix * placed;
+`;
+
 export const BELT_VERTEX = `
 attribute float grain;
 uniform float tick;
@@ -1482,17 +1539,37 @@ uniform float dense;
 uniform float scale;
 uniform float room;
 varying float vGlint;
-
+varying float vClear;
+${SHROUD}
 void main() {
   float turn = position.y + 6.2831853 * tick / (year * pow(position.x / middle, 1.5));
   vec3 at = position.x * vec3(cos(turn), position.z * sin(turn + 40.0 * grain), sin(turn));
-  vec4 placed = modelViewMatrix * vec4(at, 1.0);
-  float size = dense * (1.0 + grain * grain);
-  float span = scale / max(-placed.z, 1e-3);
-  float kept = ${real(BELT_COVER)} * room * span * span / (size * size);
-  vGlint = 0.22 + 0.45 * grain;
-  gl_PointSize = size;
-  gl_Position = grain + kept < 1.0 ? vec4(2.0, 2.0, 2.0, 1.0) : projectionMatrix * placed;
+  ${BELT_PLACED}
+}
+`;
+
+export const SWARM_TURN = (1.5 * TIME_POWER) / ORBIT_POWER;
+export const SWARM_CAMP = Math.PI / 3;
+
+export const SWARM_VERTEX = `
+attribute float grain;
+attribute float camp;
+uniform float tick;
+uniform float year;
+uniform float middle;
+uniform float guide;
+uniform float dense;
+uniform float scale;
+uniform float room;
+varying float vGlint;
+varying float vClear;
+${SHROUD}
+void main() {
+  float adrift = position.y + 6.2831853 * tick / year * (pow(position.x / middle, ${real(-SWARM_TURN)}) - 1.0);
+  float held = camp * (${real(SWARM_CAMP)} + position.y * (1.0 + 0.5 * sin(6.2831853 * tick / (${real(SWARM_SWAY)} * year) + 40.0 * grain)));
+  float turn = guide + (camp == 0.0 ? adrift : held);
+  vec3 at = position.x * vec3(cos(turn), position.z * sin(turn + 40.0 * grain), sin(turn));
+  ${BELT_PLACED}
 }
 `;
 
@@ -1500,9 +1577,10 @@ export const BELT_FRAGMENT = `
 uniform vec3 tint;
 uniform vec3 shine;
 varying float vGlint;
+varying float vClear;
 
 void main() {
-  gl_FragColor = vec4(tint * shine * vGlint, 1.0);
+  gl_FragColor = vec4(tint * shine * vGlint, vClear);
   #include <colorspace_fragment>
 }
 `;
@@ -1535,6 +1613,10 @@ uniform vec3 dust;
 uniform vec3 frost;
 uniform sampler2D spins;
 uniform float pitch;
+uniform vec4 arcs[${ARC_ROOM}];
+uniform float lifts[${ARC_ROOM}];
+uniform vec4 spirals[${SPIRAL_ROOM}];
+uniform float faint;
 varying vec3 vRay;
 ${SLAB}
 float flake(vec2 cell, float seed) {
@@ -1791,10 +1873,26 @@ void main() {
         wisp(ring, angle, spin.b),
         0.5 - 0.5 * spin.x
       );
-      shown *= 1.0 + ${real(STREAK_GAIN)} * streak * (1.0 - smoothstep(${real(STREAK_FINE[0])}, ${real(STREAK_FINE[1])}, coarse));
+      vec2 aim = middle / max(length(middle), 1e-12);
+      float lift = 0.0;
+      for (int index = 0; index < ${ARC_ROOM}; index++) {
+        vec4 arc = arcs[index];
+        float off = log(reach / arc.x) / arc.y;
+        lift += lifts[index] * exp(-0.5 * off * off + ${real(ARC_WIDE)} * (dot(aim, arc.zw) - 1.0));
+      }
+      for (int index = 0; index < ${SPIRAL_ROOM}; index++) {
+        vec4 spiral = spirals[index];
+        float wound = ${real(SPIRAL_TWIST)} * log(reach / spiral.x);
+        vec2 arm = vec2(spiral.z * cos(wound) + spiral.w * sin(wound), spiral.w * cos(wound) - spiral.z * sin(wound));
+        float facing = dot(aim, arm);
+        lift += spiral.y * exp(-abs(wound) / ${real(SPIRAL_TWIST * SPIRAL_REACH)})
+          * (exp(${real(SPIRAL_WIDE)} * (facing - 1.0)) + ${real(SPIRAL_SECOND)} * exp(${real(SPIRAL_WIDE)} * (-facing - 1.0)));
+      }
+      shown *= (1.0 + lift)
+        * (1.0 + ${real(STREAK_GAIN)} * streak * (1.0 - smoothstep(${real(STREAK_FINE[0])}, ${real(STREAK_FINE[1])}, coarse)));
     }
     vec3 lamp = shine * mix(dust, frost, ice) * shown + ${HAZE_EMBER} * glow;
-    gl_FragColor = vec4(sqrt(lamp), 1.0 - clear);
+    gl_FragColor = vec4(sqrt(faint * lamp), faint * (1.0 - clear));
   }
 }
 `;

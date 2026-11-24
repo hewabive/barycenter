@@ -44,7 +44,7 @@ import {
   WebGLRenderer,
 } from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { createBelt, createHaze, createMist } from "./belts.ts";
+import { createBelt, createHaze, createMist, createSwarm } from "./belts.ts";
 import { createLooks, type Look, type Paint } from "./bodies.ts";
 import { el } from "./dom.ts";
 import type { Layer } from "./haze.ts";
@@ -162,6 +162,12 @@ const TRACK_FULL = 12;
 const TRACK_SHADE = 0.55;
 const HAZE_ORDER = 0.25;
 const MIST_LAYER = 1;
+const BELT_ORDER = 0.3;
+const SWARM_HELD = [-4.5, -3.5];
+const SWARM_LEAN = 0.3;
+const SWARM_SHINE = 0.8;
+const SPIRAL_FROM = [-2.7, -2.2];
+const SPIRAL_GAIN = 0.7;
 const HAZE_BUBBLE = 6;
 const HAZE_NEAR = [10, 30];
 const TRACK_ORDER = 0.5;
@@ -360,7 +366,9 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
       const seed = owner.body.seed + index;
       const cloud = createBelt(lane, disk, seed, shine, coarse.matches, cleared);
       cloud.points.quaternion.copy(leanOf(owner));
-      return { ...cloud, about: insideOf(owner, disk, false), owner };
+      cloud.points.renderOrder = BELT_ORDER;
+      const hub = insideOf(owner, disk, true);
+      return { ...cloud, about: insideOf(owner, disk, false), hub, owner };
     }),
   );
   const hazes = rooted.flatMap((owner) => {
@@ -375,17 +383,18 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
     return [...hubs].flatMap(([about, layers]) => {
       layers.sort((left, right) => left.disk.inner - right.disk.inner);
       const ridges: Ridge[] = [];
+      const lanes: { planet: Body; inner: Layer; outer: Layer }[] = [];
       layers.forEach((layer, index) => {
         const beyond = layers[index + 1];
         if (beyond !== undefined && layer.disk.gas > 0 && beyond.disk.gas > 0) {
-          const between = system.bodies
-            .filter(
-              ({ parent, physics }) =>
-                parent === owner.body.id &&
-                physics.orbit > layer.disk.outer &&
-                physics.orbit < beyond.disk.inner,
-            )
-            .map(({ physics }) => physics);
+          const circling = system.bodies.filter(
+            ({ parent, physics }) =>
+              parent === owner.body.id &&
+              physics.orbit > layer.disk.outer &&
+              physics.orbit < beyond.disk.inner,
+          );
+          lanes.push(...circling.map((planet) => ({ planet, inner: layer, outer: beyond })));
+          const between = circling.map(({ physics }) => physics);
           layer.thinned = between.reduce(
             (left, planet) => left * thinningOf(planet.mass, planet.orbit, mass, glow),
             1,
@@ -410,7 +419,39 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
       haze.mesh.quaternion.copy(leanOf(owner));
       haze.mesh.layers.set(MIST_LAYER);
       const lamps = about === null ? [owner.body.id] : [owner.body.id, about];
-      return [{ ...haze, about, owner, lamps }];
+      const swarms = lanes.map(({ planet, inner, outer }) => {
+        const share = Math.log10(planet.physics.mass / mass);
+        const held = Math.max(
+          0,
+          Math.min(1, (share - SWARM_HELD[0]) / (SWARM_HELD[1] - SWARM_HELD[0])),
+        );
+        const light = shownLight([lit(planet.physics.orbit)], 0).lamps[0];
+        const swarm = createSwarm(
+          { inner: inner.lane.outer, outer: outer.lane.inner, year: planet.year },
+          planet.orbit,
+          held,
+          SWARM_LEAN * inner.disk.height,
+          0.5 * (inner.disk.ice + outer.disk.ice),
+          planet.seed,
+          tintOf(owner.body).multiplyScalar(SWARM_SHINE * light),
+          coarse.matches,
+        );
+        swarm.points.quaternion.copy(leanOf(owner));
+        swarm.points.renderOrder = BELT_ORDER;
+        swarm.veil(haze.shroud);
+        const wake =
+          SPIRAL_GAIN *
+          Math.max(0, Math.min(1, (share - SPIRAL_FROM[0]) / (SPIRAL_FROM[1] - SPIRAL_FROM[0])));
+        return { ...swarm, planet: planet.id, orbit: planet.orbit, wake, slot: -1 };
+      });
+      swarms
+        .filter(({ wake }) => wake > 0)
+        .sort((left, right) => right.wake - left.wake)
+        .slice(0, haze.spirals.length)
+        .forEach((swarm, slot) => {
+          swarm.slot = slot;
+        });
+      return [{ ...haze, about, owner, lamps, swarms }];
     });
   });
   for (const belt of belts) {
@@ -418,6 +459,14 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
   }
   for (const haze of hazes) {
     world.add(haze.mesh);
+    for (const swarm of haze.swarms) {
+      world.add(swarm.points);
+    }
+    for (const belt of belts) {
+      if (belt.owner === haze.owner && belt.hub === haze.about) {
+        belt.veil(haze.shroud);
+      }
+    }
   }
   const mist = hazes.length > 0 ? createMist() : null;
   if (mist !== null) {
@@ -613,6 +662,9 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
         const middle = centreOf(system, haze.about, shown);
         haze.mesh.position.set(middle.x, middle.y, middle.z);
       }
+      for (const swarm of haze.swarms) {
+        swarm.points.position.copy(haze.mesh.position);
+      }
     }
 
     const to = lookOf(shift.to);
@@ -741,6 +793,13 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
       for (const haze of hazes) {
         haze.turn(shown, (2 * slope) / mist.grid.y);
         haze.mesh.worldToLocal(haze.eye.copy(camera.position));
+        const parent = haze.owner.body.parent;
+        const around = hazes.find((other) => other.owner.body.id === parent);
+        if (around !== undefined) {
+          around.mesh.worldToLocal(seat.copy(places[haze.owner.body.id]));
+          around.mesh.worldToLocal(shaded.copy(camera.position));
+          haze.faint.value = around.passing(seat, shaded);
+        }
         haze.screens.forEach((screen, at) => {
           const found = nearest[at];
           if (found === undefined) {
@@ -809,6 +868,24 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
     speckMaterial.uniforms.least.value = SPECK_PIXELS * dense;
     for (const belt of belts) {
       belt.turn(shown, dense, pixels * dense);
+    }
+    for (const haze of hazes) {
+      const clouds = [
+        ...haze.swarms,
+        ...belts.filter((belt) => belt.owner === haze.owner && belt.hub === haze.about),
+      ];
+      for (const cloud of clouds) {
+        cloud.into.copy(haze.mesh.matrixWorld).invert().multiply(cloud.points.matrixWorld);
+      }
+      for (const swarm of haze.swarms) {
+        swarm.points.worldToLocal(seat.copy(places[swarm.planet]));
+        const angle = Math.atan2(seat.z, seat.x);
+        swarm.guide(angle);
+        swarm.turn(shown, dense, pixels * dense);
+        if (swarm.slot >= 0) {
+          haze.spirals[swarm.slot].set(swarm.orbit, swarm.wake, Math.cos(angle), Math.sin(angle));
+        }
+      }
     }
     for (const track of tracks) {
       const gap = seat

@@ -18,12 +18,14 @@ import {
   DataUtils,
   HalfFloatType,
   LinearFilter,
+  Matrix4,
   Mesh,
   type PixelFormat,
   Points,
   RedFormat,
   RGBAFormat,
   ShaderMaterial,
+  type Texture,
   Vector2,
   Vector3,
   Vector4,
@@ -33,6 +35,7 @@ import {
   HAZE_COLUMNS,
   LAMP_HEIGHT,
   type Layer,
+  passingOf,
   profileOf,
   SHADE_COLUMNS,
   SHADE_ROWS,
@@ -40,6 +43,7 @@ import {
   shadowAt,
 } from "./haze.ts";
 import {
+  ARC_ROOM,
   BELT_FRAGMENT,
   BELT_VERTEX,
   BUBBLE_ROOM,
@@ -49,11 +53,26 @@ import {
   MIST_FRAGMENT,
   MIST_VERTEX,
   SCREEN_ROOM,
+  SPIRAL_ROOM,
+  SWARM_VERTEX,
 } from "./shaders.ts";
+
+export interface Shroud {
+  lanes: Texture;
+  span: Vector2;
+  hull: Vector3;
+  eye: Vector3;
+}
 
 export interface Belt {
   points: Points;
+  into: Matrix4;
   turn(tick: number, dense: number, scale: number): void;
+  veil(shroud: Shroud): void;
+}
+
+export interface Swarm extends Belt {
+  guide(angle: number): void;
 }
 
 export interface Lamp {
@@ -69,7 +88,11 @@ export interface Haze {
   screens: Vector4[];
   bubbles: Vector4[];
   reach: number;
+  shroud: Shroud;
+  spirals: Vector4[];
+  faint: { value: number };
   passed(at: Vector3): number;
+  passing(from: Vector3, eye: Vector3): number;
   turn(tick: number, pitch: number): void;
 }
 
@@ -99,6 +122,18 @@ const EMBER_LEAST = 0.004;
 const HULL_LEAST = 1e-12;
 const MIST_PIXELS = 2;
 const STREAK_SEEDS = 64;
+const ARC_LEAST = 0.6;
+const ARC_MOST = 2;
+const ARC_GAIN = 0.9;
+const ARC_DEEP = 0.03;
+const ARC_SEED = 7.31e-9;
+const SWARM_LEAST = 120;
+const SWARM_MOST = 700;
+const SWARM_DENSE = 900;
+const SWARM_CAMPED = 100;
+const SWARM_NARROW = 0.02;
+const SWARM_TAIL = 0.9;
+const SWARM_HEAD = 0.45;
 
 export function createBelt(
   lane: Lane,
@@ -138,6 +173,7 @@ export function createBelt(
       ? 0
       : Math.log(BARED[0] / Math.max(disk.depth, 1e-30)) / Math.log(BARED[0] / BARED[1]);
   const uniforms = {
+    ...cloaked(),
     tick: { value: 0 },
     year: { value: lane.year },
     middle: { value: (lane.inner + lane.outer) / 2 },
@@ -147,18 +183,129 @@ export function createBelt(
     tint: { value: new Color(ROCK).lerp(new Color(ICE), disk.ice) },
     shine: { value: shine.clone().multiplyScalar(Math.max(0, Math.min(1, rocky))) },
   };
-  const points = new Points(
-    geometry,
-    new ShaderMaterial({ vertexShader: BELT_VERTEX, fragmentShader: BELT_FRAGMENT, uniforms }),
-  );
-  points.frustumCulled = false;
+  const points = strewn(geometry, BELT_VERTEX, uniforms);
   points.visible = rocky > 0;
   return {
     points,
+    into: uniforms.into.value,
     turn(tick, dense, scale) {
       uniforms.tick.value = tick;
       uniforms.dense.value = dense;
       uniforms.scale.value = scale;
+    },
+    veil: (shroud) => cloak(uniforms, shroud),
+  };
+}
+
+interface Cloaked {
+  lanes: { value: Texture | null };
+  span: { value: Vector2 };
+  hull: { value: Vector3 };
+  eye: { value: Vector3 };
+  into: { value: Matrix4 };
+  veiled: { value: number };
+}
+
+function cloaked(): Cloaked {
+  return {
+    lanes: { value: null },
+    span: { value: new Vector2(1, 2) },
+    hull: { value: new Vector3(1, 1, 1) },
+    eye: { value: new Vector3() },
+    into: { value: new Matrix4() },
+    veiled: { value: 0 },
+  };
+}
+
+function cloak(uniforms: Cloaked, shroud: Shroud): void {
+  uniforms.lanes.value = shroud.lanes;
+  uniforms.span.value = shroud.span;
+  uniforms.hull.value = shroud.hull;
+  uniforms.eye.value = shroud.eye;
+  uniforms.veiled.value = 1;
+}
+
+function strewn(
+  geometry: BufferGeometry,
+  vertexShader: string,
+  uniforms: ShaderMaterial["uniforms"],
+): Points {
+  const points = new Points(
+    geometry,
+    new ShaderMaterial({
+      vertexShader,
+      fragmentShader: BELT_FRAGMENT,
+      uniforms,
+      transparent: true,
+      depthWrite: false,
+    }),
+  );
+  points.frustumCulled = false;
+  return points;
+}
+
+export function createSwarm(
+  lane: Lane,
+  orbit: number,
+  held: number,
+  lean: number,
+  ice: number,
+  seed: number,
+  shine: Color,
+  sparse: boolean,
+): Swarm {
+  const random = createRandom(seed + 211);
+  const wide = Math.log(lane.outer / lane.inner);
+  const free = Math.round(
+    Math.max(SWARM_LEAST, Math.min(SWARM_MOST, SWARM_DENSE * wide)) * (sparse ? 0.5 : 1),
+  );
+  const camped = Math.round(2 * held * SWARM_CAMPED * (sparse ? 0.5 : 1));
+  const count = free + camped;
+  const courses = new Float32Array(3 * count);
+  const grains = new Float32Array(count);
+  const camps = new Float32Array(count);
+  for (let index = 0; index < count; index++) {
+    const tall = lean * Math.min(LEAN_MOST, Math.sqrt(-2 * Math.log(1 - random.next())));
+    if (index < free) {
+      courses[3 * index] = lane.inner * Math.exp(wide * random.next());
+      courses[3 * index + 1] = 2 * Math.PI * random.next();
+    } else {
+      const aside = random.next() + random.next() - 1;
+      const along = random.next() ** 2;
+      courses[3 * index] = orbit * (1 + SWARM_NARROW * aside);
+      courses[3 * index + 1] = SWARM_TAIL * along - SWARM_HEAD * (1 - along) * random.next();
+      camps[index] = index % 2 === 0 ? 1 : -1;
+    }
+    courses[3 * index + 2] = tall;
+    grains[index] = random.next();
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute("position", new BufferAttribute(courses, 3));
+  geometry.setAttribute("grain", new BufferAttribute(grains, 1));
+  geometry.setAttribute("camp", new BufferAttribute(camps, 1));
+  const uniforms = {
+    ...cloaked(),
+    tick: { value: 0 },
+    year: { value: lane.year },
+    middle: { value: orbit },
+    guide: { value: 0 },
+    dense: { value: 1 },
+    scale: { value: 1 },
+    room: { value: (Math.PI * (lane.outer ** 2 - lane.inner ** 2)) / Math.max(1, free) },
+    tint: { value: new Color(ROCK).lerp(new Color(ICE), ice) },
+    shine: { value: shine },
+  };
+  return {
+    points: strewn(geometry, SWARM_VERTEX, uniforms),
+    into: uniforms.into.value,
+    turn(tick, dense, scale) {
+      uniforms.tick.value = tick;
+      uniforms.dense.value = dense;
+      uniforms.scale.value = scale;
+    },
+    veil: (shroud) => cloak(uniforms, shroud),
+    guide(angle) {
+      uniforms.guide.value = angle;
     },
   };
 }
@@ -212,18 +359,40 @@ export function createHaze(
   spins.wrapS = ClampToEdgeWrapping;
   spins.wrapT = ClampToEdgeWrapping;
   const pitch = { value: 0 };
+  const faint = { value: 1 };
+  const tables = chart(lanes, HAZE_COLUMNS, 1, RGBAFormat);
+  const spirals = Array.from({ length: SPIRAL_ROOM }, () => new Vector4(1, 0, 1, 0));
+  const arcs = Array.from({ length: ARC_ROOM }, () => new Vector4(1, 1, 1, 0));
+  const lifts = arcs.map(() => 0);
+  const heaps = ridges
+    .filter(({ rise }) => rise >= ARC_LEAST)
+    .sort((left, right) => right.rise - left.rise)
+    .slice(0, ARC_ROOM)
+    .map(({ at, rise }, index) => {
+      const crest = Math.max(
+        1,
+        profile.far.findIndex((far) => far >= at),
+      );
+      const share = crest / (HAZE_COLUMNS - 1);
+      arcs[index].x = profile.inner * (profile.outer / profile.inner) ** share;
+      arcs[index].y = Math.max(ARC_DEEP, profile.tall[crest]);
+      lifts[index] = (ARC_GAIN * Math.min(rise, ARC_MOST)) / ARC_MOST;
+      return { year: years[crest], start: 2 * Math.PI * ((at * ARC_SEED) % 1) };
+    });
+  const span = new Vector2(profile.inner, profile.outer);
+  const hull = new Vector3(profile.outer, shade.top, shade.steep);
   const mesh = new Mesh(
     new CylinderGeometry(wide, wide, 2 * shade.top, HAZE_SIDES, 1),
     new ShaderMaterial({
       vertexShader: HAZE_VERTEX,
       fragmentShader: HAZE_FRAGMENT,
       uniforms: {
-        lanes: { value: chart(lanes, HAZE_COLUMNS, 1, RGBAFormat) },
+        lanes: { value: tables },
         tones: { value: chart(tones, HAZE_COLUMNS, 1, RGBAFormat) },
         shade: { value: chart([...shade.depth], SHADE_COLUMNS, SHADE_ROWS, RedFormat) },
         eye: { value: eye },
-        span: { value: new Vector2(profile.inner, profile.outer) },
-        hull: { value: new Vector3(profile.outer, shade.top, shade.steep) },
+        span: { value: span },
+        hull: { value: hull },
         hot: { value: hot },
         count: {
           value: Math.round(
@@ -237,6 +406,10 @@ export function createHaze(
         frost: { value: new Color(FROST) },
         spins: { value: spins },
         pitch,
+        arcs: { value: arcs },
+        lifts: { value: lifts },
+        spirals: { value: spirals },
+        faint,
       },
       transparent: true,
       premultipliedAlpha: true,
@@ -252,7 +425,11 @@ export function createHaze(
     screens,
     bubbles,
     reach: Math.hypot(wide, shade.top),
+    shroud: { lanes: tables, span, hull, eye },
+    spirals,
+    faint,
     passed: (at) => Math.exp(-shadowAt(profile, shade, Math.hypot(at.x, at.z), at.y)),
+    passing: (from, at) => passingOf(profile, shade.top, from, at),
     turn(tick, texel) {
       years.forEach((year, column) => {
         const gone = tick / year;
@@ -264,6 +441,11 @@ export function createHaze(
       });
       spins.needsUpdate = true;
       pitch.value = texel;
+      heaps.forEach(({ year, start }, index) => {
+        const angle = start + (2 * Math.PI * (tick % year)) / year;
+        arcs[index].z = Math.cos(angle);
+        arcs[index].w = Math.sin(angle);
+      });
     },
   };
 }

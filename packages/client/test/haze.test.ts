@@ -6,6 +6,7 @@ import {
   between,
   HAZE_COLUMNS,
   type Layer,
+  passingOf,
   profileOf,
   SHADE_COLUMNS,
   SHADE_REACH,
@@ -197,4 +198,19 @@ test("a body deep in a thick disk gets no light of its star, and one above it or
   assert.ok(shadowAt(cloud, shade, 199, 0.5 * 199) < 0.05 && shadowAt(cloud, shade, 199, 0) > 100);
   const thin = profileOf([layer(20, 30, { depth: 1e-4, height: 0.05, flare: 0, gas: 0 })]);
   assert.ok(shadowAt(thin, shadeOf(thin, 0.4), 28, 0) < 0.01);
+});
+
+test("dust between the eye and a place hides it, and dust behind it does not", () => {
+  const cloud = profileOf([layer(2, 200, { depth: 300, height: 0.05, flare: 0.25 })]);
+  const shade = shadeOf(cloud, 0.4);
+  const eye = { x: 0, y: 500, z: 0 };
+  assert.ok(passingOf(cloud, shade.top, { x: 50, y: 0, z: 0 }, eye) < 1e-6);
+  assert.ok(passingOf(cloud, shade.top, { x: 50, y: 0.9 * shade.top, z: 0 }, eye) > 0.99);
+  assert.ok(passingOf(cloud, shade.top, { x: 50, y: -0.9 * shade.top, z: 0 }, eye) < 1e-6);
+  assert.equal(passingOf(cloud, shade.top, { x: 1, y: 0, z: 0 }, { x: 1, y: 500, z: 0 }), 1);
+  const thin = profileOf([layer(20, 30, { depth: 0.2, height: 0.05, flare: 0, gas: 0 })]);
+  const veil = shadeOf(thin, 0.4);
+  const through = passingOf(thin, veil.top, { x: 25, y: 0, z: 0 }, { x: 25, y: 500, z: 0 });
+  const whole = thin.dense[columnAt(thin, 25)];
+  assert.ok(Math.abs(through / Math.exp(-0.5 * whole) - 1) < 0.05, `${through} ${whole}`);
 });

@@ -9,7 +9,7 @@ import {
   TIME_POWER,
 } from "@barycenter/sim";
 import { Color, DataUtils, type ShaderMaterial } from "three";
-import { createBelt, createHaze } from "../src/belts.ts";
+import { createBelt, createHaze, createSwarm } from "../src/belts.ts";
 import { HAZE_COLUMNS } from "../src/haze.ts";
 
 const AU = ASTRONOMICAL_UNIT;
@@ -93,4 +93,33 @@ test("the streaks of a layer turn once in the year of their distance and are new
   const near = read(column - 60);
   const far = read(column + 60);
   assert.ok(near[2] > later[2] && far[2] <= later[2]);
+});
+
+test("a planet in a lane of a disk has a swarm, and a heavy one holds two camps on its orbit", () => {
+  const lane = { inner: 80, outer: 130, year: 900 };
+  const light = createSwarm(lane, 100, 0, 0.01, 0.1, 5, new Color(1, 1, 1), false);
+  const heavy = createSwarm(lane, 100, 1, 0.01, 0.1, 5, new Color(1, 1, 1), false);
+  const read = (swarm: typeof light) => {
+    const spots = swarm.points.geometry.getAttribute("position");
+    const camps = swarm.points.geometry.getAttribute("camp");
+    return Array.from({ length: spots.count }, (_, index) => ({
+      reach: spots.getX(index),
+      aside: spots.getY(index),
+      lean: spots.getZ(index),
+      camp: camps.getX(index),
+    }));
+  };
+  const free = read(light);
+  assert.ok(free.length > 100 && free.every(({ camp }) => camp === 0));
+  assert.ok(free.every(({ reach }) => reach >= 80 && reach <= 130));
+  assert.ok(free.every(({ lean }) => Math.abs(lean) <= 0.03));
+  const held = read(heavy).filter(({ camp }) => camp !== 0);
+  assert.equal(held.length, 200);
+  assert.equal(held.filter(({ camp }) => camp > 0).length, 100);
+  assert.ok(held.every(({ reach }) => Math.abs(reach / 100 - 1) <= 0.02));
+  assert.ok(held.every(({ aside }) => aside > -0.46 && aside < 0.91));
+  assert.equal(read(heavy).length - held.length, free.length);
+  const sparse = createSwarm(lane, 100, 1, 0.01, 0.1, 5, new Color(1, 1, 1), true);
+  const count = sparse.points.geometry.getAttribute("camp").count;
+  assert.ok(Math.abs(count - 0.5 * read(heavy).length) <= 1, `${count}`);
 });

@@ -197,6 +197,7 @@ export {
   type Lamp,
   lampsAt,
   lampsOf,
+  ORBIT_POWER,
   type Places,
   type Plan,
   placesOf,

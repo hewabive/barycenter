@@ -447,7 +447,7 @@ const STRAY_SOLID = [15.3, 18.5];
 const STRAY_MOST = 1e-4;
 
 const SIZE_POWER = 0.45;
-const ORBIT_POWER = 0.37;
+export const ORBIT_POWER = 0.37;
 export const TIME_POWER = 0.6;
 const HOME_ORBIT = 34;
 const HOME_YEAR = 9600;
