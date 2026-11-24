@@ -44,7 +44,7 @@ import {
   WebGLRenderer,
 } from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { createBelt, createHaze } from "./belts.ts";
+import { createBelt, createHaze, createMist } from "./belts.ts";
 import { createLooks, type Look, type Paint } from "./bodies.ts";
 import { el } from "./dom.ts";
 import type { Layer } from "./haze.ts";
@@ -161,6 +161,7 @@ const TRACK_GONE = 5;
 const TRACK_FULL = 12;
 const TRACK_SHADE = 0.55;
 const HAZE_ORDER = 0.25;
+const MIST_LAYER = 1;
 const HAZE_BUBBLE = 6;
 const HAZE_NEAR = [10, 30];
 const TRACK_ORDER = 0.5;
@@ -407,7 +408,7 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
         return [];
       }
       haze.mesh.quaternion.copy(leanOf(owner));
-      haze.mesh.renderOrder = HAZE_ORDER;
+      haze.mesh.layers.set(MIST_LAYER);
       const lamps = about === null ? [owner.body.id] : [owner.body.id, about];
       return [{ ...haze, about, owner, lamps }];
     });
@@ -417,6 +418,11 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
   }
   for (const haze of hazes) {
     world.add(haze.mesh);
+  }
+  const mist = hazes.length > 0 ? createMist() : null;
+  if (mist !== null) {
+    mist.mesh.renderOrder = HAZE_ORDER;
+    scene.add(mist.mesh);
   }
   const veiled = Math.max(0, ...hazes.map((haze) => span(haze.owner.body.id) + haze.reach));
   renderer.domElement.addEventListener("webglcontextrestored", () => {
@@ -711,7 +717,7 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
     }
     waking?.refine(rough);
     camera.updateMatrixWorld();
-    if (hazes.length > 0) {
+    if (mist !== null) {
       const nearest = looks
         .map((look, index) => ({
           look,
@@ -721,6 +727,17 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
         .sort((left, right) => right.wide - left.wide)
         .slice(0, SCREEN_ROOM);
       const bared = nearest.filter(({ look }) => look.halo === 0);
+      const slope = Math.tan((camera.fov * Math.PI) / 360);
+      mist.lens.set(slope * camera.aspect, slope);
+      mist.screens.forEach((screen, at) => {
+        const found = nearest[at];
+        if (found === undefined) {
+          screen.set(0, 0, 0, 0);
+        } else {
+          seat.copy(found.place).applyMatrix4(camera.matrixWorldInverse);
+          screen.set(seat.x, seat.y, seat.z, found.look.body.radius);
+        }
+      });
       for (const haze of hazes) {
         haze.mesh.worldToLocal(haze.eye.copy(camera.position));
         haze.screens.forEach((screen, at) => {
@@ -895,6 +912,19 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
       listener();
     }
     looks.forEach(caption);
+    if (mist !== null) {
+      const backdrop = scene.background;
+      const veil = renderer.getClearAlpha();
+      scene.background = null;
+      renderer.setClearAlpha(0);
+      renderer.setRenderTarget(mist.target);
+      camera.layers.set(MIST_LAYER);
+      renderer.render(scene, camera);
+      camera.layers.set(0);
+      renderer.setRenderTarget(null);
+      renderer.setClearAlpha(veil);
+      scene.background = backdrop;
+    }
     renderer.render(scene, camera);
     drawn.position.copy(camera.position);
     drawn.quaternion.copy(camera.quaternion);
@@ -919,6 +949,7 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
     const aspect = width / height;
     const half = Math.tan((FIELD_OF_VIEW * Math.PI) / 360);
     renderer.setSize(width, height);
+    mist?.fit(width, height);
     camera.aspect = aspect;
     camera.fov = (Math.atan(half / Math.min(1, aspect)) * 360) / Math.PI;
     camera.updateProjectionMatrix();

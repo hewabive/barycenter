@@ -248,6 +248,7 @@ const HAZE_MOST_LIGHT = 1.4;
 const HAZE_DIM = 2e-6;
 const HAZE_SLACK = 1.1;
 const HAZE_TURNS = 3;
+const MIST_RIM = 4;
 const HAZE_CLEAR = 0.01;
 const HAZE_NEAR = 0.3;
 const HAZE_LONG = 0.25;
@@ -1742,12 +1743,88 @@ void main() {
     float ice = toneAt(seen > 0.0 ? where / seen : 0.0).r;
     float glare = sqrt(${real(HAZE_GAIN)} * seen);
     float shown = seen > 0.0 ? lent / seen * glare / (1.0 + glare / ${real(HAZE_MOST_LIGHT)}) : 0.0;
-    float grain = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) - 0.5;
     vec3 lamp = shine * mix(dust, frost, ice) * shown + ${HAZE_EMBER} * glow;
-    gl_FragColor = vec4(lamp, 1.0 - clear);
-    #include <colorspace_fragment>
-    gl_FragColor.rgb = max(gl_FragColor.rgb + grain / 255.0 * step(1e-4, shown + glow), 0.0);
+    gl_FragColor = vec4(sqrt(lamp), 1.0 - clear);
   }
+}
+`;
+
+export const MIST_VERTEX = `
+varying vec2 vAt;
+
+void main() {
+  vAt = 0.5 * position.xy + 0.5;
+  gl_Position = vec4(position.xy, 0.0, 1.0);
+}
+`;
+
+export const MIST_FRAGMENT = `
+uniform sampler2D mist;
+uniform vec2 grid;
+uniform vec2 lens;
+uniform vec4 screens[${SCREEN_ROOM}];
+varying vec2 vAt;
+
+int metAt(vec2 at) {
+  vec3 ray = normalize(vec3((2.0 * at - 1.0) * lens, -1.0));
+  int found = -1;
+  float first = 1e30;
+  for (int index = 0; index < ${SCREEN_ROOM}; index++) {
+    vec4 screen = screens[index];
+    float along = dot(screen.xyz, ray);
+    float inside = dot(screen.xyz, screen.xyz) - screen.w * screen.w;
+    float hit = along * along - inside;
+    if (screen.w > 0.0 && hit > 0.0) {
+      float met = along - sqrt(hit);
+      float stop = met > 0.0 ? met : inside < 0.0 ? 0.0 : 1e30;
+      if (stop < first) {
+        first = stop;
+        found = index;
+      }
+    }
+  }
+  return found;
+}
+
+bool rimmed(vec2 at) {
+  vec3 ray = normalize(vec3((2.0 * at - 1.0) * lens, -1.0));
+  float slack = ${real(MIST_RIM)} * lens.y / grid.y;
+  bool found = false;
+  for (int index = 0; index < ${SCREEN_ROOM}; index++) {
+    vec4 screen = screens[index];
+    float along = dot(screen.xyz, ray);
+    float apart = dot(screen.xyz, screen.xyz);
+    float aside = sqrt(max(apart - along * along, 0.0));
+    found = found || (screen.w > 0.0 && along > 0.0 && abs(aside - screen.w) < slack * sqrt(apart));
+  }
+  return found;
+}
+
+void main() {
+  vec4 found = texture2D(mist, vAt);
+  if (rimmed(vAt)) {
+    vec2 cell = vAt * grid - 0.5;
+    vec2 base = floor(cell);
+    vec2 part = cell - base;
+    int mine = metAt(vAt);
+    vec4 alike = vec4(0.0);
+    float weight = 0.0;
+    for (int corner = 0; corner < 4; corner++) {
+      vec2 side = vec2(float(corner & 1), float(corner >> 1));
+      vec2 at = (base + side + 0.5) / grid;
+      vec2 shares = mix(1.0 - part, part, side);
+      float share = shares.x * shares.y;
+      if (metAt(at) == mine) {
+        alike += share * texture2D(mist, at);
+        weight += share;
+      }
+    }
+    found = weight > 1e-3 ? alike / weight : found;
+  }
+  float grain = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) - 0.5;
+  gl_FragColor = vec4(found.rgb * found.rgb, found.a);
+  #include <colorspace_fragment>
+  gl_FragColor.rgb = max(gl_FragColor.rgb + grain / 255.0 * step(1e-4, found.a + found.r + found.g + found.b), 0.0);
 }
 `;
 

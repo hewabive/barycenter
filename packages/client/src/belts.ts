@@ -26,6 +26,7 @@ import {
   Vector2,
   Vector3,
   Vector4,
+  WebGLRenderTarget,
 } from "three";
 import {
   HAZE_COLUMNS,
@@ -44,6 +45,8 @@ import {
   HAZE_FRAGMENT,
   HAZE_STEPS,
   HAZE_VERTEX,
+  MIST_FRAGMENT,
+  MIST_VERTEX,
   SCREEN_ROOM,
 } from "./shaders.ts";
 
@@ -68,6 +71,14 @@ export interface Haze {
   passed(at: Vector3): number;
 }
 
+export interface Mist {
+  target: WebGLRenderTarget;
+  mesh: Mesh;
+  screens: Vector4[];
+  lens: Vector2;
+  fit(width: number, height: number): void;
+}
+
 const ROCK = 0x8a8076;
 const ICE = 0xcdd6dd;
 const LEAN_MOST = 3;
@@ -83,6 +94,7 @@ const HAZE_COARSE = 0.7;
 const SKINNED = 0.3;
 const EMBER_LEAST = 0.004;
 const HULL_LEAST = 1e-12;
+const MIST_PIXELS = 2;
 
 export function createBelt(
   lane: Lane,
@@ -223,5 +235,47 @@ export function createHaze(
     bubbles,
     reach: Math.hypot(wide, shade.top),
     passed: (at) => Math.exp(-shadowAt(profile, shade, Math.hypot(at.x, at.z), at.y)),
+  };
+}
+
+export function createMist(): Mist {
+  const target = new WebGLRenderTarget(1, 1, { depthBuffer: false });
+  const screens = Array.from({ length: SCREEN_ROOM }, () => new Vector4(0, 0, 0, 0));
+  const lens = new Vector2(1, 1);
+  const grid = new Vector2(1, 1);
+  const geometry = new BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3),
+  );
+  const mesh = new Mesh(
+    geometry,
+    new ShaderMaterial({
+      vertexShader: MIST_VERTEX,
+      fragmentShader: MIST_FRAGMENT,
+      uniforms: {
+        mist: { value: target.texture },
+        grid: { value: grid },
+        lens: { value: lens },
+        screens: { value: screens },
+      },
+      transparent: true,
+      premultipliedAlpha: true,
+      depthTest: false,
+      depthWrite: false,
+    }),
+  );
+  mesh.frustumCulled = false;
+  return {
+    target,
+    mesh,
+    screens,
+    lens,
+    fit(width, height) {
+      const wide = Math.max(1, Math.ceil(width / MIST_PIXELS));
+      const high = Math.max(1, Math.ceil(height / MIST_PIXELS));
+      target.setSize(wide, high);
+      grid.set(wide, high);
+    },
   };
 }
