@@ -209,6 +209,7 @@ export {
   spinOf,
   surveySystem,
   swayOf,
+  TIME_POWER,
   weightOf,
 } from "./system.ts";
 export { pullOf, syncOf, tideOf, tornAt, yieldOf } from "./tides.ts";

@@ -739,6 +739,7 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
         }
       });
       for (const haze of hazes) {
+        haze.turn(shown, (2 * slope) / mist.grid.y);
         haze.mesh.worldToLocal(haze.eye.copy(camera.position));
         haze.screens.forEach((screen, at) => {
           const found = nearest[at];

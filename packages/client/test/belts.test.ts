@@ -1,8 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ASTRONOMICAL_UNIT, clearedBy, type Disk, EARTH_MASS, SUN_MASS } from "@barycenter/sim";
-import { Color } from "three";
-import { createBelt } from "../src/belts.ts";
+import {
+  ASTRONOMICAL_UNIT,
+  clearedBy,
+  type Disk,
+  EARTH_MASS,
+  SUN_MASS,
+  TIME_POWER,
+} from "@barycenter/sim";
+import { Color, DataUtils, type ShaderMaterial } from "three";
+import { createBelt, createHaze } from "../src/belts.ts";
+import { HAZE_COLUMNS } from "../src/haze.ts";
 
 const AU = ASTRONOMICAL_UNIT;
 const belt = (given: Partial<Disk>): Disk => ({
@@ -55,4 +63,34 @@ test("the bodies of a belt lean as its disk is thick, and show once its dust is 
   assert.equal(shown({ depth: 3e-4 }), true);
   assert.equal(shown({ depth: 5e-3 }), false);
   assert.equal(shown({ depth: 1e-7, gas: 1e20 }), false);
+});
+
+test("the streaks of a layer turn once in the year of their distance and are new each turn", () => {
+  const disk = belt({ inner: AU, outer: 9 * AU, depth: 50, gas: EARTH_MASS, height: 0.03 });
+  const haze = createHaze(
+    [{ lane: { inner: 30, outer: 70, year: 400 }, disk, thinned: 0 }],
+    [],
+    { girth: 5, shine: new Color(1, 1, 1), level: () => 1, ember: () => 0 },
+    false,
+  );
+  assert.ok(haze !== null);
+  const spins = (haze.mesh.material as ShaderMaterial).uniforms.spins.value;
+  const read = (column: number) =>
+    [0, 1, 2, 3].map((part) => DataUtils.fromHalfFloat(spins.image.data[4 * column + part]));
+  const column = Math.round(
+    ((HAZE_COLUMNS - 1) * Math.log(Math.sqrt(30 * 70) / 30)) / Math.log(70 / 30),
+  );
+  const real = AU * 9 ** (Math.log(Math.sqrt(30 * 70) / 30) / Math.log(70 / 30));
+  const year = 400 * (real / (5 * AU)) ** (1.5 * TIME_POWER);
+  haze.turn(0.25 * year, 0.001);
+  const quarter = read(column);
+  assert.ok(Math.abs(quarter[0]) < 0.1 && quarter[1] > 0.95, `${quarter}`);
+  assert.deepEqual(quarter.slice(2), [0, 0]);
+  haze.turn(1.75 * year, 0.001);
+  const later = read(column);
+  assert.ok(Math.abs(later[0]) < 0.1 && later[1] < -0.95, `${later}`);
+  assert.deepEqual(later.slice(2), [1, 2]);
+  const near = read(column - 60);
+  const far = read(column + 60);
+  assert.ok(near[2] > later[2] && far[2] <= later[2]);
 });

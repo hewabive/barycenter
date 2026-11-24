@@ -248,6 +248,11 @@ const HAZE_MOST_LIGHT = 1.4;
 const HAZE_DIM = 2e-6;
 const HAZE_SLACK = 1.1;
 const HAZE_TURNS = 3;
+const STREAK_WIDE = 0.04;
+const STREAK_CELLS = [40, 23];
+const STREAK_GAIN = 0.3;
+const STREAK_SHADE = 0.4;
+const STREAK_FINE = [0.3, 0.6];
 const MIST_RIM = 4;
 const HAZE_CLEAR = 0.01;
 const HAZE_NEAR = 0.3;
@@ -1528,8 +1533,34 @@ uniform vec4 bubbles[${BUBBLE_ROOM}];
 uniform vec3 shine;
 uniform vec3 dust;
 uniform vec3 frost;
+uniform sampler2D spins;
+uniform float pitch;
 varying vec3 vRay;
 ${SLAB}
+float flake(vec2 cell, float seed) {
+  return fract(sin(dot(cell + 19.19 * seed, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+float flock(float ring, float angle, float cells, float seed) {
+  vec2 at = vec2(ring, (angle / 6.2831853 + 0.5) * cells);
+  vec2 cell = floor(at);
+  vec2 part = at - cell;
+  vec2 soft = part * part * part * (part * (6.0 * part - 15.0) + 10.0);
+  float low = mod(cell.y, cells);
+  float high = mod(cell.y + 1.0, cells);
+  return mix(
+    mix(flake(vec2(cell.x, low), seed), flake(vec2(cell.x + 1.0, low), seed), soft.x),
+    mix(flake(vec2(cell.x, high), seed), flake(vec2(cell.x + 1.0, high), seed), soft.x),
+    soft.y
+  );
+}
+
+float wisp(float ring, float angle, float seed) {
+  float found = 0.6 * flock(ring, angle, ${real(STREAK_CELLS[0])}, seed)
+    + 0.4 * flock(0.57 * ring + 7.3, angle, ${real(STREAK_CELLS[1])}, seed + 11.0);
+  return smoothstep(0.53, 0.8, found) - ${real(STREAK_SHADE)} * smoothstep(0.47, 0.2, found);
+}
+
 struct Probe {
   vec2 spot;
   float share;
@@ -1691,6 +1722,8 @@ void main() {
     float lent = 0.0;
     float where = 0.0;
     float glow = 0.0;
+    float away = 0.0;
+    vec2 mean = vec2(0.0);
     for (int leg = 0; leg < 3; leg++) {
       float start = legs[leg].x;
       float end = legs[leg].y;
@@ -1728,6 +1761,8 @@ void main() {
         seen += sent;
         lent += sent * 0.5 * (last.lamp + here.lamp);
         where += sent * 0.5 * (last.share + here.share);
+        away += sent * (anchor + 0.5 * (past + next));
+        mean += sent * 0.5 * (last.spot + here.spot);
         if (here.share < hot) {
           glow += clear * (1.0 - gone) * toneAt(here.share).g;
         }
@@ -1743,6 +1778,21 @@ void main() {
     float ice = toneAt(seen > 0.0 ? where / seen : 0.0).r;
     float glare = sqrt(${real(HAZE_GAIN)} * seen);
     float shown = seen > 0.0 ? lent / seen * glare / (1.0 + glare / ${real(HAZE_MOST_LIGHT)}) : 0.0;
+    if (seen > 0.0) {
+      vec2 middle = mean / seen;
+      float reach = max(length(middle), span.x);
+      vec4 spin = textureLod(spins, vec2((0.5 + ${real(HAZE_COLUMNS - 1)} * along(reach)) / ${real(HAZE_COLUMNS)}, 0.5), 0.0);
+      vec2 turned = vec2(spin.x * middle.x + spin.y * middle.y, spin.x * middle.y - spin.y * middle.x);
+      float ring = log(reach / span.x) / ${real(STREAK_WIDE)};
+      float angle = atan(turned.y, turned.x);
+      float coarse = pitch * away / seen / (${real(STREAK_WIDE)} * reach);
+      float streak = mix(
+        wisp(ring, angle > 0.0 ? angle - 3.1415927 : angle + 3.1415927, spin.a),
+        wisp(ring, angle, spin.b),
+        0.5 - 0.5 * spin.x
+      );
+      shown *= 1.0 + ${real(STREAK_GAIN)} * streak * (1.0 - smoothstep(${real(STREAK_FINE[0])}, ${real(STREAK_FINE[1])}, coarse));
+    }
     vec3 lamp = shine * mix(dust, frost, ice) * shown + ${HAZE_EMBER} * glow;
     gl_FragColor = vec4(sqrt(lamp), 1.0 - clear);
   }

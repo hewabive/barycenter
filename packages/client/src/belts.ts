@@ -5,6 +5,7 @@ import {
   EARTH_MASS,
   type Lane,
   type Ridge,
+  TIME_POWER,
 } from "@barycenter/sim";
 import {
   BackSide,
@@ -69,6 +70,7 @@ export interface Haze {
   bubbles: Vector4[];
   reach: number;
   passed(at: Vector3): number;
+  turn(tick: number, pitch: number): void;
 }
 
 export interface Mist {
@@ -76,6 +78,7 @@ export interface Mist {
   mesh: Mesh;
   screens: Vector4[];
   lens: Vector2;
+  grid: Vector2;
   fit(width: number, height: number): void;
 }
 
@@ -95,6 +98,7 @@ const SKINNED = 0.3;
 const EMBER_LEAST = 0.004;
 const HULL_LEAST = 1e-12;
 const MIST_PIXELS = 2;
+const STREAK_SEEDS = 64;
 
 export function createBelt(
   lane: Lane,
@@ -196,6 +200,18 @@ export function createHaze(
   const screens = Array.from({ length: SCREEN_ROOM }, () => new Vector4(0, 0, 0, 0));
   const bubbles = Array.from({ length: BUBBLE_ROOM }, () => new Vector4(0, 0, 0, 0));
   const wide = profile.outer / Math.cos(Math.PI / HAZE_SIDES);
+  const { lane, disk } = layers[0];
+  const years = Array.from(
+    profile.far,
+    (far) => lane.year * ((2 * far) / (disk.inner + disk.outer)) ** (1.5 * TIME_POWER),
+  );
+  const turns = new Uint16Array(4 * HAZE_COLUMNS);
+  const spins = new DataTexture(turns, HAZE_COLUMNS, 1, RGBAFormat, HalfFloatType);
+  spins.minFilter = LinearFilter;
+  spins.magFilter = LinearFilter;
+  spins.wrapS = ClampToEdgeWrapping;
+  spins.wrapT = ClampToEdgeWrapping;
+  const pitch = { value: 0 };
   const mesh = new Mesh(
     new CylinderGeometry(wide, wide, 2 * shade.top, HAZE_SIDES, 1),
     new ShaderMaterial({
@@ -219,6 +235,8 @@ export function createHaze(
         shine: { value: lamp.shine },
         dust: { value: new Color(DUST) },
         frost: { value: new Color(FROST) },
+        spins: { value: spins },
+        pitch,
       },
       transparent: true,
       premultipliedAlpha: true,
@@ -235,6 +253,18 @@ export function createHaze(
     bubbles,
     reach: Math.hypot(wide, shade.top),
     passed: (at) => Math.exp(-shadowAt(profile, shade, Math.hypot(at.x, at.z), at.y)),
+    turn(tick, texel) {
+      years.forEach((year, column) => {
+        const gone = tick / year;
+        const angle = 2 * Math.PI * (gone - Math.floor(gone));
+        turns[4 * column] = DataUtils.toHalfFloat(Math.cos(angle));
+        turns[4 * column + 1] = DataUtils.toHalfFloat(Math.sin(angle));
+        turns[4 * column + 2] = DataUtils.toHalfFloat(Math.floor(gone) % STREAK_SEEDS);
+        turns[4 * column + 3] = DataUtils.toHalfFloat(Math.floor(gone + 0.5) % STREAK_SEEDS);
+      });
+      spins.needsUpdate = true;
+      pitch.value = texel;
+    },
   };
 }
 
@@ -271,6 +301,7 @@ export function createMist(): Mist {
     mesh,
     screens,
     lens,
+    grid,
     fit(width, height) {
       const wide = Math.max(1, Math.ceil(width / MIST_PIXELS));
       const high = Math.max(1, Math.ceil(height / MIST_PIXELS));
