@@ -194,6 +194,18 @@ const lengthOf = (meters: number) =>
   meters >= 0.01 * ASTRONOMICAL_UNIT
     ? `${figure(meters / ASTRONOMICAL_UNIT)} AU`
     : `${figure(meters / 1000)} km`;
+const pulledFact = (body: Body, host: Body): string => {
+  const { drawn } = body;
+  if (drawn === null) {
+    return "too weak to have moved it";
+  }
+  const oval = drawn.stretch >= 0.0005 ? `, stretched ${figure(drawn.stretch)}` : "";
+  const end =
+    drawn.falls === null
+      ? `it outlasts ${host.name}`
+      : `falls into ${host.name} in ${lived(drawn.falls)}`;
+  return `drawn in by ${host.name} from ${lengthOf(drawn.from)}${oval} · ${end}`;
+};
 const grainOf = (meters: number) =>
   meters >= 1000
     ? `${figure(meters / 1000)} km`
@@ -381,7 +393,12 @@ function factsOf(body: Body): Fact[] {
     const holder = system.bodies.find(
       (moon) => moon.parent === body.id && moon.physics.year === physics.day,
     );
-    const tide = sunny(parent) || shared !== null ? null : tideFact(physics, parent.physics);
+    const tide =
+      shared !== null
+        ? null
+        : sunny(parent)
+          ? pulledFact(body, parent)
+          : tideFact(physics, parent.physics);
     facts.push(
       "Orbit",
       [
@@ -446,6 +463,16 @@ function factsOf(body: Body): Fact[] {
   facts.push(
     "Around it",
     [sunny(body) ? "Planets" : "Moons", String(moons)],
+    ...(body.swallowed.length === 0
+      ? []
+      : [
+          [
+            "Swallowed",
+            body.swallowed
+              .map((taken) => `${taken.name}, ${massOf(taken.mass)}, ${lived(taken.since)} ago`)
+              .join(" · "),
+          ] satisfies Fact,
+        ]),
     [
       "Tears apart within",
       `${figure(rocheOf(physics.radius, density, ROCK_GRAIN) / physics.radius)} radii for rock · ${figure(rocheOf(physics.radius, density, ICE_GRAIN) / physics.radius)} for ice`,

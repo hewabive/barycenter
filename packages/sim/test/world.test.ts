@@ -1627,7 +1627,7 @@ test("systems with no home hold stars at every time of life", () => {
         const born = (SUN_MASS * (centre.mass / SUN_MASS - 0.394)) / 0.109;
         const { swell } = lifeOf(born, centre.age);
         assert.ok(swell > 0.5 * ASTRONOMICAL_UNIT, label);
-        assert.ok(near > (1.45 * swell * born) / centre.mass, `${label} was not swallowed`);
+        assert.ok(near > (swell * born) / centre.mass, `${label} was not swallowed`);
       }
     }
     if (kind === "neutron star") {
@@ -1681,7 +1681,7 @@ test("a system can be given the age of its star", () => {
     assert.ok(system.bodies.every((body) => body.physics.age === centre.age));
     for (const body of system.bodies.filter((other) => other.parent === 0)) {
       const near = body.physics.orbit * (1 - body.physics.stretch);
-      assert.ok(near > 1.45 * centre.radius, `seed ${seed}, ${body.name}`);
+      assert.ok(near > centre.radius, `seed ${seed}, ${body.name}`);
       const born = body.physics.orbit > 3.5 * ASTRONOMICAL_UNIT && body.physics.gas < 0.5;
       if (born && !starborn(body.physics) && body.physics.orbit < frostOf(centre.glow)) {
         const { ice, heat } = body.physics;
@@ -1725,8 +1725,12 @@ test("a system is the same at every age, less what its star and its tides took",
     };
     const young = at(seed, 0.3);
     const old = at(seed, 9.9);
-    assert.deepEqual(circling(young, false), circling(prime, false), `seed ${seed} when young`);
-    assert.deepEqual(circling(old, false), circling(prime, false), `seed ${seed} when old`);
+    const fallen = (system: ReturnType<typeof at>) =>
+      new Set(system.bodies[0].swallowed.map((taken) => taken.name));
+    const since = (system: ReturnType<typeof at>, before: ReturnType<typeof at>) =>
+      circling(before, false).filter((name) => !fallen(system).has(name));
+    assert.deepEqual(circling(young, false), since(young, prime), `seed ${seed} when young`);
+    assert.deepEqual(circling(old, false), since(old, prime), `seed ${seed} when old`);
     const then = circling(prime, true);
     const last = circling(old, true);
     assert.ok(
@@ -1761,6 +1765,8 @@ test("a system is the same at every age, less what its star and its tides took",
         continue;
       }
       const sun = late.bodies[0].physics;
+      const eaten = fallen(late);
+      const nudged = late.bodies.some((body) => body.drawn !== null);
       for (const once of prime.bodies) {
         const host = hostOf(prime, once.name);
         if (host === null) {
@@ -1772,23 +1778,32 @@ test("a system is the same at every age, less what its star and its tides took",
           assert.ok(gone || here.has(host), `${label}, ${once.name} goes with ${host}`);
           continue;
         }
-        const taken = near < 1.5 * swell;
-        assert.ok(gone || !taken, `${label}, ${once.name} at ${near} was swallowed`);
-        assert.ok(taken || !gone || sun.mass < SUN_MASS, `${label}, ${once.name} was let go`);
+        const taken = eaten.has(once.name);
+        assert.ok(!taken || gone, `${label}, ${once.name} was swallowed and is still there`);
+        assert.ok(gone || near > swell, `${label}, ${once.name} at ${near} was reached`);
+        assert.ok(!taken || near < 8 * swell, `${label}, ${once.name} at ${near} was drawn in`);
+        assert.ok(
+          taken || !gone || sun.mass < SUN_MASS || nudged,
+          `${label}, ${once.name} was let go`,
+        );
         swallowed += taken ? 1 : 0;
         crowded += gone && !taken ? 1 : 0;
         kept += gone ? 0 : 1;
         const now = late.bodies.find((body) => body.name === once.name);
         if (now !== undefined) {
           const wider = (now.physics.orbit * sun.mass) / (once.physics.orbit * SUN_MASS);
-          assert.ok(Math.abs(wider - 1) < 1e-4, `${label}, ${once.name} moved out ${wider}`);
+          assert.ok(wider < 1 + 1e-4, `${label}, ${once.name} moved out ${wider}`);
+          assert.ok(wider > 1 - 1e-3 || now.drawn !== null, `${label}, ${once.name} drawn in`);
         }
       }
     }
   }
   assert.ok(swallowed > 100 && kept > 100, `${swallowed} swallowed, ${kept} kept`);
   assert.ok(drawn > 5, `${drawn} moons drawn down between the ages`);
-  assert.ok(crowded > 0 && crowded < 0.2 * kept, `${crowded} crowded out as the star shed mass`);
+  assert.ok(
+    crowded > 0 && crowded < 0.2 * kept,
+    `${crowded} crowded out by a lighter star or a drawn planet`,
+  );
 });
 
 test("a young star is wide and cool and settles on the main sequence", () => {

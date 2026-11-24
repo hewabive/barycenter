@@ -112,11 +112,25 @@ export interface Body {
   relief: Relief;
   shared: Shared | null;
   gathered: Gathered | null;
+  drawn: Drawn | null;
+  swallowed: Swallowed[];
 }
 
 export interface Gathered {
   since: number;
   turn: number;
+}
+
+export interface Drawn {
+  from: number;
+  stretch: number;
+  falls: number | null;
+}
+
+export interface Swallowed {
+  name: string;
+  mass: number;
+  since: number;
 }
 
 export interface StarSystem {

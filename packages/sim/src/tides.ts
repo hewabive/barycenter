@@ -14,6 +14,7 @@ const SCAN = 48;
 const HALVINGS = 40;
 const SPIN_MOST = 0.8;
 const RIGID = 1.44;
+const FLUID = 2.44;
 export const PLUNGE = 1.02;
 const IN_STEP = 2 ** (2 / 3);
 const WEDGE_MOST = 0.9;
@@ -83,8 +84,8 @@ export function syncOf(mass: number, day: number): number {
   return Math.cbrt((GRAVITY * mass * day ** 2) / (4 * Math.PI ** 2));
 }
 
-export function tornAt(radius: number, density: number, grain: number): number {
-  return radius * Math.max(PLUNGE, RIGID * Math.cbrt(density / grain));
+export function tornAt(radius: number, density: number, grain: number, fluid = false): number {
+  return radius * Math.max(PLUNGE, (fluid ? FLUID : RIGID) * Math.cbrt(density / grain));
 }
 
 export function yieldOf(host: Pick<Turner, "mass" | "radius" | "ice" | "fluid">): number {

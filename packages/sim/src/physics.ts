@@ -104,6 +104,7 @@ const SUN_AGE = 4.57 * GIGAYEAR;
 const SUN_ROSSBY = 2;
 const SPIN_SETTLED = 2.2;
 const SPIN_LATE = 0.8;
+const STAR_TURNING = [0.07, 0.15];
 const COOLING_HEAT = 100;
 const COOLING_AGE = 4.5 * GIGAYEAR;
 const COOLING_PACE = 0.3;
@@ -275,6 +276,14 @@ export function starLife(mass: number): number {
   return stagesOf(mass).reduce((sum, stage) => sum + stage, 0);
 }
 
+export function starStages(mass: number): number[] {
+  let end = 0;
+  return stagesOf(mass).map((stage) => {
+    end += stage;
+    return end;
+  });
+}
+
 export function holeRadius(mass: number): number {
   return (2 * GRAVITY * mass) / LIGHT_SPEED ** 2;
 }
@@ -394,14 +403,37 @@ export function lifeOf(born: number, age: number): Life {
   return { ...emberOf(suns, since), swell, peak, spent: since };
 }
 
-export function starTurn(born: number, age: number, life: Life, luck: number): number {
+export interface Gain {
+  at: number;
+  spin: number;
+}
+
+export function starTurn(
+  born: number,
+  age: number,
+  life: Life,
+  luck: number,
+  gains: Gain[] = [],
+): number {
   if (life.spent <= 0) {
     const dwarf = starRadius(born);
     const heat = starHeat(starGlow(born), dwarf);
-    const steady = starDay(born, heat, Math.min(age, starSpan(born)), luck);
+    const main = starSpan(born);
+    const early = gains.filter((gain) => gain.at <= Math.min(age, main));
+    const steady = starDay(born, heat, Math.min(age, main) + sped(born, heat, luck, early), luck);
     const braked = SPIN_SETTLED * turnover(starHeat(life.glow, life.radius));
     const slowed = (steady * life.radius) / dwarf;
-    return age < starDawn(born) ? slowed : life.radius > dwarf ? Math.max(braked, slowed) : steady;
+    const day =
+      age < starDawn(born) ? slowed : life.radius > dwarf ? Math.max(braked, slowed) : steady;
+    const late = gains
+      .filter((gain) => gain.at > main && gain.at <= age)
+      .reduce((sum, gain) => sum + gain.spin, 0);
+    if (late <= 0) {
+      return day;
+    }
+    const turning = STAR_TURNING[1] * life.mass * life.radius ** 2;
+    const fastest = Math.sqrt((SPIN_MOST * GRAVITY * life.mass) / life.radius ** 3);
+    return (2 * Math.PI) / Math.min(fastest, (2 * Math.PI) / day + late / turning);
   }
   if (born >= HOLE_LEAST) {
     const spin = HOLE_SPIN[0] + HOLE_SPIN[1] * luck;
@@ -420,8 +452,25 @@ export function turnover(heat: number): number {
 
 export function starDay(mass: number, heat: number, age: number, luck: number): number {
   const late = SPIN_LATE * (1 - smooth(0.2, 0.6, mass / SUN_MASS));
-  const rossby = Math.min(SUN_ROSSBY * (age / SUN_AGE) ** (0.5 + late), SPIN_SETTLED);
+  const rossby = Math.min(SUN_ROSSBY * (Math.max(0, age) / SUN_AGE) ** (0.5 + late), SPIN_SETTLED);
   return Math.max(rossby * turnover(heat) * (0.75 + 0.5 * luck), DAY * (0.4 + 1.1 * luck));
+}
+
+function youthOf(mass: number, heat: number, day: number, luck: number): number {
+  const late = SPIN_LATE * (1 - smooth(0.2, 0.6, mass / SUN_MASS));
+  const rossby = Math.min(day / (turnover(heat) * (0.75 + 0.5 * luck)), SPIN_SETTLED);
+  return SUN_AGE * (rossby / SUN_ROSSBY) ** (1 / (0.5 + late));
+}
+
+function sped(born: number, heat: number, luck: number, gains: Gain[]): number {
+  const turning = STAR_TURNING[0] * born * starRadius(born) ** 2;
+  let shift = 0;
+  for (const gain of [...gains].sort((left, right) => left.at - right.at)) {
+    const day = starDay(born, heat, gain.at + shift, luck);
+    const spun = (2 * Math.PI) / ((2 * Math.PI) / day + gain.spin / turning);
+    shift = Math.min(shift, youthOf(born, heat, spun, luck) - gain.at);
+  }
+  return shift;
 }
 
 export function glowOf(radius: number, heat: number): number {
