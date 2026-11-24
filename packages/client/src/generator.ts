@@ -94,24 +94,32 @@ const AGE_MOST = 13;
 const FPS_SPAN = 0.5;
 const AT_REST = "at rest";
 
-const query = new URLSearchParams(location.search);
-const asked = Number.parseInt(query.get("seed") ?? "", 10);
-const seed = Number.isFinite(asked) ? asked : Math.floor(Math.random() * 1e6);
-const settled = query.get("home") === "1";
-const given = Number.parseFloat(query.get("star") ?? "");
-const starMass = Number.isFinite(given) && given > 0 ? Math.min(60, Math.max(0.013, given)) : null;
-const old = Number.parseFloat(query.get("age") ?? "");
-const starAge =
-  !settled && Number.isFinite(old) && old > 0 ? Math.min(AGE_MOST, Math.max(AGE_LEAST, old)) : null;
-const real = query.get("scale") === "real";
-
-const address = (next: {
+interface Choice {
   seed: number;
   settled: boolean;
   star: number | null;
   age: number | null;
   real: boolean;
-}) => {
+}
+
+const choiceOf = (search: string): Choice => {
+  const query = new URLSearchParams(search);
+  const asked = Number.parseInt(query.get("seed") ?? "", 10);
+  const settled = query.get("home") === "1";
+  const given = Number.parseFloat(query.get("star") ?? "");
+  const old = Number.parseFloat(query.get("age") ?? "");
+  return {
+    seed: Number.isFinite(asked) ? asked : Math.floor(Math.random() * 1e6),
+    settled,
+    star: Number.isFinite(given) && given > 0 ? Math.min(60, Math.max(0.013, given)) : null,
+    age:
+      !settled && Number.isFinite(old) && old > 0
+        ? Math.min(AGE_MOST, Math.max(AGE_LEAST, old))
+        : null,
+    real: query.get("scale") === "real",
+  };
+};
+const address = (next: Choice) => {
   const search = new URLSearchParams({ seed: String(next.seed), home: next.settled ? "1" : "0" });
   if (next.star !== null) {
     search.set("star", String(next.star));
@@ -124,17 +132,19 @@ const address = (next: {
   }
   return `?${search}`;
 };
-history.replaceState(null, "", address({ seed, settled, star: starMass, age: starAge, real }));
-
-const plan = {
-  settled,
-  star: starMass === null ? null : starMass * SUN_MASS,
-  age: starAge === null ? null : starAge * GIGAYEAR,
+const make = (next: Choice) => {
+  const plan = {
+    settled: next.settled,
+    star: next.star === null ? null : next.star * SUN_MASS,
+    age: next.age === null ? null : next.age * GIGAYEAR,
+  };
+  return next.real ? surveySystem(next.seed, plan) : sketchSystem(next.seed, plan);
 };
-const system = real ? surveySystem(seed, plan) : sketchSystem(seed, plan);
-const star = system.bodies[0];
 
-const beat = real ? "seconds" : "ticks";
+let choice = choiceOf(location.search);
+history.replaceState(null, "", address(choice));
+let system = make(choice);
+
 const figure = (value: number, digits = 3): string => {
   if (value === 0) {
     return "0";
@@ -254,6 +264,7 @@ function factsOf(body: Body): Fact[] {
   const within = parent === null ? [] : [parent, ...heavy(parent).filter(nearer(body))];
   const swaying = heavy(body);
   const lamps = lampsOf(system, body.id).slice(0, LAMPS);
+  const beat = choice.real ? "seconds" : "ticks";
   const facts: Fact[] = [
     "Body",
     ["Class", classOf(physics)],
@@ -537,14 +548,14 @@ function factsOf(body: Body): Fact[] {
 }
 
 const stage = required<HTMLElement>("#stage");
-const space = createSpace(stage, system, real);
+let space = createSpace(stage, system, choice.real);
 
 let tick = 0;
 let pace = 0;
 let weather = 0;
 let refresh = () => {};
 const dial = () => {
-  if (!real) {
+  if (!choice.real) {
     return `tick ${Math.floor(tick)}`;
   }
   const pair = (value: number) => String(Math.floor(value)).padStart(2, "0");
@@ -553,30 +564,34 @@ const dial = () => {
   return `${Math.floor(tick / YEAR)} y ${days} d ${pair(rest / HOUR)}:${pair((rest % HOUR) / 60)}:${pair(rest % 60)}`;
 };
 const clock = el("span", { class: "clock" }, dial());
-const paces: [rate: number, label: string, title: string][] = real
-  ? RATES.map(([rate, label]) => [rate, label, `${figure(rate)} seconds a second`])
-  : PACES.map((rate) => [rate, `${rate / PACES[1]}×`, `${rate} ticks a second`]);
-const speeds = paces.map(([rate, label, title], index) => {
-  const control = button(rate === 0 ? "Pause" : label, rate === 0 ? "Stop time" : title, () => {
-    pace = rate;
-    space.clock(tick, pace, real ? weather : undefined);
-    speeds.forEach((other, at) => {
-      other.classList.toggle("active", at === index);
+const strip = el("span", { class: "speeds" });
+const edges = () => {
+  strip.classList.toggle("before", strip.scrollLeft > 1);
+  strip.classList.toggle("after", strip.scrollLeft + strip.clientWidth < strip.scrollWidth - 1);
+};
+strip.addEventListener("scroll", edges, { passive: true });
+new ResizeObserver(edges).observe(strip);
+let speeds: HTMLButtonElement[] = [];
+const time = () => {
+  const paces: [rate: number, label: string, title: string][] = choice.real
+    ? RATES.map(([rate, label]) => [rate, label, `${figure(rate)} seconds a second`])
+    : PACES.map((rate) => [rate, `${rate / PACES[1]}×`, `${rate} ticks a second`]);
+  speeds = paces.map(([rate, label, title], index) => {
+    const control = button(rate === 0 ? "Pause" : label, rate === 0 ? "Stop time" : title, () => {
+      pace = rate;
+      space.clock(tick, pace, choice.real ? weather : undefined);
+      speeds.forEach((other, at) => {
+        other.classList.toggle("active", at === index);
+      });
+      control.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
     });
-    control.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
+    control.classList.toggle("active", rate === pace);
+    return control;
   });
-  control.classList.toggle("active", rate === pace);
-  return control;
-});
-space.onFrame((elapsed) => {
-  if (pace > 0) {
-    tick += elapsed * pace;
-    weather += elapsed * Math.min(pace / WEATHER_SPAN, WEATHER_MOST);
-    space.clock(tick, pace, real ? weather : undefined);
-    write(clock, dial());
-    refresh();
-  }
-});
+  strip.replaceChildren(...speeds);
+  strip.scrollLeft = 0;
+  edges();
+};
 
 const fps = el(
   "span",
@@ -591,27 +606,38 @@ let drew = false;
 let frames = 0;
 let drawing = 0;
 let waited = 0;
-space.onPresent(() => {
-  drew = true;
-});
-space.onFrame((elapsed) => {
-  waited += elapsed;
-  if (drew) {
-    frames += 1;
-    drawing += elapsed;
-    drew = false;
-  }
-  if (waited >= FPS_SPAN) {
-    write(fps, drawing > 0 ? `${Math.round(frames / drawing)} fps` : AT_REST);
-    frames = 0;
-    drawing = 0;
-    waited = 0;
-  }
-});
+const watch = () => {
+  space.onFrame((elapsed) => {
+    if (pace > 0) {
+      tick += elapsed * pace;
+      weather += elapsed * Math.min(pace / WEATHER_SPAN, WEATHER_MOST);
+      space.clock(tick, pace, choice.real ? weather : undefined);
+      write(clock, dial());
+      refresh();
+    }
+  });
+  space.onPresent(() => {
+    drew = true;
+  });
+  space.onFrame((elapsed) => {
+    waited += elapsed;
+    if (drew) {
+      frames += 1;
+      drawing += elapsed;
+      drew = false;
+    }
+    if (waited >= FPS_SPAN && pending === null) {
+      write(fps, drawing > 0 ? `${Math.round(frames / drawing)} fps` : AT_REST);
+      frames = 0;
+      drawing = 0;
+      waited = 0;
+    }
+  });
+  space.onFocus(show);
+};
 
 const seedField = el("input", {
   type: "number",
-  value: String(seed),
   min: "0",
   step: "1",
   inputmode: "numeric",
@@ -621,7 +647,6 @@ const starField = el("input", {
   type: "number",
   inputmode: "decimal",
   enterkeyhint: "go",
-  value: starMass === null ? "" : String(starMass),
   min: "0.013",
   max: "60",
   step: "0.01",
@@ -631,7 +656,6 @@ const ageField = el("input", {
   type: "number",
   inputmode: "decimal",
   enterkeyhint: "go",
-  value: starAge === null ? "" : String(starAge),
   min: String(AGE_LEAST),
   max: String(AGE_MOST),
   step: "any",
@@ -642,30 +666,39 @@ const ageSlide = el("input", {
   min: String(Math.log10(AGE_LEAST)),
   max: String(Math.log10(AGE_MOST)),
   step: "0.01",
-  value: String(Math.log10(star.physics.age / GIGAYEAR)),
 });
-ageSlide.disabled = settled;
-const ageRead = el("span", { class: "clock" }, lived(star.physics.age));
+const ageRead = el("span", { class: "clock" });
 const homeField = el("input", { type: "checkbox" });
-homeField.checked = settled;
-const go = (next: number, scale = real) => {
+const go = (next: number, scale = choice.real) => {
   const mass = Number.parseFloat(starField.value);
   const age = Number.parseFloat(ageField.value);
-  location.search = address({
-    seed: next,
-    settled: homeField.checked,
-    star: Number.isFinite(mass) && mass > 0 ? mass : null,
-    age: Number.isFinite(age) && age > 0 ? age : null,
-    real: scale,
-  });
+  const wanted = choiceOf(
+    address({
+      seed: next,
+      settled: homeField.checked,
+      star: Number.isFinite(mass) && mass > 0 ? mass : null,
+      age: Number.isFinite(age) && age > 0 ? age : null,
+      real: scale,
+    }),
+  );
+  if (pending === null) {
+    history.pushState(null, "", address(wanted));
+  } else {
+    history.replaceState(null, "", address(wanted));
+  }
+  open(wanted);
 };
 const read = () => {
   const typed = Number.parseInt(seedField.value, 10);
-  return Number.isFinite(typed) ? typed : seed;
+  return Number.isFinite(typed) ? typed : choice.seed;
 };
+const handheld = window.matchMedia("(pointer: coarse)");
 for (const field of [seedField, starField, ageField]) {
   field.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
+      if (handheld.matches) {
+        field.blur();
+      }
       go(read());
     }
   });
@@ -678,19 +711,15 @@ ageSlide.addEventListener("change", () => {
   ageField.value = (10 ** Number(ageSlide.value)).toPrecision(3);
   go(read());
 });
+addEventListener("popstate", () => open(choiceOf(location.search)));
 
 const topbar = required<HTMLElement>("#topbar");
-const strip = el("span", { class: "speeds" }, ...speeds);
-const edges = () => {
-  strip.classList.toggle("before", strip.scrollLeft > 1);
-  strip.classList.toggle("after", strip.scrollLeft + strip.clientWidth < strip.scrollWidth - 1);
-};
-strip.addEventListener("scroll", edges, { passive: true });
-new ResizeObserver(edges).observe(strip);
 const marked = <Item extends HTMLElement>(item: Item, name: string): Item => {
   item.classList.add(name);
   return item;
 };
+const scale = button("", "", () => go(read(), !choice.real));
+const fly = el("a", { class: "away", title: "Fly a ship through this system" }, "Fly");
 topbar.append(
   el("strong", { class: "title" }, "Generator"),
   el(
@@ -729,23 +758,9 @@ topbar.append(
       homeField,
       "home",
     ),
-    button(
-      real ? "Drawn scale" : "Real scale",
-      real
-        ? "Show the system on the scale of the game, squeezed to fit a screen"
-        : "Show the system in its real sizes and distances, with a clock in seconds",
-      () => go(read(), !real),
-    ),
+    scale,
     el("a", { class: "away", href: "atlas.html" }, "Atlas"),
-    el(
-      "a",
-      {
-        class: "away",
-        href: `flight.html${address({ seed, settled, star: starMass, age: starAge, real: false })}`,
-        title: "Fly a ship through this system",
-      },
-      "Fly",
-    ),
+    fly,
   ),
   marked(
     button("Next", "Make the system of the next seed", () => go(read() + 1)),
@@ -760,51 +775,9 @@ topbar.append(
 );
 dismissible(topbar, "open");
 
-const suns = system.bodies.filter((body) => sunny(body));
-const planets = system.bodies.filter(
-  (body) => !sunny(body) && sunny(system.bodies[body.parent ?? 0]),
-).length;
-const summary = el(
-  "section",
-  {},
-  el("h3", {}, "System"),
-  el(
-    "div",
-    {},
-    `${suns
-      .map(
-        (body) =>
-          `${body.name}, ${classOf(body.physics)} of ${massOf(body.physics.mass)} and ${figure(body.physics.heat, 4)} K`,
-      )
-      .join(" with ")}, ${lived(star.physics.age)} old`,
-  ),
-  el(
-    "div",
-    { class: "hint" },
-    `${planets} planets, ${system.bodies.length - suns.length - planets} moons and ${suns.reduce((sum, body) => sum + body.physics.disks.length, 0)} ${
-      suns.some((body) => body.physics.disks.some((disk) => disk.gas > 0)) ? "disks" : "belts"
-    } · ${
-      system.home === null
-        ? "no home"
-        : `home ${system.bodies[system.home].name}, the system of world seed ${seed}`
-    }`,
-  ),
-);
-
-const depthOf = (body: Body): number =>
-  body.parent === null ? 0 : 1 + depthOf(system.bodies[body.parent]);
-const rows = system.bodies.map((body) => {
-  const row = el(
-    "tr",
-    {},
-    el("td", { style: `padding-left: ${4 + 12 * depthOf(body)}px` }, body.name),
-    el("td", {}, classOf(body.physics)),
-    el("td", {}, massOf(body.physics.mass).split(" · ")[0]),
-    el("td", {}, `${figure(body.physics.heat)} K`),
-  );
-  row.addEventListener("click", () => space.focus(body.id));
-  return row;
-});
+const summary = el("section", {});
+const roster = el("table", { class: "bodies" });
+let rows: HTMLTableRowElement[] = [];
 const title = el("h3", {}, "");
 const heading = el("span", {});
 const facts = el("table", { class: "facts" });
@@ -842,21 +815,114 @@ const show = (id: number) => {
   refresh();
   write(raw, JSON.stringify(body, null, 1));
 };
-space.onFocus(show);
-show(system.home ?? star.id);
 
 const panel = required<HTMLElement>("#panel");
 const handle = el("button", { type: "button", class: "handle" }, heading);
 handle.addEventListener("click", () => panel.classList.toggle("folded"));
-panel.append(
-  handle,
-  el(
-    "div",
-    { class: "body" },
-    summary,
-    el("section", {}, el("h3", {}, "Bodies"), el("table", { class: "bodies" }, ...rows)),
-    el("section", {}, title, facts),
-    el("details", {}, el("summary", {}, "Description as stored"), raw),
-  ),
+const sheet = el(
+  "div",
+  { class: "body" },
+  summary,
+  el("section", {}, el("h3", {}, "Bodies"), roster),
+  el("section", {}, title, facts),
+  el("details", {}, el("summary", {}, "Description as stored"), raw),
 );
-document.body.dataset.done = "true";
+panel.append(handle, sheet);
+
+const depthOf = (body: Body): number =>
+  body.parent === null ? 0 : 1 + depthOf(system.bodies[body.parent]);
+const settle = () => {
+  const star = system.bodies[0];
+  tick = 0;
+  weather = 0;
+  write(clock, dial());
+  time();
+  watch();
+  space.clock(tick, pace, choice.real ? weather : undefined);
+
+  seedField.value = String(choice.seed);
+  starField.value = choice.star === null ? "" : String(choice.star);
+  ageField.value = choice.age === null ? "" : String(choice.age);
+  ageSlide.value = String(Math.log10(star.physics.age / GIGAYEAR));
+  ageSlide.disabled = choice.settled;
+  write(ageRead, lived(star.physics.age));
+  homeField.checked = choice.settled;
+  write(scale, choice.real ? "Drawn scale" : "Real scale");
+  scale.title = choice.real
+    ? "Show the system on the scale of the game, squeezed to fit a screen"
+    : "Show the system in its real sizes and distances, with a clock in seconds";
+  fly.href = `flight.html${address({ ...choice, real: false })}`;
+
+  const suns = system.bodies.filter((body) => sunny(body));
+  const planets = system.bodies.filter(
+    (body) => !sunny(body) && sunny(system.bodies[body.parent ?? 0]),
+  ).length;
+  summary.replaceChildren(
+    el("h3", {}, "System"),
+    el(
+      "div",
+      {},
+      `${suns
+        .map(
+          (body) =>
+            `${body.name}, ${classOf(body.physics)} of ${massOf(body.physics.mass)} and ${figure(body.physics.heat, 4)} K`,
+        )
+        .join(" with ")}, ${lived(star.physics.age)} old`,
+    ),
+    el(
+      "div",
+      { class: "hint" },
+      `${planets} planets, ${system.bodies.length - suns.length - planets} moons and ${suns.reduce((sum, body) => sum + body.physics.disks.length, 0)} ${
+        suns.some((body) => body.physics.disks.some((disk) => disk.gas > 0)) ? "disks" : "belts"
+      } · ${
+        system.home === null
+          ? "no home"
+          : `home ${system.bodies[system.home].name}, the system of world seed ${choice.seed}`
+      }`,
+    ),
+  );
+  rows = system.bodies.map((body) => {
+    const row = el(
+      "tr",
+      {},
+      el("td", { style: `padding-left: ${4 + 12 * depthOf(body)}px` }, body.name),
+      el("td", {}, classOf(body.physics)),
+      el("td", {}, massOf(body.physics.mass).split(" · ")[0]),
+      el("td", {}, `${figure(body.physics.heat)} K`),
+    );
+    row.addEventListener("click", () => space.focus(body.id));
+    return row;
+  });
+  roster.replaceChildren(...rows);
+  show(system.home ?? star.id);
+  sheet.scrollTop = 0;
+  document.body.dataset.done = "true";
+};
+let pending: Choice | null = null;
+const build = () => {
+  if (pending === null) {
+    return;
+  }
+  const next = pending;
+  pending = null;
+  if (next.real !== choice.real) {
+    pace = 0;
+  }
+  choice = next;
+  system = make(next);
+  space.dispose();
+  space = createSpace(stage, system, next.real);
+  stage.classList.remove("making");
+  settle();
+};
+const open = (next: Choice) => {
+  seedField.value = String(next.seed);
+  write(fps, "making…");
+  stage.classList.add("making");
+  delete document.body.dataset.done;
+  if (pending === null) {
+    requestAnimationFrame(() => setTimeout(build));
+  }
+  pending = next;
+};
+settle();

@@ -98,6 +98,7 @@ export interface Space {
   onClearance(listener: () => number): void;
   sharpen(id: number | null): void;
   plumb(up: Vector3 | null, share: number): void;
+  dispose(): void;
 }
 
 interface Shift {
@@ -1059,7 +1060,8 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
     }
     present(performance.now());
   };
-  new ResizeObserver(fit).observe(stage);
+  const watch = new ResizeObserver(fit);
+  watch.observe(stage);
 
   const pointer = new Vector2();
   const raycaster = new Raycaster();
@@ -1131,7 +1133,11 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
   });
 
   let previous = performance.now();
+  let alive = true;
   const animate = (now: number) => {
+    if (!alive) {
+      return;
+    }
     requestAnimationFrame(animate);
     const elapsed = Math.max(0, (now - previous) / 1000);
     previous = Math.max(previous, now);
@@ -1249,6 +1255,15 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
         start: null,
       };
       stale = true;
+    },
+    dispose() {
+      alive = false;
+      watch.disconnect();
+      controls.dispose();
+      renderer.dispose();
+      renderer.forceContextLoss();
+      renderer.domElement.remove();
+      labels.remove();
     },
   };
 }

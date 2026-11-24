@@ -46,6 +46,10 @@ body {
   display: contents;
 }
 
+#stage.making :is(canvas, .labels) {
+  opacity: 0.4;
+}
+
 .bodies,
 .facts {
   width: 100%;
