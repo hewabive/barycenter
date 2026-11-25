@@ -55,14 +55,14 @@ test("gas that leaves the tip swings past the other star to one side", () => {
 });
 
 test("a star that has just thrown off its envelope stands in a shell that grows and fades", () => {
-  const ended = 1.0721305;
+  const ended = 0.619734;
   const fresh = surveySystem(21, { settled: false, star: null, age: ended * GIGAYEAR });
   const dwarf = fresh.bodies.find((body) => body.shell !== null);
   assert.ok(dwarf !== undefined && dwarf.shell !== null);
   const shed = dwarf.passages.find(({ kind }) => kind === "shed");
   assert.ok(shed !== undefined && shed.with === null && shed.mass === dwarf.shell.mass);
-  assert.ok(dwarf.shell.since > 0 && dwarf.shell.since < 5e4 * YEAR);
-  assert.ok(Math.abs(dwarf.shell.reach / (25000 * dwarf.shell.since) - 1) < 1e-9);
+  assert.ok(dwarf.shell.since > 0 && dwarf.shell.since < 2.1e4 * YEAR);
+  assert.ok(Math.abs(dwarf.shell.reach / (42000 * dwarf.shell.since) - 1) < 1e-9);
   assert.ok(
     Math.abs(dwarf.shell.radius * fresh.unit - dwarf.shell.reach) < 1e-6 * dwarf.shell.reach,
   );
@@ -77,7 +77,7 @@ test("a star that has just thrown off its envelope stands in a shell that grows 
 });
 
 test("a giant that fills its lobe is drawn as wide beside its companion as it is", () => {
-  const system = sketchSystem(325, { settled: false, star: null, age: 8.72 * GIGAYEAR });
+  const system = sketchSystem(325, { settled: false, star: null, age: 7.75 * GIGAYEAR });
   const stars = system.bodies.filter((body) => starborn(body.physics));
   const giver = stars.find((body) => body.lobe === 1);
   const taker = stars.find((body) => body !== giver);

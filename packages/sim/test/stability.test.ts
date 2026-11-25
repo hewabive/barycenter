@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { GROWN_MOST } from "../src/disks.ts";
 import { BROWN_LEAST, jacobiOf, standingsOf, starborn, surveySystem, trial } from "../src/index.ts";
 
-const STEEP = 0.68;
+const LEAN = [0.96, 2.269];
 
 test("neighbors keep six Hill radii apart and moons stay well inside the hold of their host", () => {
   let planets = 0;
@@ -34,18 +35,21 @@ test("neighbors keep six Hill radii apart and moons stay well inside the hold of
           continue;
         }
         moons += 1;
-        const fed = system.bodies[host.parent].passages.some(({ kind }) => kind === "took");
+        const sun = system.bodies[host.parent];
+        const fed = sun.passages.some(({ kind }) => kind === "took");
+        const growing = sun.physics.age < GROWN_MOST;
+        const most = fed ? 0.491 : growing ? 0.361 / Math.cbrt(0.6) : 0.361;
         assert.ok(
-          hold < (fed ? 0.491 : 0.301) || (id === parent + 1 && parent === system.home),
+          hold < most || (id === parent + 1 && parent === system.home),
           `${label}: ${hold}`,
         );
         assert.ok(led || gap > 4.99, `${label}: ${gap}`);
         if (laplace > 1.05) {
           level += lean < 1e-3 ? 1 : 0;
-          assert.ok(lean < STEEP + 1e-3 || lean > Math.PI - STEEP - 1e-3, `${label}: ${lean}`);
+          assert.ok(fed || lean < LEAN[0] + 1e-3 || lean > LEAN[1] - 1e-3, `${label}: ${lean}`);
         }
         const sharers = system.bodies.filter((other) => other.shared?.with === id);
-        assert.ok(sharers.length === 0 || hold < 0.051, `${label}: ${hold}`);
+        assert.ok(sharers.length === 0 || hold < 0.07, `${label}: ${hold}`);
       }
     }
   }

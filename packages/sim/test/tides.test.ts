@@ -116,8 +116,8 @@ test("a giant keeps its small inner moons and in time drops a large one", () => 
   assert.ok(metis.orbit < syncOf(jupiter.mass, jupiter.day));
   assert.ok(!kept.fell && kept.orbit > 0.99 * metis.orbit);
   const large = { mass: 1e20, orbit: 2 * jupiter.radius };
-  assert.ok(!tideOf(jupiter, large, reach, 0, NEVER, GIGAYEAR, false).fell);
-  assert.ok(tideOf(jupiter, large, reach, 0, NEVER, 5 * GIGAYEAR, false).fell);
+  assert.ok(!tideOf(jupiter, large, reach, 0, NEVER, 0.2 * GIGAYEAR, false).fell);
+  assert.ok(tideOf(jupiter, large, reach, 0, NEVER, 0.5 * GIGAYEAR, false).fell);
 });
 
 test("a dense moon reaches a light planet whole", () => {
@@ -132,7 +132,7 @@ test("a large rocky body gives way to a tide more than a small one or a giant", 
   assert.ok(yieldOf(moon) > 2e-4 && yieldOf(moon) < 8e-4, `${yieldOf(moon)}`);
   assert.ok(yieldOf(earth) > yieldOf(mars) && yieldOf(earth) <= 4e-3);
   assert.ok(yieldOf(icy) > 3 * yieldOf(moon));
-  assert.ok(yieldOf(jupiter) < 0.01 * yieldOf(moon));
+  assert.ok(yieldOf(jupiter) < 0.1 * yieldOf(moon) && yieldOf(jupiter) > 1e-5);
 });
 
 test("a moon driven outward drives the lighter ones beyond it and keeps their order", () => {
@@ -187,7 +187,7 @@ test("a heavy ring gathers a moon that comes back as a lighter ring, time after 
   const edge = 3.06 * mars.radius;
   const rim = {
     edge,
-    torn: tornAt(mars.radius, 3934, 2000),
+    torn: () => tornAt(mars.radius, 3934, 2000),
     far: 100 * mars.radius,
     turn: yearOf(edge, mars.mass),
     wear: 3e8 * YEAR,

@@ -52,8 +52,9 @@ const POROUS_MOST = 0.4;
 const POROUS_SPAN = [18.5, 20.5];
 const ROUND_ROCK = 3e5;
 const ROUND_ICE = 2e5;
-const SUN_SPAN = 10 * GIGAYEAR;
-const SPAN_LEAST = 3e6 * YEAR;
+const SPAN_FIT = [1315, 2498.6, 160.75, 0.035266, 0.34263];
+const SPAN_HOOK = [19.118, 4.9038, 0.047358, 1.3631, 0.8074];
+const SPAN_SHARE = 0.95;
 const DAWN = [4e7 * YEAR, 1.4, 2.5];
 const DAWN_LEAST = 1e5 * YEAR;
 const DAWN_SWELL = 0.33;
@@ -61,24 +62,46 @@ const DAWN_HEAT = [4300, 0.16];
 const DAWN_WARMING = 1.175;
 const DAWN_HEAVY = 2;
 const DAWN_STEADY = [1, 3];
+const GLOW_LIGHT = [
+  [2.028, -0.976],
+  [4.572, -0.102],
+  [5.743, 0],
+];
+const GLOW_HEAVY = [
+  [5.743, 0],
+  [4.329, 0.01],
+  [3.967, 0.093],
+  [2.865, 1.105],
+];
+const SUBDWARF_MASS = 2;
 const BRIGHT_MASS = 20;
 const BRIGHT_POWER = 2.3;
+const DWARF_RADIUS = [0.438, 0.479, 0.075];
+const DWARF_HEAT = [-0.17, 0.888, 3.671];
 const TURN_SHARE = [0.08, 1.5, 0.005];
 const CLIMB_SHARE = [0.06, 2];
 const CORE_SPAN = [0.13 * GIGAYEAR, 0.15];
 const LAST_SHARE = 0.15;
-const TURN_GLOW = 2;
-const FLASH_GLOW = 2500;
-const FLASH_MASS = [1.8, 2.4];
-const QUIET_GLOW = [250, 2.5, 1.2];
-const CLUMP_GLOW = 50;
-const CORE_GLOW = [0.8, 0.5];
-const LAST_GLOW = [4000, 1.2, 1.5];
+const TURN_GLOW = [95.11033, 4.597479, 31.13458, 9.301992, 10.07963, 39.10862, 4.637345, 6.682518];
+const FLASH_MASS = [1.995, 15];
+const FLASH_GLOW = [2751.631, -0.03820831];
+const QUIET_GLOW = [11486.22, 734.8793, 84.99536];
+const QUIET_MASS = [2, 2.5];
+const CLIMB_MOST = [12.5, 13.5];
+const CLUMP_GLOW = [54.96045, 1.832694, 121.1104, 1.6479];
+const CLUMP_BARE = [15262, 29.54, 31.18, 0.0469];
+const CLUMP_PACE = 2;
+const CORE_GLOW = [48.70031, 3.629118, 323.6427, 0.4837614];
+const LAST_FROM = [162.6062, 0.3336833];
+const LAST_QUIET = [42547.4, 926.8325, 2.474401, 400.7733];
+const LAST_GLOW = [4000, 1.2];
 const CLIMB_PACE = 3;
-const GIANT_RADIUS = [1, 0.3, 0.4, 0.383, 0.76];
+const GIANT_RADIUS = [0.9960283, 0.2561062, 1.157338, 0.4022765, 0.397, 0.3827, 0.755];
 const GIANT_HEAT = [2800, 0.08];
+const GIANT_CORE = [3e4, 500, 1.75e4, 0.6];
+const GIANT_STEEP = [6, 3];
 const LOOP_MASS = [1.8, 4];
-const LOOP_WARM = [1.1, 0.4, 1.5, 20];
+const LOOP_WARM = [1.06, 0.4, 1.5, 20];
 const HEAVY_MASS = [8, 12];
 const BLUE_MASS = [22, 40];
 const RED_MASS = [25, 45];
@@ -88,30 +111,31 @@ const BARED_SHARE = 0.55;
 const BARED_RADIUS = [2, 10, 0.6];
 const SETTLING = 0.3;
 const EMBER_MASS = [0.394, 0.109];
-const CORE_LIGHT = 2.34e5;
+const CORE_LIGHT = [5.37, 0.975, 0.18, 0.5, 0.06, -1];
 const CORE_HEAVY = [0.098, 1.35];
 const EMBER_RADIUS = [0.0127, 1.44];
 const EMBER_COOLING = [8.8e6 * YEAR, 1.4, 3e5 * YEAR];
 const EMBER_DAY = [0.25, 2];
-const PULSAR_MASS = [1.2, 0.05];
+const PULSAR_MASS = [1.17, 0.0692];
 const PULSAR_RADIUS = 11500;
-const PULSAR_HEAT = [2e6, 3e4 * YEAR];
-const PULSAR_DAY = [0.01, 0.1, 1e4 * YEAR];
+const PULSAR_HEAT = [1.2e6, 1e5 * YEAR];
+const PULSAR_DAY = [0.04, 0.52, 1.95e-14];
 const HOLE_SHARE = 0.3;
 const HOLE_HEAT = 6.17e-8;
-const HOLE_SPIN = [0.1, 0.8];
+const HOLE_SPIN = [0.1, 0.88];
 const DENSE_STAR = [1e7, 1e13];
 const STAR_SIZES = [0.7, 1.3, 3];
 const SUN_AGE = 4.57 * GIGAYEAR;
 const SUN_ROSSBY = 2;
-const SPIN_SETTLED = 2.2;
+const SPIN_PACE = [0.5, 0.62];
+const SPIN_TURN = 0.67 * GIGAYEAR;
 const SPIN_LATE = 0.8;
 const STAR_TURNING = [0.07, 0.15];
 const COOLING_HEAT = 100;
 const COOLING_AGE = 4.5 * GIGAYEAR;
 const COOLING_PACE = 0.3;
 const COOLING_LIGHT = 0.25;
-const COOLING_HEAVY = 0.6;
+const COOLING_HEAVY = [0.49, 20, 0.83];
 const BURNING_POWER = 8;
 const DUST_HEAT = [1300, 2200];
 const SEEN_WAVES = [0.38e-6, 0.78e-6];
@@ -138,29 +162,31 @@ const ROCK_CREEP = 1e-6;
 const STUFFY_HEAT = [600, 2000];
 const STUFFY_MOST = 0.8;
 const ESCAPE_MARGIN = 6;
-const DAYSIDE = 1.4;
+const EXOBASE = 1000;
 const MELTING = 273;
 const TRIPLE_AIR = 1000;
 const TRACE_AIR = 1;
 export const DAMP_LEAST = 1e-5;
-const HUMIDITY = 0.6;
+const HUMIDITY: Partial<Record<Gas, number>> = { water: 0.6, methane: 0.45 };
 const COLD_TRAP = 0.75;
 const CLIMATE_ROUNDS = 40;
-const XUV_DOSE = 6e15;
+const XUV_GLOW = 10 ** -3.5;
+const XUV_SATURATED = 1e8 * YEAR;
+const XUV_FADING = 0.5;
 const XUV_SHARE = 0.1;
-const XUV_SPAN = [0.3, 10];
 const CRITICAL = 647;
 const STEAM_LEFT = 200;
 const THERMOSTAT = 278;
 const THERMOSTAT_STEPS = 14;
 const BRIGHT_AIR = 0.3;
-const BRIGHT_DECK = 0.65;
+const BRIGHT_DECK = 0.76;
 const BRIGHT_ICE = 0.55;
 const BRIGHT_ROCK = 0.12;
+const BRIGHT_DUST = 0.25;
 const BRIGHT_GAS = 0.34;
 const SUN_HYDROGEN = 0.86;
-const RICH_JUPITER = 4;
-const RICH_POWER = -0.8;
+const RICH_JUPITER = 2.4;
+const RICH_POWER = -1.11;
 const RICH_MOST = 200;
 
 const WEIGHTS: Record<Gas, number> = {
@@ -186,14 +212,14 @@ const VAPORS: Record<Gas, [boiling: number, latent: number] | null> = {
 };
 
 const WARMING: Record<Gas, [gain: number, power: number]> = {
-  hydrogen: [4.9, 1.16],
+  hydrogen: [8, 1.16],
   helium: [0, 1],
-  methane: [1.5, 0.3],
+  methane: [1.9, 0.3],
   ammonia: [3, 0.3],
   water: [3, 0.3],
   nitrogen: [0, 1],
   oxygen: [0, 1],
-  "carbon dioxide": [5.19, 0.72],
+  "carbon dioxide": [5.65, 0.72],
 };
 
 const SUN_TRACES: Partial<Record<Gas, number>> = {
@@ -234,13 +260,23 @@ function smooth(from: number, to: number, value: number): number {
 export function starGlow(mass: number): number {
   const suns = mass / SUN_MASS;
   const heavy = Math.min(suns, BRIGHT_MASS);
-  const glow = suns < 0.43 ? 0.23 * suns ** 2.3 : suns < 2 ? suns ** 4 : 1.4 * heavy ** 3.5;
-  return SUN_GLOW * glow * (suns / heavy) ** BRIGHT_POWER;
+  const fit = ([slope, base]: number[]) => slope * Math.log10(heavy) + base;
+  const power = suns < 1 ? Math.max(...GLOW_LIGHT.map(fit)) : Math.min(...GLOW_HEAVY.map(fit));
+  return SUN_GLOW * 10 ** power * (suns / heavy) ** BRIGHT_POWER;
 }
 
 export function starRadius(mass: number): number {
   const suns = mass / SUN_MASS;
-  return SUN_RADIUS * suns ** (suns < 1 ? 0.9 : 0.57);
+  const [square, plain, rest] = DWARF_RADIUS;
+  const fitted = (square * suns ** 2 + plain * suns + rest) / (square + plain + rest);
+  if (suns <= 1) {
+    return SUN_RADIUS * fitted;
+  }
+  const [curve, slope, base] = DWARF_HEAT;
+  const log = Math.log10(suns);
+  const heat = 10 ** (curve * log ** 2 + slope * log + base);
+  const hot = Math.sqrt(starGlow(mass) / SUN_GLOW) * (SUN_HEAT / heat) ** 2;
+  return SUN_RADIUS * Math.min(fitted, hot);
 }
 
 export function starHeat(glow: number, radius: number): number {
@@ -248,7 +284,14 @@ export function starHeat(glow: number, radius: number): number {
 }
 
 export function starSpan(mass: number): number {
-  return SUN_SPAN * (mass / SUN_MASS) ** -2.5 + SPAN_LEAST;
+  const suns = mass / SUN_MASS;
+  const [base, quartic, steep, low, high] = SPAN_FIT;
+  const giant =
+    (base + quartic * suns ** 4 + steep * suns ** 5.5 + suns ** 7) /
+    (low * suns ** 2 + high * suns ** 7);
+  const [early, fall, floor, lean, bend] = SPAN_HOOK;
+  const hook = 1 - 0.01 * Math.max(early / suns ** fall, floor + lean / suns ** bend);
+  return 1e6 * YEAR * giant * Math.max(SPAN_SHARE, hook);
 }
 
 export function starDawn(mass: number): number {
@@ -342,6 +385,86 @@ export function bareRadius(mass: number): number {
   return SUN_RADIUS * BARED_RADIUS[0] * (mass / (BARED_RADIUS[1] * SUN_MASS)) ** BARED_RADIUS[2];
 }
 
+function acrossFlash(
+  suns: number,
+  [scale, lean]: number[],
+  quiet: (suns: number) => number,
+): number {
+  const [edge, steep] = FLASH_MASS;
+  if (suns >= edge) {
+    return quiet(suns);
+  }
+  const meet = quiet(edge);
+  const bend = (scale * edge ** lean - meet) / meet;
+  return (scale * suns ** lean) / (1 + bend * Math.exp(steep * (suns - edge)));
+}
+
+function baseGlow(suns: number): number {
+  const [first, firstPower, second, secondPower, floor, third, thirdPower, lastPower] = TURN_GLOW;
+  return (
+    (first * suns ** firstPower + second * suns ** secondPower) /
+    (floor + third * suns ** thirdPower + suns ** lastPower)
+  );
+}
+
+function quietHelium(suns: number): number {
+  const [floor, gain, wide] = QUIET_GLOW;
+  return (floor + gain * suns ** 3.8) / (wide + suns ** 2);
+}
+
+function heliumGlow(suns: number): number {
+  return acrossFlash(suns, FLASH_GLOW, quietHelium);
+}
+
+function dropOf(suns: number): number {
+  const [floor, power, wide, gain] = CORE_GLOW;
+  return (floor + gain * suns ** (power + 0.1)) / (wide + suns ** power);
+}
+
+function bareHelium(core: number): number {
+  const [scale, first, second, floor] = CLUMP_BARE;
+  return (scale * core ** 10.25) / (core ** 9 + first * core ** 7.5 + second * core ** 6 + floor);
+}
+
+function restGlow(suns: number): number {
+  const [edge, steep] = FLASH_MASS;
+  const helium = heliumGlow(suns);
+  if (suns >= edge) {
+    return helium * dropOf(suns);
+  }
+  const core = coreByGlow(suns, helium);
+  const bare = bareHelium(core);
+  const meet = heliumGlow(edge) * dropOf(edge);
+  const [scale, power, crowd, crowdPower] = CLUMP_GLOW;
+  const envelope = Math.max((suns - core) / (edge - core), 1e-12);
+  const bend = (scale + bare - meet) / (meet - bare);
+  return (
+    bare +
+    ((1 + crowd) * scale * envelope ** power) /
+      ((1 + crowd * envelope ** crowdPower) * (1 + bend * Math.exp(steep * (suns - edge))))
+  );
+}
+
+function quietLast(suns: number): number {
+  const [floor, gain, power, wide] = LAST_QUIET;
+  return (floor + gain * suns ** (power + 1.8)) / (wide + suns ** power);
+}
+
+function coreByGlow(suns: number, glow: number): number {
+  const [low, high] = QUIET_MASS;
+  const quiet = Math.max(0, Math.min(1, (suns - low) / (high - low)));
+  const [faint, lean, slope, half, gentle, least] = CORE_LIGHT;
+  const settled = Math.max(least, half * faint - gentle * suns, lean * faint - slope * suns);
+  const dim = 10 ** (quiet < 1 ? faint - (faint - lean * faint + slope * high) * quiet : settled);
+  const [floor, base, gain, power] = GIANT_CORE;
+  const bright = Math.max(floor, base + gain * suns ** power);
+  const [steep, gentler] = GIANT_STEEP;
+  return Math.max(
+    (glow / dim) ** (1 / (steep - quiet)),
+    (glow / bright) ** (1 / (gentler - quiet)),
+  );
+}
+
 export function lifeOf(born: number, age: number): Life {
   const suns = born / SUN_MASS;
   const first = { mass: born, radius: starRadius(born), glow: starGlow(born) };
@@ -369,12 +492,13 @@ export function lifeOf(born: number, age: number): Life {
   const dwarf = first.radius / SUN_RADIUS;
   const bright = first.glow / SUN_GLOW;
   const blend = (from: number, to: number, share: number) => from * (to / from) ** share;
-  const quietly = smooth(FLASH_MASS[0], FLASH_MASS[1], suns);
-  const turned = TURN_GLOW * bright;
-  const quiet = Math.max(QUIET_GLOW[2] * turned, QUIET_GLOW[0] * (suns / QUIET_GLOW[1]) ** 2.5);
-  const tip = blend(FLASH_GLOW, quiet, quietly);
-  const steady = blend(CLUMP_GLOW, CORE_GLOW[0] * quiet, quietly);
-  const ending = Math.max(LAST_GLOW[0] * suns ** LAST_GLOW[1], LAST_GLOW[2] * turned);
+  const helium = heliumGlow(suns);
+  const early = smooth(CLIMB_MOST[0], CLIMB_MOST[1], suns);
+  const turned = Math.max(bright, blend(Math.min(baseGlow(suns), helium), helium, early));
+  const tip = Math.max(turned, helium);
+  const steady = Math.min(tip, blend(restGlow(suns), tip, early));
+  const based = Math.max(steady, acrossFlash(suns, LAST_FROM, quietLast));
+  const ending = Math.max(LAST_GLOW[0] * suns ** LAST_GLOW[1], based);
   const reddest = 1 - (1 - RED_LEAST) * smooth(RED_MASS[0], RED_MASS[1], suns);
   const looping = smooth(LOOP_MASS[0], LOOP_MASS[1], suns);
   const warm =
@@ -383,11 +507,12 @@ export function lifeOf(born: number, age: number): Life {
     LOOP_WARM[2] * smooth(HEAVY_MASS[0], HEAVY_MASS[1], suns) +
     LOOP_WARM[3] * smooth(BLUE_MASS[0], BLUE_MASS[1], suns);
   const bared = smooth(BARED_MASS[0], BARED_MASS[1], suns);
+  const [light, lightPower, heavy, heavyPower, low, part, high] = GIANT_RADIUS;
+  const scale = Math.min(light * suns ** -lightPower, heavy * suns ** -heavyPower);
   const girths = (glow: number) => {
     const hot = dwarf * Math.sqrt(glow / bright);
-    const [scale, lean, low, part, high] = GIANT_RADIUS;
     const coolest = (SUN_HEAT / (GIANT_HEAT[0] * suns ** GIANT_HEAT[1])) ** 2 * Math.sqrt(glow);
-    const cool = Math.min(coolest, scale * suns ** -lean * (glow ** low + part * glow ** high));
+    const cool = Math.min(coolest, scale * (glow ** low + part * glow ** high));
     return [hot, Math.max(hot, cool)];
   };
   const wide = (glow: number, red: number) => {
@@ -408,13 +533,13 @@ export function lifeOf(born: number, age: number): Life {
     (share: number) => shape(blend(bright, turned, share), reddest * smooth(0, 1, share)),
     (share: number) => shape(blend(turned, tip, share ** CLIMB_PACE), reddest),
     (share: number) => {
-      const glow = steady * (1 + CORE_GLOW[1] * share);
+      const glow = blend(steady, based, share ** CLUMP_PACE);
       const loop = 1 - looping * (1 - Math.sin(Math.PI * share) ** 2);
       return shape(glow, reddest - (reddest - bluest(glow)) * loop);
     },
     (share: number) => {
       const settled = smooth(0, SETTLING, share);
-      const glow = blend(steady * (1 + CORE_GLOW[1]), ending, share);
+      const glow = blend(based, ending, share);
       const from = reddest - (reddest - bluest(glow)) * (1 - looping);
       return shape(glow, from + (reddest - from) * settled, bared * settled);
     },
@@ -444,7 +569,7 @@ export function coreOf(born: number, age: number): number {
   }
   const whole = relicOf(born);
   const lit = (peak: number) =>
-    Math.min(whole, Math.max(heavy, SUN_MASS * (peak / (CORE_LIGHT * SUN_GLOW)) ** (1 / 6)));
+    Math.min(whole, Math.max(heavy, SUN_MASS * coreByGlow(suns, peak / SUN_GLOW)));
   const stages = starStages(born);
   const [from, to] = [stages[3], stages[4]];
   if (age >= to) {
@@ -476,7 +601,7 @@ export function starTurn(
     const main = starSpan(born);
     const early = gains.filter((gain) => gain.at <= Math.min(age, main));
     const steady = starDay(born, heat, Math.min(age, main) + sped(born, heat, luck, early), luck);
-    const braked = SPIN_SETTLED * turnover(starHeat(life.glow, life.radius));
+    const braked = SUN_ROSSBY * turnover(starHeat(life.glow, life.radius));
     const slowed = (steady * life.radius) / dwarf;
     const day =
       age < starDawn(born) ? slowed : life.radius > dwarf ? Math.max(braked, slowed) : steady;
@@ -496,7 +621,8 @@ export function starTurn(
     return (beat * (1 + Math.sqrt(1 - spin ** 2))) / spin;
   }
   if (ending === "pulsar") {
-    return (PULSAR_DAY[0] + PULSAR_DAY[1] * luck) * Math.sqrt(1 + life.spent / PULSAR_DAY[2]);
+    const newborn = PULSAR_DAY[0] + PULSAR_DAY[1] * luck;
+    return Math.sqrt(newborn ** 2 + 2 * PULSAR_DAY[2] * life.spent);
   }
   return DAY * (EMBER_DAY[0] + EMBER_DAY[1] * luck);
 }
@@ -507,14 +633,24 @@ export function turnover(heat: number): number {
 
 export function starDay(mass: number, heat: number, age: number, luck: number): number {
   const late = SPIN_LATE * (1 - smooth(0.2, 0.6, mass / SUN_MASS));
-  const rossby = Math.min(SUN_ROSSBY * (Math.max(0, age) / SUN_AGE) ** (0.5 + late), SPIN_SETTLED);
+  const [young, old] = SPIN_PACE;
+  const since = Math.max(0, age);
+  const pace =
+    since < SPIN_TURN
+      ? (SPIN_TURN / SUN_AGE) ** (old + late) * (since / SPIN_TURN) ** (young + late)
+      : (since / SUN_AGE) ** (old + late);
+  const rossby = SUN_ROSSBY * Math.min(1, pace);
   return Math.max(rossby * turnover(heat) * (0.75 + 0.5 * luck), DAY * (0.4 + 1.1 * luck));
 }
 
 function youthOf(mass: number, heat: number, day: number, luck: number): number {
   const late = SPIN_LATE * (1 - smooth(0.2, 0.6, mass / SUN_MASS));
-  const rossby = Math.min(day / (turnover(heat) * (0.75 + 0.5 * luck)), SPIN_SETTLED);
-  return SUN_AGE * (rossby / SUN_ROSSBY) ** (1 / (0.5 + late));
+  const [young, old] = SPIN_PACE;
+  const pace = Math.min(day / (turnover(heat) * (0.75 + 0.5 * luck)), SUN_ROSSBY) / SUN_ROSSBY;
+  const turned = (SPIN_TURN / SUN_AGE) ** (old + late);
+  return pace >= turned
+    ? SUN_AGE * pace ** (1 / (old + late))
+    : SPIN_TURN * (pace / turned) ** (1 / (young + late));
 }
 
 function sped(born: number, heat: number, luck: number, gains: Gain[]): number {
@@ -579,8 +715,12 @@ export function innerHeat(mass: number, age: number, vigor: number): number {
   const jupiters = mass / JUPITER_MASS;
   const steady = smooth(-1, 0.5, Math.log10(jupiters));
   const mood = 1 + (0.75 * vigor - 0.45) * (1 - steady);
-  const slope = jupiters < 1 ? COOLING_LIGHT : COOLING_HEAVY;
-  const cooling = COOLING_HEAT * jupiters ** slope * (COOLING_AGE / age) ** COOLING_PACE * mood;
+  const [heavy, dwarf, steep] = COOLING_HEAVY;
+  const grown =
+    jupiters < 1
+      ? jupiters ** COOLING_LIGHT
+      : Math.min(jupiters, dwarf) ** heavy * Math.max(1, jupiters / dwarf) ** steep;
+  const cooling = COOLING_HEAT * grown * (COOLING_AGE / age) ** COOLING_PACE * mood;
   const limit = starHeat(starGlow(STAR_LEAST), starRadius(STAR_LEAST));
   const burning = limit * (mass / STAR_LEAST) ** BURNING_POWER;
   return Math.min(limit, (cooling ** 4 + burning ** 4) ** 0.25);
@@ -714,8 +854,12 @@ export function balanceHeat(glow: number, distance: number, albedo: number): num
   return ((glow * (1 - albedo)) / (16 * Math.PI * RADIATION * distance ** 2)) ** 0.25;
 }
 
+function exobaseOf(heat: number): number {
+  return Math.max(heat, EXOBASE * (heat / balanceHeat(SUN_GLOW, ASTRONOMICAL_UNIT, 0)) ** 2);
+}
+
 export function gripOf(mass: number, radius: number, heat: number, gas: Gas): number {
-  const thermal = Math.sqrt((3 * BOLTZMANN * DAYSIDE * heat) / (WEIGHTS[gas] * DALTON));
+  const thermal = Math.sqrt((3 * BOLTZMANN * exobaseOf(heat)) / (WEIGHTS[gas] * DALTON));
   return escapeOf(mass, radius) / (ESCAPE_MARGIN * thermal);
 }
 
@@ -753,19 +897,21 @@ export function climateOf(given: Volatiles): Climate {
   const carbon = given.stock[GASES.indexOf("carbon dioxide")];
   const water = GASES.indexOf("water");
   const sheltered = given.stock[GASES.indexOf("hydrogen")] > 0;
-  const settle = (weathered: number, steam: number) => {
+  const settle = (weathered: number, steam: number, pooled: boolean) => {
     let heat = balanceHeat(given.glow, given.distance, BRIGHT_AIR);
     let partials = given.stock;
     let air = whole(partials);
     for (let round = 0; round < CLIMATE_ROUNDS; round++) {
       const trap = COLD_TRAP + (1 - COLD_TRAP) * smooth(3, 5, Math.log10(Math.max(air, 1)));
       partials = GASES.map((gas, index) => {
+        const coldest = gas === "water" && pooled ? heat : trap * heat;
+        const vapor = (HUMIDITY[gas] ?? 1) * vaporOf(gas, coldest);
         const most =
           gas === "water"
-            ? Math.min(steam, HUMIDITY * vaporOf(gas, heat))
+            ? Math.min(steam, vapor)
             : gas === "carbon dioxide"
-              ? Math.min(weathered, vaporOf(gas, trap * heat))
-              : vaporOf(gas, trap * heat);
+              ? Math.min(weathered, vapor)
+              : vapor;
         return Math.min(given.stock[index], most);
       });
       air = whole(partials);
@@ -775,7 +921,7 @@ export function climateOf(given: Volatiles): Climate {
           ? BRIGHT_AIR + (BRIGHT_DECK - BRIGHT_AIR) * deck
           : given.frozen
             ? BRIGHT_ICE
-            : BRIGHT_ROCK;
+            : BRIGHT_DUST;
       const bare = balanceHeat(given.glow, given.distance, albedo);
       const kept = 1 - STUFFY_MOST * smooth(STUFFY_HEAT[0], STUFFY_HEAT[1], bare);
       const next = Math.min(given.ceiling ?? bare * 10, bare * (1 + (warmed(partials) - 1) * kept));
@@ -788,9 +934,9 @@ export function climateOf(given: Volatiles): Climate {
       heat <= boilingAt(air);
     return { air, heat, sea, gases: partials.map((part) => part / Math.max(air, 1e-12)) };
   };
-  const wet = (weathered: number) => settle(weathered, Number.POSITIVE_INFINITY);
+  const wet = (weathered: number) => settle(weathered, Number.POSITIVE_INFINITY, true);
   const dry = () =>
-    settle(Number.POSITIVE_INFINITY, sheltered ? Number.POSITIVE_INFINITY : STEAM_LEFT);
+    settle(Number.POSITIVE_INFINITY, sheltered ? Number.POSITIVE_INFINITY : STEAM_LEFT, false);
   const regulated = () => {
     if (given.stock[water] < given.pool || wet(carbon).heat < THERMOSTAT) {
       return dry();
@@ -863,7 +1009,7 @@ export function roughOf(physics: Physics): number {
   }
   const round = ROUND_ROCK - (ROUND_ROCK - ROUND_ICE) * (physics.ice / solid);
   const stiff = 1 - Math.min(1, 2 * moltenOf(physics));
-  return stiff * (1 - smooth(0.5, 1.2, physics.radius / round));
+  return stiff * (1 - smooth(0.5, 1.5, physics.radius / round));
 }
 
 export function moltenOf(physics: Physics): number {
@@ -890,11 +1036,11 @@ export function columnOf(mass: number, radius: number): number {
 export function strippedShare(
   mass: number,
   radius: number,
-  star: { mass: number; glow: number },
+  star: { mass: number },
   distance: number,
 ): number {
-  const lively = Math.max(XUV_SPAN[0], Math.min(XUV_SPAN[1], (SUN_MASS / star.mass) ** 1.5));
-  const dose = (XUV_DOSE * lively * (star.glow / SUN_GLOW)) / (distance / ASTRONOMICAL_UNIT) ** 2;
+  const hard = XUV_GLOW * SUN_GLOW * (star.mass / SUN_MASS);
+  const dose = (hard * XUV_SATURATED * (1 + 1 / XUV_FADING)) / (4 * Math.PI * distance ** 2);
   return (XUV_SHARE * Math.PI * radius ** 3 * dose) / (GRAVITY * mass ** 2);
 }
 
@@ -970,7 +1116,7 @@ export function classOf(physics: Physics): string {
     const shade = shades.find(([heat]) => physics.heat < heat)?.[1] ?? "blue";
     const size = physics.radius / starRadius(physics.mass);
     if (size < STAR_SIZES[0]) {
-      return "Wolf-Rayet star";
+      return physics.mass < SUBDWARF_MASS * SUN_MASS ? "hot subdwarf" : "Wolf-Rayet star";
     }
     if (size < STAR_SIZES[1]) {
       return shade === "red" ? "red dwarf" : `${shade} star`;

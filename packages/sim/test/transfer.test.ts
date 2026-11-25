@@ -97,7 +97,7 @@ test("a way to a moon is found, and the engine flies the ship past it at the hei
   assert.ok(way?.settled);
   const wanted = rails.radii[moon] + 1e5;
   assert.ok(Math.abs(way.approach.gap - wanted) < 1e3);
-  assert.ok(way.cost > 3800 && way.cost < 4150);
+  assert.ok(way.cost > 2950 && way.cost < 3250);
 
   const forecast = createForecast(rails, fly, flight, [way.kick], null, 4000);
   while (!forecast.done) {
@@ -105,7 +105,7 @@ test("a way to a moon is found, and the engine flies the ship past it at the hei
   }
   const size = Math.hypot(...forecast.pushes);
   const span = burnFor(drive, 2e4, size);
-  assert.ok(span > 505 && span < 550);
+  assert.ok(span > 425 && span < 470);
   const burn: Burn = {
     ...drive,
     heading: "hold",
@@ -155,7 +155,7 @@ test("a way to another planet leaves the hold of the first and passes the second
   );
   assert.ok(way?.settled);
   assert.ok(Math.abs(way.approach.gap - rails.radii[planet] - 1e6) < 5e3);
-  assert.ok(way.cost > 5000 && way.cost < 7000);
+  assert.ok(way.cost > 4000 && way.cost < 5500);
   assert.ok(way.approach.time - way.kick.time > 100 * 86400);
 });
 

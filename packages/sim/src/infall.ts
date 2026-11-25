@@ -8,18 +8,19 @@ import {
   starRadius,
   starStages,
 } from "./physics.ts";
-import { tornAt } from "./tides.ts";
+import { PLUNGE } from "./tides.ts";
 
 const STAR_LOSS = 1e7;
 const ENVELOPE = 0.7;
 const DEEPENING = [1, 3];
-const LAG_MOST = 4.5;
 const STEP = 0.05;
 const NODE_STEP = 0.04;
 const NODE_DEPTH = 16;
 const ROUND_LEAST = 1e-4;
 const FAR = 20;
 const SPREAD = [0.25, 0.5, 0.75];
+const TORN_BARE = 2.44;
+const TORN_WRAPPED = 1 / 0.49;
 
 export interface Track {
   born: number;
@@ -57,7 +58,7 @@ export interface Sinker {
   at(age: number): Drift;
   fall(age: number): number | null;
   given(age: number): Gain[];
-  first(age: number, test: (orbit: number, stretch: number) => boolean): Mark | null;
+  first(age: number, test: (orbit: number, stretch: number, time: number) => boolean): Mark | null;
 }
 
 export interface Mark {
@@ -155,7 +156,7 @@ function starAt(nodes: Node[], index: number, time: number): Node {
 function envelopeOf(star: Node, turn: number): number {
   const lag = Math.cbrt((star.deep * star.radius ** 2) / (3 * star.glow));
   const pace = Math.min(1, (Math.PI / (turn * lag)) ** 2);
-  return (LAG_MOST * pace * star.deep) / (lag * star.mass);
+  return (pace * star.deep) / (lag * star.mass);
 }
 
 function ratesOf(body: Pulled, star: Node, orbit: number, stretch: number): [number, number] {
@@ -183,8 +184,9 @@ export function sinkerOf(
 ): Sinker {
   const born = track.born;
   const dense = densityOf(body.mass, body.radius);
+  const torn = body.fluid ? TORN_WRAPPED : TORN_BARE;
   const tear = (star: Node) =>
-    tornAt(star.radius, densityOf(star.mass, star.radius), dense, body.fluid);
+    star.radius * Math.max(PLUNGE, torn * Math.cbrt(densityOf(star.mass, star.radius) / dense));
   const opened = Math.max(track.dawn, since);
   const begin = { time: opened, orbit, stretch, fell: null as number | null, index: 0 };
   let state = { ...begin };
@@ -204,16 +206,16 @@ export function sinkerOf(
       while (now.index < nodes.length - 1 && nodes[now.index + 1].at <= now.time) {
         now.index++;
       }
-      if (now.index >= nodes.length - 1) {
-        break;
-      }
-      const edge = Math.min(stop, nodes[now.index + 1].at);
       const star = starAt(nodes, now.index, now.time);
       const actual = (now.orbit * born) / star.mass;
       if (actual * (1 - now.stretch) <= tear(star)) {
         now.fell = now.time;
         break;
       }
+      if (now.index >= nodes.length - 1) {
+        break;
+      }
+      const edge = Math.min(stop, nodes[now.index + 1].at);
       const [shrink, round] = ratesOf(body, star, actual, now.stretch);
       const fastest = Math.max(shrink, now.stretch > 0 ? round : 0, 1e-300);
       let step = Math.min(edge - now.time, STEP / fastest);
@@ -286,7 +288,9 @@ export function sinkerOf(
     },
     first(age, test) {
       this.at(age);
-      const mark = trail.find((point) => point.time <= age && test(point.orbit, point.stretch));
+      const mark = trail.find(
+        (point) => point.time <= age && test(point.orbit, point.stretch, point.time),
+      );
       return mark === undefined
         ? null
         : { time: mark.time, orbit: mark.orbit, stretch: mark.stretch };

@@ -20,6 +20,7 @@ import {
   starSpan,
   starStages,
 } from "./physics.ts";
+import type { Random } from "./random.ts";
 
 const KEPT = 0.5;
 const HOT_LIMIT = 4;
@@ -34,6 +35,7 @@ const ROUNDING = [0.4, 0.9];
 const DETACHED = 0.5;
 const SQUEEZED = 0.5;
 const FRESH = [1.1, 1.6];
+const KICK_KEPT = 0.14;
 const STEPS = 96;
 const SCAN = 48;
 const HALVINGS = 44;
@@ -55,11 +57,15 @@ export interface Flow {
   kept: number;
 }
 
-export interface Bond {
+interface Link {
   stars: [Phase, Phase | null];
   orbit: number;
   stretch: number;
   flow: Flow | null;
+}
+
+export interface Bond extends Link {
+  apart: boolean;
 }
 
 export interface Turn {
@@ -103,6 +109,7 @@ interface Left {
   mass: number;
   since: number;
   burst: boolean;
+  helium: boolean;
 }
 
 interface Actor {
@@ -123,7 +130,7 @@ interface Base {
   wave: number;
 }
 
-type Reader = (age: number) => Bond;
+type Reader = (age: number) => Link;
 
 function smooth(from: number, to: number, value: number): number {
   const share = Math.max(0, Math.min(1, (value - from) / (to - from)));
@@ -261,8 +268,27 @@ function bared(actor: Actor, phase: Phase, mass: number, since: number): Actor {
     extra: 0,
     wide: phase.swell,
     bright: phase.peak,
-    left: { ending: heavy ? "core" : "dwarf", mass, since, burst: false },
+    left: {
+      ending: heavy ? "core" : "dwarf",
+      mass,
+      since,
+      burst: false,
+      helium: !heavy && phase.clock < starStages(phase.seed)[2],
+    },
   };
+}
+
+function kindled(mass: number, age: number): Clock {
+  let [low, high] = [mass, BURST_LEAST];
+  for (let halving = 0; halving < HALVINGS; halving++) {
+    const middle = (low + high) / 2;
+    if (relicOf(middle) < mass) {
+      low = middle;
+    } else {
+      high = middle;
+    }
+  }
+  return { seed: high, shift: age - starStages(high)[2] };
 }
 
 function compact(actor: Actor | null): actor is Actor & { left: Left } {
@@ -448,6 +474,7 @@ export function pairOf(
   orbit: number,
   stretch: number,
   room: number | null,
+  fortune: Random,
 ): Pairing {
   const actors: [Actor, Actor | null] = [actorOf(first), actorOf(second)];
   const eras: { from: number; read: Reader }[] = [];
@@ -456,6 +483,7 @@ export function pairOf(
   const edges: number[] = [];
   let base: Base = { orbit, stretch, weight: first.born + second.born, from: 0, wave: 0 };
   let from = 0;
+  let split = Number.POSITIVE_INFINITY;
   const live = (actor: Actor | null): actor is Actor =>
     actor !== null && actor.left === null && actor.dim === null;
   for (let turn = 0; turn < TURNS; turn++) {
@@ -466,12 +494,42 @@ export function pairOf(
     edges.push(...boundsOf(pair));
     const tests: ((age: number) => number)[] = [];
     const acts: ((age: number) => boolean)[] = [];
-    const ended = (age: number) => {
-      const bond = read(age);
-      return bond.stars[0].burst || (bond.stars[1]?.burst ?? false) ? 1 : -1;
+    const blowing = (seat: 0 | 1, age: number) => {
+      const actor = pair[seat];
+      const phase = read(age).stars[seat];
+      return actor !== null && actor.dim === null && !compact(actor) && (phase?.burst ?? false);
     };
-    tests.push(ended);
-    acts.push(() => false);
+    tests.push((age) => (blowing(0, age) || blowing(1, age) ? 1 : -1));
+    acts.push((age) => {
+      const seat = blowing(0, age) ? 0 : 1;
+      const actor = pair[seat];
+      if (actor === null || pair[1 - seat] === null) {
+        return false;
+      }
+      const end = actor.clock.shift + starLife(actor.clock.seed);
+      const before = read(end * (1 - AFTER));
+      const after = read(age);
+      const [prior, remnant] = [before.stars[seat], after.stars[seat]];
+      if (prior === null || remnant === null || fortune.next() >= KICK_KEPT) {
+        split = age;
+        return false;
+      }
+      const quick = fortune.next() ** (2 / 3);
+      const aside = 1 - (2 * fortune.next() - 1) ** 2;
+      const stretch = Math.sqrt(1 - Math.max(AFTER, 4 * quick * (1 - quick) * aside));
+      const left: Left = {
+        ending: "pulsar",
+        mass: remnant.mass,
+        since: end,
+        burst: true,
+        helium: false,
+      };
+      actors[seat] = { ...actor, extra: 0, wide: remnant.radius, bright: prior.peak, left };
+      const weight = after.stars[0].mass + (after.stars[1]?.mass ?? 0);
+      base = { orbit: before.orbit / (2 * (1 - quick)), stretch, weight, from: age, wave: 0 };
+      marks.push(age);
+      return true;
+    });
     for (const seat of [0, 1] as const) {
       const actor = pair[seat];
       const other = pair[1 - seat];
@@ -667,12 +725,15 @@ export function pairOf(
           const sum = heavy.mass + light.mass;
           const hole = heavy.ending === "hole" || light.ending === "hole";
           const fallen = !hole && sum >= COLLAPSE;
+          const helium = pair.every((actor) => actor?.left?.helium ?? false);
+          const told = { since: age, helium: false };
           const left: Left = hole
-            ? { ending: "hole", mass: sum, since: age, burst: false }
+            ? { ending: "hole", mass: sum, burst: false, ...told }
             : fallen
-              ? { ending: "pulsar", mass: COLLAPSED, since: age, burst: true }
-              : { ending: "dwarf", mass: sum, since: age, burst: false };
-          actors[0] = { ...actors[0], left };
+              ? { ending: "pulsar", mass: COLLAPSED, burst: true, ...told }
+              : { ending: helium ? "core" : "dwarf", mass: sum, burst: false, ...told };
+          const clock = helium ? kindled(sum, age) : actors[0].clock;
+          actors[0] = { ...actors[0], clock, extra: 0, left };
           actors[1] = null;
           turns.push(turnOf("merge", 1, age, light.mass, light.mass));
           marks.push(age);
@@ -707,7 +768,7 @@ export function pairOf(
     at(age) {
       if (last?.age !== age) {
         const era = eras.findLast((each) => each.from <= age) ?? eras[0];
-        last = { age, bond: era.read(age) };
+        last = { age, bond: { ...era.read(age), apart: age >= split } };
       }
       return last.bond;
     },

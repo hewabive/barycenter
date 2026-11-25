@@ -43,9 +43,9 @@ const SOLID_SIGMA = 70;
 const ICE_BOOST = 4;
 const ICE_FAR = 0.6;
 const ICE_NEAR = 0.05;
-const GAS_SHARE = 0.02;
+const GAS_SHARE = 0.005;
 const GAS_THINNED = 0.9;
-const HOLE_FROM = 0.8;
+const HOLE_FROM = 0.9;
 const GAP_HILL = 4;
 const DISK_LEAST = 1e-6 * EARTH_MASS;
 const JOINED = 1.01;
@@ -343,7 +343,12 @@ export function nebulaOf(cloud: Cloud): Disk[] {
       dusty ? DUST : RUBBLE,
     );
     const last = disks.at(-1);
-    const joined = last !== undefined && made.inner <= JOINED * last.outer;
+    const kept = (outer: number) =>
+      stations.some(
+        ({ orbit, share, belt }) =>
+          belt === null && share > 0 && orbit > outer && orbit < made.inner,
+      );
+    const joined = last !== undefined && made.inner <= JOINED * last.outer && !kept(last.outer);
     if (last !== undefined && joined && last.gas > 0 === made.gas > 0) {
       const mass = last.mass + made.mass;
       disks[disks.length - 1] = {
