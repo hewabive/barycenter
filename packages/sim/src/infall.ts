@@ -8,18 +8,19 @@ import {
   starRadius,
   starStages,
 } from "./physics.ts";
-import { tornAt } from "./tides.ts";
+import { PLUNGE } from "./tides.ts";
 
 const STAR_LOSS = 1e7;
 const ENVELOPE = 0.7;
 const DEEPENING = [1, 3];
-const LAG_MOST = 4.5;
 const STEP = 0.05;
 const NODE_STEP = 0.04;
 const NODE_DEPTH = 16;
 const ROUND_LEAST = 1e-4;
 const FAR = 20;
 const SPREAD = [0.25, 0.5, 0.75];
+const TORN_BARE = 2.44;
+const TORN_WRAPPED = 1 / 0.49;
 
 export interface Track {
   born: number;
@@ -155,7 +156,7 @@ function starAt(nodes: Node[], index: number, time: number): Node {
 function envelopeOf(star: Node, turn: number): number {
   const lag = Math.cbrt((star.deep * star.radius ** 2) / (3 * star.glow));
   const pace = Math.min(1, (Math.PI / (turn * lag)) ** 2);
-  return (LAG_MOST * pace * star.deep) / (lag * star.mass);
+  return (pace * star.deep) / (lag * star.mass);
 }
 
 function ratesOf(body: Pulled, star: Node, orbit: number, stretch: number): [number, number] {
@@ -183,8 +184,9 @@ export function sinkerOf(
 ): Sinker {
   const born = track.born;
   const dense = densityOf(body.mass, body.radius);
+  const torn = body.fluid ? TORN_WRAPPED : TORN_BARE;
   const tear = (star: Node) =>
-    tornAt(star.radius, densityOf(star.mass, star.radius), dense, body.fluid);
+    star.radius * Math.max(PLUNGE, torn * Math.cbrt(densityOf(star.mass, star.radius) / dense));
   const opened = Math.max(track.dawn, since);
   const begin = { time: opened, orbit, stretch, fell: null as number | null, index: 0 };
   let state = { ...begin };

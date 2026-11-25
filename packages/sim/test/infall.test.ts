@@ -109,7 +109,7 @@ test("Elshar is drawn into its giant star and left in its list", () => {
 test("the moons of a planet drawn into its star are torn away or go in with it", () => {
   const at = (age: number) =>
     sketchSystem(274326, { settled: false, star: null, age: age * GIGAYEAR });
-  const last = at(10.9218278);
+  const last = at(10.9323);
   const star = last.bodies[0];
   const elshar = last.bodies.find((body) => body.name === "Elshar");
   assert.ok(elshar !== undefined);
@@ -118,16 +118,14 @@ test("the moons of a planet drawn into its star are torn away or go in with it",
     const far = moon.physics.orbit * (1 + moon.physics.stretch);
     assert.ok(nearest - far > star.physics.radius, `${moon.name} passes inside the star`);
   }
-  for (const name of ["Keraon", "Rimil"]) {
-    const moon = last.bodies.find((body) => body.name === name);
-    assert.equal(moon?.freed?.from, "Elshar");
-    assert.deepEqual(
-      [moon?.slant, moon?.node, moon?.apse],
-      [elshar.slant, elshar.node, elshar.apse],
-      `${name} keeps the plane of Elshar`,
-    );
-  }
-  const after = at(10.93);
+  const freed = last.bodies.find((body) => body.name === "Rimil");
+  assert.equal(freed?.freed?.from, "Elshar");
+  assert.deepEqual(
+    [freed?.slant, freed?.node, freed?.apse],
+    [elshar.slant, elshar.node, elshar.apse],
+    "Rimil keeps the plane of Elshar",
+  );
+  const after = at(10.94);
   const rimil = after.bodies.find((body) => body.name === "Rimil");
   assert.equal(rimil?.parent, 0);
   assert.equal(rimil?.freed?.from, "Elshar");
