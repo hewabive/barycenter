@@ -2392,7 +2392,11 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
         ? gasFor(star.mass) * amid(0.5, 1, haste)
         : Math.min(
             GROWN_MOST,
-            SOLID_YEARS * YEAR * Math.sqrt(planet.year / YEAR) * amid(0.5, 2, haste),
+            SOLID_YEARS *
+              YEAR *
+              (planet.mass / EARTH_MASS) *
+              Math.sqrt(planet.year / YEAR) *
+              amid(0.5, 2, haste),
           );
       let here = site;
       let fed = 0;

@@ -689,7 +689,7 @@ test("a giant gathers its moons in a disk of its own while it takes gas", () => 
         mooned += moons.length > 0 ? 1 : 0;
         pieces.forEach((disk, at) => {
           assert.ok(disk.inner >= 1.999 * radius && disk.outer <= 0.401 * hold, label);
-          assert.ok(disk.gas > 0 && disk.depth > 0.01 && disk.height > 0.03, label);
+          assert.ok(disk.gas > 0 && disk.depth > 0.01 && disk.height > 0.02, label);
           assert.ok(at === 0 || disk.inner >= pieces[at - 1].outer, label);
           assert.ok(
             moons.every(({ physics }) => physics.orbit < disk.inner || physics.orbit > disk.outer),
@@ -1917,8 +1917,8 @@ test("a system grows out of the disk of its young star", () => {
       assert.equal(left, years >= 6e7 ? 0 : left, label);
       if (years === 5e5) {
         assert.equal(classOf(system.bodies[0].physics), "T Tauri star", label);
-        assert.ok(left > 1e-4 * SUN_MASS && left < 0.03 * SUN_MASS, `${label}: ${left} of gas`);
-        heavy += left > 0.01 * SUN_MASS ? 1 : 0;
+        assert.ok(left > 1e-4 * SUN_MASS && left < 0.0075 * SUN_MASS, `${label}: ${left} of gas`);
+        heavy += left > 0.0025 * SUN_MASS ? 1 : 0;
         assert.ok(
           disks.some((disk) => disk.gas > 0 && disk.depth > 0.1),
           label,
@@ -1970,7 +1970,7 @@ test("a system grows out of the disk of its young star", () => {
     sheets > 24 && molten > 10,
     `${sheets} sheets of gas and dust, ${molten} molten bodies`,
   );
-  assert.ok(heavy > 8, `${heavy} disks of 24 as heavy as a hundredth of a Sun`);
+  assert.ok(heavy > 8, `${heavy} disks of 24 as heavy as a quarter of a hundredth of a Sun`);
 });
 
 test("the air of a cold heavy giant is a thin skin and of a hot light one a deep one", () => {

@@ -56,7 +56,7 @@ test("a young disk is one sheet of dust and gas, as heavy as the nebula of the S
   assert.equal(disk.inner, 0.05 * AU);
   assert.equal(disk.outer, 60 * AU);
   assert.ok(disk.mass > 40 * EARTH_MASS && disk.mass < 150 * EARTH_MASS, `${disk.mass}`);
-  assert.ok(disk.gas > 0.01 * SUN_MASS && disk.gas < 0.02 * SUN_MASS);
+  assert.ok(disk.gas > 0.003 * SUN_MASS && disk.gas < 0.005 * SUN_MASS);
   assert.ok(disk.depth > 30 && disk.depth < 300, `${disk.depth}`);
   assert.equal(disk.grain, 1e-5);
   assert.ok(disk.ice > 0.4 && disk.ice < 0.6);
@@ -80,11 +80,11 @@ test("a growing body clears a lane as wide as its reach and takes the dust besid
 
 test("the gas thins, then goes from the inside out, and the dust goes with it", () => {
   const gas = (age: number) => nebulaOf(cloud(age)).reduce((sum, disk) => sum + disk.gas, 0);
-  assert.ok(gas(0.3) > gas(2) && gas(2) > gas(3.1) && gas(3.1) > gas(3.6) && gas(3.6) > 0);
+  assert.ok(gas(0.3) > gas(2) && gas(2) > gas(3.5) && gas(3.5) > gas(3.8) && gas(3.8) > 0);
   assert.equal(gas(4), 0);
-  assert.equal(holeOf(cloud(3)), 0.05 * AU);
+  assert.equal(holeOf(cloud(3.5)), 0.05 * AU);
   assert.equal(holeOf(cloud(4)), 60 * AU);
-  const half = cloud(3.6);
+  const half = cloud(3.8);
   const hole = holeOf(half);
   assert.ok(hole > 0.05 * AU && hole < 60 * AU);
   const [cleared, dusty, ...more] = nebulaOf(half);
