@@ -1,6 +1,6 @@
 # Nature
 
-The model of nature behind the generator of star systems: what it makes, by which rules and numbers, and what it leaves out. The works it rests on are listed in `sources.md`.
+The model of nature behind the generator of star systems: what it makes, by which rules and numbers, and what it leaves out. Each number says where it comes from: a published work, cited by authors and year and listed in `sources.md`, a check against known bodies, "chosen for play", or "unchecked" where its origin is not yet traced. A mark at the end of a sentence covers the numbers of that sentence that have no mark of their own. Constants of nature and what follows exactly from a law need no mark.
 
 - A system is made by the core from the seed of the world, in a stream of random numbers of its own, so a change of the generator leaves the cells and regions of a seed where they were. The seed of the home body is drawn first. Names, the seeds of the other bodies and their places on their orbits come from a second stream, so a change of the physics leaves the names of a system alone as long as it has the same bodies.
 - The core also makes a system with no home, for the generator page and later for other stars. Its star is drawn between 0.08 and 2.5 solar masses unless one is given, and seven times in a hundred its centre is a brown dwarf of 0.013 to 0.074 instead. Its orbits number up to twelve and nothing on it is alive.

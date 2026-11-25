@@ -33,7 +33,7 @@ Barycenter is developed solo by AI agents that work with high autonomy. These ru
   - `docs/client.md`: the browser client.
   - `docs/nature.md`: the model of nature behind the generator of star systems.
   - `docs/sources.md`: the published works the documents rest on.
-- When a rule in `docs/nature.md` is added or changed, each of its numbers says where it comes from: a published work, a check against named known bodies, or a choice made for play. A number whose origin has not been checked is called unchecked. It is never given a likely source.
+- When a rule in `docs/nature.md` is added or changed, each of its numbers says where it comes from, as the top of that document explains: a published work, a check against named known bodies, or "chosen for play". A number whose origin has not been checked is marked "unchecked" and is never given a likely source.
 - Cite a work in the text by its authors and year, with "and others" for more than two. Add it to `docs/sources.md` in the same commit: authors, year, title, where it was published, what is taken from it and where.
 - Do not add other documents unless the user asks.
 
