@@ -157,6 +157,27 @@ test("two helium dwarfs an hour apart spiral together and burn helium before the
   assert.ok(Math.abs(cooled.mass - one[0].mass) < 1e-6 * SUN_MASS);
 });
 
+test("a neutron star that draws in a white dwarf keeps its own mass and age", () => {
+  const twins = pairOf(
+    { born: 12 * SUN_MASS, dim: null },
+    { born: 3 * SUN_MASS, dim: null },
+    3 * ASTRONOMICAL_UNIT,
+    0.1,
+    null,
+    createRandom(7),
+  );
+  const merge = twins.turns.find((turn) => turn.kind === "merge");
+  assert.ok(merge !== undefined);
+  const [pulsar, dwarf] = twins.at(merge.from * (1 - 1e-9)).stars;
+  assert.equal(pulsar.ending, "pulsar");
+  assert.equal(dwarf?.ending, "dwarf");
+  const [left, none] = twins.at(merge.from * (1 + 1e-9)).stars;
+  assert.equal(none, null);
+  assert.equal(left.ending, "pulsar");
+  assert.equal(left.mass, pulsar.mass);
+  assert.ok(Math.abs(left.glow / pulsar.glow - 1) < 1e-3);
+});
+
 test("one companion in seven stays beside a new neutron star, on a wider stretched orbit", () => {
   const tries = 140;
   let kept = 0;

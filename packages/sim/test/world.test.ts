@@ -1527,7 +1527,7 @@ test("relief is the same at the same place and smooth between places", () => {
   assert.ok(Math.abs(beside - height) < 0.01);
 });
 
-test("a star turns slower as it ages, a red dwarf later than a Sun, and a hot star stays fast", () => {
+test("a star turns slower as it ages, an orange dwarf stalls, a red dwarf brakes later than a Sun, and a hot star stays fast", () => {
   const day = (suns: number, age: number, luck = 0.5) => {
     const mass = suns * SUN_MASS;
     const heat = starHeat(starGlow(mass), starRadius(mass));
@@ -1543,6 +1543,9 @@ test("a star turns slower as it ages, a red dwarf later than a Sun, and a hot st
   assert.ok(day(0.2, 4.57).days > 80);
   assert.ok(day(2, 4.57).days < 2 && day(2, 0.1).days < 2);
   assert.ok(day(1, 4.57, 0).days < day(1, 4.57, 1).days);
+  assert.ok(Math.abs(day(0.6, 1).days / day(0.6, 0.67).days - 1) < 0.01);
+  assert.ok(Math.abs(day(0.7, 2.7).days / 22 - 1) < 0.1);
+  assert.ok(Math.abs(day(0.7, 6).days / 35 - 1) < 0.1);
 });
 
 test("a star lives by its mass and leaves what that mass allows", () => {
@@ -1553,6 +1556,7 @@ test("a star lives by its mass and leaves what that mass allows", () => {
   assert.equal(sun.mass, SUN_MASS);
   assert.equal(sun.radius, starRadius(SUN_MASS));
   assert.equal(sun.glow, starGlow(SUN_MASS));
+  assert.ok(Math.abs(starRadius(0.231 * SUN_MASS) / (0.2534 * SUN_RADIUS) - 1) < 0.03);
   assert.equal(classOf(at(1, 10.7)), "orange subgiant");
   const giant = at(1, 11.384);
   assert.equal(classOf(giant), "red giant");
