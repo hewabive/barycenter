@@ -19,6 +19,7 @@ const NODE_DEPTH = 16;
 const ROUND_LEAST = 1e-4;
 const FAR = 20;
 const SPREAD = [0.25, 0.5, 0.75];
+const HALVINGS = 24;
 const TORN_BARE = 2.44;
 const TORN_WRAPPED = 1 / 0.49;
 
@@ -58,7 +59,12 @@ export interface Sinker {
   at(age: number): Drift;
   fall(age: number): number | null;
   given(age: number): Gain[];
-  first(age: number, test: (orbit: number, stretch: number, time: number) => boolean): Mark | null;
+  first(age: number, test: (mark: Mark, star: () => Sun) => boolean): Mark | null;
+}
+
+export interface Sun {
+  mass: number;
+  radius: number;
 }
 
 export interface Mark {
@@ -193,8 +199,8 @@ export function sinkerOf(
   const swing = (at: number, oval: number) =>
     body.mass * Math.sqrt(GRAVITY * born * at * (1 - oval ** 2));
   const whole = swing(orbit, stretch);
-  const start = { time: opened, spin: 0, orbit, stretch };
-  let trail: (Mark & { spin: number })[] = [start];
+  const start = { time: opened, spin: 0, orbit, stretch, index: 0 };
+  let trail: (Mark & { spin: number; index: number })[] = [start];
   const nodesTo = (until: number) => (until <= track.main ? track.early : lateOf(track));
   const quiet = (until: number) =>
     orbit * (1 - stretch) > FAR * track.life(Math.min(until, track.end)).swell;
@@ -234,7 +240,13 @@ export function sinkerOf(
       }
       now.time += step;
       const spin = whole - swing(now.orbit, now.stretch);
-      kept?.push({ time: now.time, spin, orbit: now.orbit, stretch: now.stretch });
+      kept?.push({
+        time: now.time,
+        spin,
+        orbit: now.orbit,
+        stretch: now.stretch,
+        index: now.index,
+      });
     }
     return now;
   };
@@ -288,12 +300,30 @@ export function sinkerOf(
     },
     first(age, test) {
       this.at(age);
-      const mark = trail.find(
-        (point) => point.time <= age && test(point.orbit, point.stretch, point.time),
-      );
-      return mark === undefined
-        ? null
-        : { time: mark.time, orbit: mark.orbit, stretch: mark.stretch };
+      const holds = (point: Mark, index: number) =>
+        test(point, () => starAt(nodesTo(point.time), index, point.time));
+      const found = trail.findIndex((point) => point.time <= age && holds(point, point.index));
+      if (found < 0) {
+        return null;
+      }
+      const after = trail[found];
+      const before = trail[found - 1] ?? after;
+      const between = (share: number): Mark => ({
+        time: before.time + share * (after.time - before.time),
+        orbit: before.orbit * (after.orbit / before.orbit) ** share,
+        stretch: before.stretch + share * (after.stretch - before.stretch),
+      });
+      let low = 0;
+      let high = 1;
+      for (let halving = 0; before !== after && halving < HALVINGS; halving++) {
+        const middle = (low + high) / 2;
+        if (holds(between(middle), after.index)) {
+          high = middle;
+        } else {
+          low = middle;
+        }
+      }
+      return between(high);
     },
   };
 }

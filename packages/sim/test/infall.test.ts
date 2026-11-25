@@ -13,6 +13,7 @@ import {
   SUN_MASS,
   starLife,
   starTurn,
+  YEAR,
 } from "../src/physics.ts";
 import { sketchSystem } from "../src/system.ts";
 
@@ -135,8 +136,11 @@ test("the moons of a planet drawn into its star are torn away or go in with it",
   const eaten = new Map(after.bodies[0].swallowed.map((entry) => [entry.name, entry]));
   assert.equal(eaten.get("Ridoon")?.of, "Ollis");
   assert.equal(eaten.get("Viram")?.of, "Ollis");
-  assert.equal(eaten.get("Ridoon")?.since, eaten.get("Ollis")?.since);
-  assert.equal(eaten.get("Viram")?.since, eaten.get("Ollis")?.since);
+  const fell = eaten.get("Ollis")?.since ?? 0;
+  const dove = (eaten.get("Ridoon")?.since ?? 0) - fell;
+  assert.ok(dove > 0 && dove < 1e-5 * GIGAYEAR, `Ridoon went in ${dove / YEAR} years before`);
+  assert.ok((eaten.get("Viram")?.since ?? fell) < fell, "Viram was torn away and fell later");
   const late = at(11.36).bodies[0].swallowed.map((entry) => entry.name);
   assert.ok(["Ollis", "Ridoon", "Viram", "Riliis"].every((name) => late.includes(name)));
+  assert.ok(!late.includes("Tavex") && !late.includes("Hadois"), "moons lost long before");
 });

@@ -325,8 +325,7 @@ test("the physics of every body holds together", () => {
           const pull = system.bodies[body.parent].physics.mass;
           assert.ok(disk.outer < rocheOf(physics.radius, density, 900), label);
           assert.ok(disk.outer < 0.34 * hillOf(physics.orbit, physics.mass, pull), label);
-          const withinShed = disk.mass <= 1e-5 * physics.mass;
-          assert.ok(disk.depth < 1e3 || withinShed, `${label}: ${disk.depth}`);
+          assert.ok(disk.depth < 1e3, `${label}: ${disk.depth}`);
           assert.ok(disk.gas === 0 && (disk.depth >= 2e-3 || !grown), label);
           const deep = disk.height * Math.sqrt(disk.inner * disk.outer);
           assert.ok(Math.abs(deep - 10) < 0.01 && disk.flare === -1 && disk.grain === 1, label);
