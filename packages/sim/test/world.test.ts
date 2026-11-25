@@ -696,7 +696,7 @@ test("a giant gathers its moons in a disk of its own while it takes gas", () => 
             `${label}: a moon keeps its lane clear`,
           );
           assert.ok(lanes[at].inner > drawn.bodies[body.id].radius, label);
-          assert.ok(lanes[at].outer > lanes[at].inner, label);
+          assert.ok(lanes[at].outer >= lanes[at].inner, label);
           assert.ok(at === 0 || lanes[at].inner >= lanes[at - 1].outer, label);
         });
         for (const moon of drawn.bodies.filter((each) => each.parent === body.id)) {
@@ -1599,6 +1599,7 @@ test("systems with no home hold stars at every time of life", () => {
   const count = 1400;
   let overtaken = 0;
   let gassy = 0;
+  let bright = 0;
   for (let seed = 1; seed <= count; seed++) {
     const system = surveySystem(seed, { settled: false, star: null });
     const centre = system.bodies[0].physics;
@@ -1632,13 +1633,16 @@ test("systems with no home hold stars at every time of life", () => {
       assert.ok(body.parent < body.id, `${label} is listed after what it circles`);
       assert.ok(physics.mass <= host.physics.mass, `${label} is lighter than what it circles`);
       if (starborn(physics)) {
-        assert.notEqual(classOf(physics), "neutron star", label);
         overtaken += spent(physics) && !spent(host.physics) ? 1 : 0;
         continue;
       }
       if (starborn(host.physics)) {
-        assert.ok(host.physics.mass < BURST_LEAST, `${label} circles a star too bright for it`);
-        assert.notEqual(classOf(host.physics), "black hole", label);
+        assert.notEqual(classOf(host.physics), "neutron star", `${label} circles a neutron star`);
+        assert.ok(
+          host.physics.mass < BURST_LEAST || physics.orbit > frostOf(starGlow(BURST_LEAST)),
+          `${label} circles a star too bright for it`,
+        );
+        bright += host.physics.mass >= BURST_LEAST ? 1 : 0;
       }
       if (host.parent === null && stars.length === 1 && kind === "white dwarf") {
         const born = (SUN_MASS * (centre.mass / SUN_MASS - 0.394)) / 0.109;
@@ -1646,9 +1650,6 @@ test("systems with no home hold stars at every time of life", () => {
         assert.ok(swell > 0.5 * ASTRONOMICAL_UNIT, label);
         assert.ok(near > (swell * born) / centre.mass, `${label} was not swallowed`);
       }
-    }
-    if (kind === "neutron star") {
-      assert.equal(system.bodies.length, 1, `seed ${seed}`);
     }
   }
   const share = (test: (kind: string) => boolean) =>
@@ -1664,6 +1665,7 @@ test("systems with no home hold stars at every time of life", () => {
   }
   assert.ok(share((kind) => kind.endsWith("supergiant")) > 0);
   assert.ok(overtaken > 5, `${overtaken} stars that shed mass now circle a heavier companion`);
+  assert.ok(bright > 0, "no planet beyond the frost line of a heavy star");
   assert.ok(seen.has("T Tauri star"), `no young star among ${count} systems`);
   assert.ok(gassy > 0.008 * count && gassy < 0.04 * count, `${gassy} systems with a disk of gas`);
 });

@@ -2,17 +2,20 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { limitOf, lobeOf, loneOf, pairOf } from "../src/pairs.ts";
 import {
+  ASTRONOMICAL_UNIT,
   classOf,
   DAY,
   GIGAYEAR,
   GRAVITY,
   lifeOf,
+  SUN_GLOW,
   SUN_MASS,
   SUN_RADIUS,
   starborn,
   starLife,
   starSpan,
 } from "../src/physics.ts";
+import { createRandom } from "../src/random.ts";
 import { surveySystem } from "../src/system.ts";
 
 const pair = (first: number, second: number, orbit: number, stretch = 0) =>
@@ -22,6 +25,7 @@ const pair = (first: number, second: number, orbit: number, stretch = 0) =>
     orbit * SUN_RADIUS,
     stretch,
     null,
+    createRandom(1),
   );
 const yearOf = (orbit: number, mass: number) =>
   2 * Math.PI * Math.sqrt(orbit ** 3 / (GRAVITY * mass));
@@ -135,7 +139,7 @@ test("a light companion close to a small giant merges with it, and the giant tur
   assert.equal(end.stars[0].ending, "dwarf");
 });
 
-test("two white dwarfs an hour apart spiral together within the age of the Galaxy", () => {
+test("two helium dwarfs an hour apart spiral together and burn helium before they cool", () => {
   const twins = pair(1.1, 1.055, 29.13, 0.011);
   const merge = twins.turns.find((turn) => turn.kind === "merge");
   const shed = twins.turns.find((turn) => turn.kind === "shed");
@@ -145,8 +149,39 @@ test("two white dwarfs an hour apart spiral together within the age of the Galax
   assert.ok(later.orbit < close.orbit && later.orbit > 0.5 * close.orbit);
   const one = twins.at(merge.from * (1 + 1e-9)).stars;
   assert.equal(one[1], null);
-  assert.equal(one[0].ending, "dwarf");
+  assert.equal(one[0].ending, "core");
   assert.ok(Math.abs(one[0].mass - weigh(twins, merge.from * (1 - 1e-9))) < 1e-6 * SUN_MASS);
+  assert.ok(one[0].glow > 10 * SUN_GLOW && one[0].radius < 0.5 * SUN_RADIUS);
+  const cooled = twins.at(merge.from + 0.3 * GIGAYEAR).stars[0];
+  assert.equal(cooled.ending, "dwarf");
+  assert.ok(Math.abs(cooled.mass - one[0].mass) < 1e-6 * SUN_MASS);
+});
+
+test("one companion in seven stays beside a new neutron star, on a wider stretched orbit", () => {
+  const tries = 140;
+  let kept = 0;
+  for (let seed = 1; seed <= tries; seed++) {
+    const twins = pairOf(
+      { born: 12 * SUN_MASS, dim: null },
+      { born: 5 * SUN_MASS, dim: null },
+      300 * ASTRONOMICAL_UNIT,
+      0.2,
+      null,
+      createRandom(seed),
+    );
+    const end = starLife(12 * SUN_MASS);
+    const before = twins.at(end * (1 - 1e-9));
+    const after = twins.at(end * (1 + 1e-6));
+    assert.equal(after.stars[0].ending, "pulsar");
+    assert.ok(!before.apart && before.stars[1] !== null);
+    if (after.apart) {
+      continue;
+    }
+    kept += 1;
+    assert.ok(after.stars[1] !== null && after.stars[1].ending === null);
+    assert.ok(after.orbit >= 0.5 * before.orbit && after.stretch > 0 && after.stretch < 1);
+  }
+  assert.ok(kept > 10 && kept < 30, `${kept} of ${tries} kept`);
 });
 
 test("a star that swells beside a group is bared where its lobe ends", () => {

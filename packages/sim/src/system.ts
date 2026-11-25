@@ -17,7 +17,6 @@ import { lobeOf, loneOf, type Pairing, type Phase, pairOf, type Turn } from "./p
 import {
   ASTRONOMICAL_UNIT,
   BROWN_LEAST,
-  BURST_LEAST,
   balanceHeat,
   bulgeOf,
   type Climate,
@@ -57,7 +56,6 @@ import {
   seenGlow,
   starborn,
   starDawn,
-  starGlow,
   starHeat,
   starLife,
   starSpan,
@@ -354,22 +352,32 @@ const LAMP_LEAST = 1e-3;
 const CHASE_SHARP = 0.97;
 const ALONE = { ahead: 0, sway: 0, lane: 0, year: 1, phase: 0 };
 const KIN_SALT = 0x2545f491;
-const KIN_SHARE = [0.46, 0.25, 0.15, 0.8];
+const KIN_SHARE = [
+  [0.1, 0.22],
+  [0.3, 0.26],
+  [1, 0.46],
+];
+const KIN_RISE = [0.25, 0.8];
 const KIN_SETTLED = 0.3;
 const KIN_NEXT = 0.3;
 const KIN_RATIO = 0.15;
 const KIN_NEAR = 4;
-const KIN_MIDDLE = 40 * ASTRONOMICAL_UNIT;
+const KIN_WIDE = [
+  [0.1, 4.5, 0.5],
+  [0.3, 5.3, 1.3],
+  [0.5, 5.3, 1.3],
+  [1, 45, 2.3],
+];
 const KIN_POWER = 0.8;
-const KIN_SPREAD = 1.5;
 const KIN_SLACK = 0.08;
 const KIN_EDGE = 20000 * ASTRONOMICAL_UNIT;
 const KIN_STRETCH = 0.6;
-const KIN_ROUND = [3 * DAY, 100 * DAY];
+const KIN_ROUND = [10 * DAY, 15 * DAY];
 const KIN_TIED = 20 * DAY;
 const KIN_HELD = 20;
-const KIN_LOOSE = [ASTRONOMICAL_UNIT, 100 * ASTRONOMICAL_UNIT];
+const KIN_LOOSE = [ASTRONOMICAL_UNIT, 50 * ASTRONOMICAL_UNIT, 1000 * ASTRONOMICAL_UNIT];
 const KIN_SLANT = 0.7;
+const BLINDING = 2000 * SUN_GLOW;
 const NEST_ROOM = 1.3;
 const HOLD_ROOM = 0.8;
 const CLEAR_ROOM = 1.15;
@@ -1531,9 +1539,38 @@ export function createSystem(seed: number): StarSystem {
   return { home, bodies };
 }
 
+function tabled(table: number[][], mass: number): number[] {
+  const place = Math.log10(mass / SUN_MASS);
+  const above = table.findIndex(([suns]) => Math.log10(suns) >= place);
+  if (above <= 0) {
+    return table.at(above)?.slice(1) ?? [];
+  }
+  const [low, high] = [table[above - 1], table[above]];
+  const share = (place - Math.log10(low[0])) / (Math.log10(high[0]) - Math.log10(low[0]));
+  return low.slice(1).map((value, column) => value + (high[column + 1] - value) * share);
+}
+
 function likely(mass: number): number {
-  const [usual, slope, least, most] = KIN_SHARE;
-  return Math.max(least, Math.min(most, usual + slope * Math.log10(mass / SUN_MASS)));
+  const [share] = tabled(KIN_SHARE, mass);
+  const [rise, most] = KIN_RISE;
+  return Math.min(most, share + rise * Math.max(0, Math.log10(mass / SUN_MASS)));
+}
+
+function spacing(mass: number): { peak: number; spread: number } {
+  const logs = KIN_WIDE.map(([suns, orbit, spread]) => [suns, Math.log10(orbit), spread]);
+  const [peak, spread] = tabled(logs, mass);
+  const above = KIN_POWER * Math.max(0, Math.log10(mass / SUN_MASS));
+  return { peak: Math.log10(ASTRONOMICAL_UNIT) + peak + above, spread: (2 / 3) * spread };
+}
+
+function leaning(orbit: number, draw: number): number {
+  const [near, open, free] = KIN_LOOSE.map(Math.log10);
+  const place = Math.log10(orbit);
+  const loose = smooth(near, open, place);
+  const wild = smooth(open, free, place);
+  return draw < wild
+    ? Math.acos(1 - (2 * draw) / wild)
+    : (KIN_SLANT * loose * (draw - wild)) / (1 - wild);
 }
 
 function wideOf(physics: Physics): number {
@@ -1566,11 +1603,11 @@ function accompany(
     const companion = starOf(mass, star.physics.age, kin);
     const other = companion.physics;
     const touching = KIN_NEAR * (star.physics.radius + other.radius);
-    const middle = KIN_MIDDLE * (star.physics.mass / SUN_MASS) ** KIN_POWER;
+    const { peak, spread: width } = spacing(star.physics.mass);
     const stretched = (orbit: number) => {
       const turn = yearOf(orbit, star.weight + mass);
       const round = smooth(Math.log10(KIN_ROUND[0]), Math.log10(KIN_ROUND[1]), Math.log10(turn));
-      return KIN_STRETCH * drawnOut ** 1.5 * round;
+      return KIN_STRETCH * drawnOut * round;
     };
     const least = (stretch: number) =>
       Math.max(
@@ -1583,7 +1620,7 @@ function accompany(
       return;
     }
     const gauss = Math.sqrt(-2 * Math.log(Math.max(bell, 1e-12))) * Math.cos(2 * Math.PI * spread);
-    const aimed = Math.log10(middle) + KIN_SPREAD * gauss;
+    const aimed = peak + width * gauss;
     const drawn =
       10 ** (aimed < floor || aimed > ceiling ? floor + (ceiling - floor) * spread : aimed);
     const raised = Math.max(drawn, least(stretched(drawn)));
@@ -1599,13 +1636,21 @@ function accompany(
     }
     const orbit = fitted;
     const stretch = stretched(orbit);
-    const loose = smooth(Math.log10(KIN_LOOSE[0]), Math.log10(KIN_LOOSE[1]), Math.log10(orbit));
-    companion.slant = KIN_SLANT * leaned * loose;
-    companion.tilt = loose > 0 ? KIN_SLANT * kin.next() * loose : null;
+    companion.slant = leaning(orbit, leaned);
+    companion.tilt = orbit > KIN_LOOSE[0] ? leaning(orbit, kin.next()) : null;
     const room = (orbit * (1 - stretch)) / (NEST_ROOM * nestOf(star.weight / mass, stretch));
     companion.physics = { ...other, orbit, stretch };
     const lesser = (KIN_NEXT * likely(mass) * odds) / likely(star.physics.mass);
     accompany(companion, room, lesser, kin, kin, null);
+    const near = orbit * (1 - stretch);
+    while (
+      companion.kin.length > 0 &&
+      near < NEST_ROOM * nestOf(companion.weight / star.weight, stretch) * within
+    ) {
+      const gone = companion.kin.pop();
+      companion.weight -= gone?.weight ?? 0;
+      companion.glow -= gone?.glow ?? 0;
+    }
     const year = yearOf(orbit, star.weight + companion.weight);
     const day = year <= KIN_TIED ? year : other.day;
     companion.physics = { ...other, orbit, stretch, year, day };
@@ -1844,6 +1889,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       other.orbit,
       other.stretch,
       room,
+      createRandom(Math.floor(kin.next() * 0x7fffffff)),
     );
     const { turns, marks, edges } = pairing;
     const told = { turns, marks, edges, plain: turns.length === 0 };
@@ -2157,7 +2203,8 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
   const lay = (zone: Zone): { belts: Disk[]; row: Row[] } => {
     const star = zone.centre;
     const lit = reachOf(star.glow);
-    const nearest = zone.inner;
+    const blinding = star.glow >= BLINDING;
+    const nearest = blinding ? Math.max(zone.inner, frostOf(star.glow)) : zone.inner;
     const farthest = Math.min(zone.outer, OUTER_EDGE * lit);
     const orbits: number[] = [];
     const rungs: number[] = [];
@@ -2165,7 +2212,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
     const row: Row[] = [];
     const beltRungs: number[] = [];
     const closed = zone.outer < Number.POSITIVE_INFINITY && !zone.home;
-    if (nearest * (closed ? ZONE_LEAST : 1) >= farthest || star.glow >= starGlow(BURST_LEAST)) {
+    if (nearest * (closed ? ZONE_LEAST : 1) >= farthest) {
       return { belts, row };
     }
     const empty = (orbit: number) => {
@@ -2928,8 +2975,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       const merged = bond !== null && bond.stars[1] === null;
       const taken =
         lost.has(companion) ||
-        now.alone ||
-        other.alone ||
+        (bond === null ? now.alone || other.alone : bond.apart) ||
         merged ||
         after < Math.min(NEST_ROOM, before);
       const fresh = now.young || other.young;
@@ -3001,14 +3047,15 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
           : HOLD_ROOM *
             holdOf(next.weight / (within.mass + next.weight), next.physics.stretch) *
             next.physics.orbit;
-      const swallowed = now.alone ? Number.POSITIVE_INFINITY : SWALLOWED * now.swell;
+      const blown = now.alone || now.kin.slice(0, level).some((far) => !far.gone && far.alone);
+      const swallowed = blown ? Number.POSITIVE_INFINITY : SWALLOWED * now.swell;
       grounds.set(zone, {
         centre,
         young: now.young,
         widened,
         swallowed,
         inner: cleared,
-        outer,
+        outer: blown ? 0 : outer,
         lent: beyond(level),
         peak: now.peak + within.glow - now.physics.glow,
       });
@@ -3058,7 +3105,8 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
             );
         }
         const lit = reachOf(zone.centre.glow);
-        const bare = zone.centre.glow >= starGlow(BURST_LEAST) || zone.outer <= zone.inner;
+        const bare = zone.outer <= zone.inner;
+        const blinding = zone.centre.glow >= BLINDING;
         const stations: Station[] = [
           ...kept.map(({ draft, orbit }) => ({
             orbit,
@@ -3078,6 +3126,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
             zone.inner,
             ground.young ? STAR_CLEARANCE * ground.centre.radius : 0,
             rimOf(ground.centre.glow),
+            blinding ? frostOf(zone.centre.glow) : 0,
           ),
           outer: Math.min(zone.outer, DISK_REACH * OUTER_EDGE * lit),
           reach: DISK_REACH * OUTER_EDGE * lit,
