@@ -52,6 +52,7 @@ import {
   wrapped,
   YEAR,
 } from "@barycenter/sim";
+import { Vector3 } from "three";
 import { button, dismissible, el, required, write } from "./dom.ts";
 import {
   DENSE_STAR,
@@ -63,6 +64,7 @@ import {
   SHADOW,
   shownOf,
 } from "./looks.ts";
+import { type Shot, shotOf, shotQuery } from "./shot.ts";
 import { createSpace } from "./space.ts";
 
 interface Moment {
@@ -92,6 +94,7 @@ const ICE_GRAIN = 900;
 const AGE_LEAST = 1e-4;
 const AGE_MOST = 13;
 const FPS_SPAN = 0.5;
+const COPIED_FOR = 1500;
 const AT_REST = "at rest";
 
 interface Choice {
@@ -142,6 +145,7 @@ const make = (next: Choice) => {
 };
 
 let choice = choiceOf(location.search);
+const arrival = shotOf(location.search);
 history.replaceState(null, "", address(choice));
 let system = make(choice);
 
@@ -619,10 +623,12 @@ const edges = () => {
 strip.addEventListener("scroll", edges, { passive: true });
 new ResizeObserver(edges).observe(strip);
 let speeds: HTMLButtonElement[] = [];
-const time = () => {
-  const paces: [rate: number, label: string, title: string][] = choice.real
+const pacesOf = (real: boolean): [rate: number, label: string, title: string][] =>
+  real
     ? RATES.map(([rate, label]) => [rate, label, `${figure(rate)} seconds a second`])
     : PACES.map((rate) => [rate, `${rate / PACES[1]}×`, `${rate} ticks a second`]);
+const time = () => {
+  const paces = pacesOf(choice.real);
   speeds = paces.map(([rate, label, title], index) => {
     const control = button(rate === 0 ? "Pause" : label, rate === 0 ? "Stop time" : title, () => {
       pace = rate;
@@ -767,6 +773,58 @@ const marked = <Item extends HTMLElement>(item: Item, name: string): Item => {
 };
 const scale = button("", "", () => go(read(), !choice.real));
 const fly = el("a", { class: "away", title: "Fly a ship through this system" }, "Fly");
+const described = () => {
+  const view = space.view();
+  const shot: Shot = {
+    focus: system.bodies[view.focus].name,
+    camera: [view.camera.x, view.camera.y, view.camera.z],
+    tick,
+    weather: choice.real ? weather : null,
+  };
+  const speed = pacesOf(choice.real).find(([rate]) => rate === pace)?.[1] ?? `${pace}`;
+  const setting = [
+    pace === 0 ? "time paused" : `time at ${speed}`,
+    `window ${innerWidth}×${innerHeight}`,
+    `scene ${stage.clientWidth}×${stage.clientHeight}`,
+    `pixel ratio ${devicePixelRatio}`,
+    handheld.matches ? "coarse pointer" : "fine pointer",
+    fps.textContent,
+    `build ${import.meta.env.VITE_BUILD}`,
+    space.gpu(),
+    navigator.userAgent,
+  ];
+  return `${location.origin}${location.pathname}${address(choice)}&${shotQuery(shot)}\n${setting.join(" · ")}`;
+};
+const copied = async (text: string): Promise<boolean> => {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const field = el("textarea", { readonly: "", style: "position: fixed; opacity: 0" }, text);
+    document.body.append(field);
+    field.select();
+    field.setSelectionRange(0, text.length);
+    const done = document.execCommand("copy");
+    field.remove();
+    return done;
+  }
+};
+let copiedTimer = 0;
+const copy = button(
+  "Copy view",
+  "Copy a link to this system, the body in focus, the camera and the clock, with the size of the screen, the build and the graphics card, to show someone what is drawn",
+  () => {
+    const text = described();
+    void copied(text).then((done) => {
+      if (!done) {
+        prompt("Copy the view", text);
+      }
+      write(copy, done ? "Copied" : "Copy view");
+      clearTimeout(copiedTimer);
+      copiedTimer = setTimeout(() => write(copy, "Copy view"), COPIED_FOR);
+    });
+  },
+);
 topbar.append(
   el("strong", { class: "title" }, "Generator"),
   el(
@@ -808,6 +866,7 @@ topbar.append(
     scale,
     el("a", { class: "away", href: "atlas.html" }, "Atlas"),
     fly,
+    marked(copy, "copy"),
   ),
   marked(
     button("Next", "Make the system of the next seed", () => go(read() + 1)),
@@ -880,10 +939,6 @@ const depthOf = (body: Body): number =>
   body.parent === null ? 0 : 1 + depthOf(system.bodies[body.parent]);
 const settle = (kept: number | null) => {
   const star = system.bodies[0];
-  if (kept === null) {
-    tick = 0;
-    weather = 0;
-  }
   write(clock, dial());
   time();
   watch();
@@ -980,6 +1035,9 @@ const build = () => {
     if (kept.name !== before[held.focus].name) {
       space.focus(kept.id);
     }
+  } else {
+    tick = 0;
+    weather = 0;
   }
   settle(kept?.id ?? null);
 };
@@ -993,4 +1051,18 @@ const open = (next: Choice) => {
   }
   pending = next;
 };
-settle(null);
+const land = (shot: Shot): number | null => {
+  const focus = system.bodies.find((body) => body.name === shot.focus) ?? null;
+  tick = shot.tick;
+  weather = shot.weather ?? 0;
+  if (shot.camera !== null) {
+    space.resume({
+      focus: focus?.id ?? space.view().focus,
+      camera: new Vector3(...shot.camera),
+    });
+  } else if (focus !== null) {
+    space.focus(focus.id);
+  }
+  return focus?.id ?? null;
+};
+settle(land(arrival));

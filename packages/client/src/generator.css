@@ -34,7 +34,7 @@ body {
   order: -1;
 }
 
-#topbar .away {
+#topbar :is(.away, .copy) {
   order: 1;
 }
 

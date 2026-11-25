@@ -106,6 +106,7 @@ export interface Space {
   plumb(up: Vector3 | null, share: number): void;
   view(): View;
   resume(view: View): void;
+  gpu(): string;
   dispose(): void;
 }
 
@@ -1315,7 +1316,7 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
       };
       stale = true;
     },
-    view: () => ({ focus: shift.to, camera: camera.position.clone() }),
+    view: () => ({ focus: shift.to, camera: drawn.position.clone() }),
     resume(view) {
       lookOf(view.focus)?.refine(fine);
       shift.from = view.focus;
@@ -1324,6 +1325,11 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
       glide = null;
       camera.position.copy(view.camera);
       stale = true;
+    },
+    gpu() {
+      const gl = renderer.getContext();
+      const unmasked = gl.getExtension("WEBGL_debug_renderer_info");
+      return String(gl.getParameter(unmasked?.UNMASKED_RENDERER_WEBGL ?? gl.RENDERER));
     },
     dispose() {
       alive = false;
