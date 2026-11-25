@@ -375,7 +375,7 @@ const KIN_STRETCH = 0.6;
 const KIN_ROUND = [10 * DAY, 15 * DAY];
 const KIN_TIED = 20 * DAY;
 const KIN_HELD = 20;
-const KIN_LOOSE = [ASTRONOMICAL_UNIT, 50 * ASTRONOMICAL_UNIT, 1000 * ASTRONOMICAL_UNIT];
+const KIN_LOOSE = [ASTRONOMICAL_UNIT, 50 * ASTRONOMICAL_UNIT];
 const KIN_SLANT = 0.7;
 const BLINDING = 2000 * SUN_GLOW;
 const NEST_ROOM = 1.3;
@@ -1564,13 +1564,8 @@ function spacing(mass: number): { peak: number; spread: number } {
 }
 
 function leaning(orbit: number, draw: number): number {
-  const [near, open, free] = KIN_LOOSE.map(Math.log10);
-  const place = Math.log10(orbit);
-  const loose = smooth(near, open, place);
-  const wild = smooth(open, free, place);
-  return draw < wild
-    ? Math.acos(1 - (2 * draw) / wild)
-    : (KIN_SLANT * loose * (draw - wild)) / (1 - wild);
+  const [near, open] = KIN_LOOSE.map(Math.log10);
+  return KIN_SLANT * draw * smooth(near, open, Math.log10(orbit));
 }
 
 function wideOf(physics: Physics): number {
