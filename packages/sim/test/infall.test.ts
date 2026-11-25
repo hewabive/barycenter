@@ -109,7 +109,7 @@ test("Elshar is drawn into its giant star and left in its list", () => {
 test("the moons of a planet drawn into its star are torn away or go in with it", () => {
   const at = (age: number) =>
     sketchSystem(274326, { settled: false, star: null, age: age * GIGAYEAR });
-  const last = at(10.9218278);
+  const last = at(10.9181847);
   const star = last.bodies[0];
   const elshar = last.bodies.find((body) => body.name === "Elshar");
   assert.ok(elshar !== undefined);

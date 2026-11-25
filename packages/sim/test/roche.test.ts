@@ -61,8 +61,8 @@ test("a star that has just thrown off its envelope stands in a shell that grows 
   assert.ok(dwarf !== undefined && dwarf.shell !== null);
   const shed = dwarf.passages.find(({ kind }) => kind === "shed");
   assert.ok(shed !== undefined && shed.with === null && shed.mass === dwarf.shell.mass);
-  assert.ok(dwarf.shell.since > 0 && dwarf.shell.since < 5e4 * YEAR);
-  assert.ok(Math.abs(dwarf.shell.reach / (25000 * dwarf.shell.since) - 1) < 1e-9);
+  assert.ok(dwarf.shell.since > 0 && dwarf.shell.since < 2.1e4 * YEAR);
+  assert.ok(Math.abs(dwarf.shell.reach / (42000 * dwarf.shell.since) - 1) < 1e-9);
   assert.ok(
     Math.abs(dwarf.shell.radius * fresh.unit - dwarf.shell.reach) < 1e-6 * dwarf.shell.reach,
   );

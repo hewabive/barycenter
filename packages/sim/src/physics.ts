@@ -67,18 +67,26 @@ const TURN_SHARE = [0.08, 1.5, 0.005];
 const CLIMB_SHARE = [0.06, 2];
 const CORE_SPAN = [0.13 * GIGAYEAR, 0.15];
 const LAST_SHARE = 0.15;
-const TURN_GLOW = 2;
-const FLASH_GLOW = 2500;
-const FLASH_MASS = [1.8, 2.4];
-const QUIET_GLOW = [250, 2.5, 1.2];
-const CLUMP_GLOW = 50;
-const CORE_GLOW = [0.8, 0.5];
-const LAST_GLOW = [4000, 1.2, 1.5];
+const TURN_GLOW = [95.11033, 4.597479, 31.13458, 9.301992, 10.07963, 39.10862, 4.637345, 6.682518];
+const FLASH_MASS = [1.995, 15];
+const FLASH_GLOW = [2751.631, -0.03820831];
+const QUIET_GLOW = [11486.22, 734.8793, 84.99536];
+const QUIET_MASS = [2, 2.5];
+const CLIMB_MOST = [12.5, 13.5];
+const CLUMP_GLOW = [54.96045, 1.832694, 121.1104, 1.6479];
+const CLUMP_BARE = [15262, 29.54, 31.18, 0.0469];
+const CLUMP_PACE = 2;
+const CORE_GLOW = [48.70031, 3.629118, 323.6427, 0.4837614];
+const LAST_FROM = [162.6062, 0.3336833];
+const LAST_QUIET = [42547.4, 926.8325, 2.474401, 400.7733];
+const LAST_GLOW = [4000, 1.2];
 const CLIMB_PACE = 3;
-const GIANT_RADIUS = [1, 0.3, 0.4, 0.383, 0.76];
+const GIANT_RADIUS = [0.9960283, 0.2561062, 1.157338, 0.4022765, 0.397, 0.3827, 0.755];
 const GIANT_HEAT = [2800, 0.08];
+const GIANT_CORE = [3e4, 500, 1.75e4, 0.6];
+const GIANT_STEEP = [6, 3];
 const LOOP_MASS = [1.8, 4];
-const LOOP_WARM = [1.1, 0.4, 1.5, 20];
+const LOOP_WARM = [1.06, 0.4, 1.5, 20];
 const HEAVY_MASS = [8, 12];
 const BLUE_MASS = [22, 40];
 const RED_MASS = [25, 45];
@@ -88,18 +96,18 @@ const BARED_SHARE = 0.55;
 const BARED_RADIUS = [2, 10, 0.6];
 const SETTLING = 0.3;
 const EMBER_MASS = [0.394, 0.109];
-const CORE_LIGHT = 2.34e5;
+const CORE_LIGHT = [5.37, 0.975, 0.18, 0.5, 0.06, -1];
 const CORE_HEAVY = [0.098, 1.35];
 const EMBER_RADIUS = [0.0127, 1.44];
 const EMBER_COOLING = [8.8e6 * YEAR, 1.4, 3e5 * YEAR];
 const EMBER_DAY = [0.25, 2];
-const PULSAR_MASS = [1.2, 0.05];
+const PULSAR_MASS = [1.17, 0.0692];
 const PULSAR_RADIUS = 11500;
-const PULSAR_HEAT = [2e6, 3e4 * YEAR];
-const PULSAR_DAY = [0.01, 0.1, 1e4 * YEAR];
+const PULSAR_HEAT = [1.2e6, 1e5 * YEAR];
+const PULSAR_DAY = [0.04, 0.52, 1.95e-14];
 const HOLE_SHARE = 0.3;
 const HOLE_HEAT = 6.17e-8;
-const HOLE_SPIN = [0.1, 0.8];
+const HOLE_SPIN = [0.1, 0.88];
 const DENSE_STAR = [1e7, 1e13];
 const STAR_SIZES = [0.7, 1.3, 3];
 const SUN_AGE = 4.57 * GIGAYEAR;
@@ -342,6 +350,86 @@ export function bareRadius(mass: number): number {
   return SUN_RADIUS * BARED_RADIUS[0] * (mass / (BARED_RADIUS[1] * SUN_MASS)) ** BARED_RADIUS[2];
 }
 
+function acrossFlash(
+  suns: number,
+  [scale, lean]: number[],
+  quiet: (suns: number) => number,
+): number {
+  const [edge, steep] = FLASH_MASS;
+  if (suns >= edge) {
+    return quiet(suns);
+  }
+  const meet = quiet(edge);
+  const bend = (scale * edge ** lean - meet) / meet;
+  return (scale * suns ** lean) / (1 + bend * Math.exp(steep * (suns - edge)));
+}
+
+function baseGlow(suns: number): number {
+  const [first, firstPower, second, secondPower, floor, third, thirdPower, lastPower] = TURN_GLOW;
+  return (
+    (first * suns ** firstPower + second * suns ** secondPower) /
+    (floor + third * suns ** thirdPower + suns ** lastPower)
+  );
+}
+
+function quietHelium(suns: number): number {
+  const [floor, gain, wide] = QUIET_GLOW;
+  return (floor + gain * suns ** 3.8) / (wide + suns ** 2);
+}
+
+function heliumGlow(suns: number): number {
+  return acrossFlash(suns, FLASH_GLOW, quietHelium);
+}
+
+function dropOf(suns: number): number {
+  const [floor, power, wide, gain] = CORE_GLOW;
+  return (floor + gain * suns ** (power + 0.1)) / (wide + suns ** power);
+}
+
+function bareHelium(core: number): number {
+  const [scale, first, second, floor] = CLUMP_BARE;
+  return (scale * core ** 10.25) / (core ** 9 + first * core ** 7.5 + second * core ** 6 + floor);
+}
+
+function restGlow(suns: number): number {
+  const [edge, steep] = FLASH_MASS;
+  const helium = heliumGlow(suns);
+  if (suns >= edge) {
+    return helium * dropOf(suns);
+  }
+  const core = coreByGlow(suns, helium);
+  const bare = bareHelium(core);
+  const meet = heliumGlow(edge) * dropOf(edge);
+  const [scale, power, crowd, crowdPower] = CLUMP_GLOW;
+  const envelope = Math.max((suns - core) / (edge - core), 1e-12);
+  const bend = (scale + bare - meet) / (meet - bare);
+  return (
+    bare +
+    ((1 + crowd) * scale * envelope ** power) /
+      ((1 + crowd * envelope ** crowdPower) * (1 + bend * Math.exp(steep * (suns - edge))))
+  );
+}
+
+function quietLast(suns: number): number {
+  const [floor, gain, power, wide] = LAST_QUIET;
+  return (floor + gain * suns ** (power + 1.8)) / (wide + suns ** power);
+}
+
+function coreByGlow(suns: number, glow: number): number {
+  const [low, high] = QUIET_MASS;
+  const quiet = Math.max(0, Math.min(1, (suns - low) / (high - low)));
+  const [faint, lean, slope, half, gentle, least] = CORE_LIGHT;
+  const settled = Math.max(least, half * faint - gentle * suns, lean * faint - slope * suns);
+  const dim = 10 ** (quiet < 1 ? faint - (faint - lean * faint + slope * high) * quiet : settled);
+  const [floor, base, gain, power] = GIANT_CORE;
+  const bright = Math.max(floor, base + gain * suns ** power);
+  const [steep, gentler] = GIANT_STEEP;
+  return Math.max(
+    (glow / dim) ** (1 / (steep - quiet)),
+    (glow / bright) ** (1 / (gentler - quiet)),
+  );
+}
+
 export function lifeOf(born: number, age: number): Life {
   const suns = born / SUN_MASS;
   const first = { mass: born, radius: starRadius(born), glow: starGlow(born) };
@@ -369,12 +457,13 @@ export function lifeOf(born: number, age: number): Life {
   const dwarf = first.radius / SUN_RADIUS;
   const bright = first.glow / SUN_GLOW;
   const blend = (from: number, to: number, share: number) => from * (to / from) ** share;
-  const quietly = smooth(FLASH_MASS[0], FLASH_MASS[1], suns);
-  const turned = TURN_GLOW * bright;
-  const quiet = Math.max(QUIET_GLOW[2] * turned, QUIET_GLOW[0] * (suns / QUIET_GLOW[1]) ** 2.5);
-  const tip = blend(FLASH_GLOW, quiet, quietly);
-  const steady = blend(CLUMP_GLOW, CORE_GLOW[0] * quiet, quietly);
-  const ending = Math.max(LAST_GLOW[0] * suns ** LAST_GLOW[1], LAST_GLOW[2] * turned);
+  const helium = heliumGlow(suns);
+  const early = smooth(CLIMB_MOST[0], CLIMB_MOST[1], suns);
+  const turned = Math.max(bright, blend(Math.min(baseGlow(suns), helium), helium, early));
+  const tip = Math.max(turned, helium);
+  const steady = Math.min(tip, blend(restGlow(suns), tip, early));
+  const based = Math.max(steady, acrossFlash(suns, LAST_FROM, quietLast));
+  const ending = Math.max(LAST_GLOW[0] * suns ** LAST_GLOW[1], based);
   const reddest = 1 - (1 - RED_LEAST) * smooth(RED_MASS[0], RED_MASS[1], suns);
   const looping = smooth(LOOP_MASS[0], LOOP_MASS[1], suns);
   const warm =
@@ -383,11 +472,12 @@ export function lifeOf(born: number, age: number): Life {
     LOOP_WARM[2] * smooth(HEAVY_MASS[0], HEAVY_MASS[1], suns) +
     LOOP_WARM[3] * smooth(BLUE_MASS[0], BLUE_MASS[1], suns);
   const bared = smooth(BARED_MASS[0], BARED_MASS[1], suns);
+  const [light, lightPower, heavy, heavyPower, low, part, high] = GIANT_RADIUS;
+  const scale = Math.min(light * suns ** -lightPower, heavy * suns ** -heavyPower);
   const girths = (glow: number) => {
     const hot = dwarf * Math.sqrt(glow / bright);
-    const [scale, lean, low, part, high] = GIANT_RADIUS;
     const coolest = (SUN_HEAT / (GIANT_HEAT[0] * suns ** GIANT_HEAT[1])) ** 2 * Math.sqrt(glow);
-    const cool = Math.min(coolest, scale * suns ** -lean * (glow ** low + part * glow ** high));
+    const cool = Math.min(coolest, scale * (glow ** low + part * glow ** high));
     return [hot, Math.max(hot, cool)];
   };
   const wide = (glow: number, red: number) => {
@@ -408,13 +498,13 @@ export function lifeOf(born: number, age: number): Life {
     (share: number) => shape(blend(bright, turned, share), reddest * smooth(0, 1, share)),
     (share: number) => shape(blend(turned, tip, share ** CLIMB_PACE), reddest),
     (share: number) => {
-      const glow = steady * (1 + CORE_GLOW[1] * share);
+      const glow = blend(steady, based, share ** CLUMP_PACE);
       const loop = 1 - looping * (1 - Math.sin(Math.PI * share) ** 2);
       return shape(glow, reddest - (reddest - bluest(glow)) * loop);
     },
     (share: number) => {
       const settled = smooth(0, SETTLING, share);
-      const glow = blend(steady * (1 + CORE_GLOW[1]), ending, share);
+      const glow = blend(based, ending, share);
       const from = reddest - (reddest - bluest(glow)) * (1 - looping);
       return shape(glow, from + (reddest - from) * settled, bared * settled);
     },
@@ -444,7 +534,7 @@ export function coreOf(born: number, age: number): number {
   }
   const whole = relicOf(born);
   const lit = (peak: number) =>
-    Math.min(whole, Math.max(heavy, SUN_MASS * (peak / (CORE_LIGHT * SUN_GLOW)) ** (1 / 6)));
+    Math.min(whole, Math.max(heavy, SUN_MASS * coreByGlow(suns, peak / SUN_GLOW)));
   const stages = starStages(born);
   const [from, to] = [stages[3], stages[4]];
   if (age >= to) {
@@ -496,7 +586,8 @@ export function starTurn(
     return (beat * (1 + Math.sqrt(1 - spin ** 2))) / spin;
   }
   if (ending === "pulsar") {
-    return (PULSAR_DAY[0] + PULSAR_DAY[1] * luck) * Math.sqrt(1 + life.spent / PULSAR_DAY[2]);
+    const newborn = PULSAR_DAY[0] + PULSAR_DAY[1] * luck;
+    return Math.sqrt(newborn ** 2 + 2 * PULSAR_DAY[2] * life.spent);
   }
   return DAY * (EMBER_DAY[0] + EMBER_DAY[1] * luck);
 }

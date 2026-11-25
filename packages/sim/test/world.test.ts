@@ -1557,6 +1557,9 @@ test("a star lives by its mass and leaves what that mass allows", () => {
   assert.equal(classOf(red), "red supergiant");
   assert.ok(red.radius > 400 * SUN_RADIUS && red.radius < 1000 * SUN_RADIUS);
   assert.ok(red.heat > 3300 && red.heat < 3900, `as cool as ${red.heat}`);
+  const lit = (suns: number) =>
+    lifeOf(suns * SUN_MASS, 1.1 * starSpan(suns * SUN_MASS)).peak / SUN_GLOW;
+  assert.ok(Math.abs(lit(5) / 3130 - 1) < 0.02 && Math.abs(lit(10) / 25100 - 1) < 0.02);
   assert.equal(classOf(at(15, 0.0155)), "white supergiant");
   assert.equal(classOf(at(60, 0.0039)), "Wolf-Rayet star");
   const pulsar = at(15, 0.0175);
