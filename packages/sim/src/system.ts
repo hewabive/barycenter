@@ -436,9 +436,11 @@ const SHED_AFTER = 1.001;
 const COMPANION_SHARE = [0.03, 0.06];
 const COMPANION_MOST = 0.08;
 const PLANET_MOST = 0.01;
-const MIGRATED_SHARE = [0.02, 0.05];
+const MIGRATED_SHARE = 0.05;
 const MIGRATED_HEAT = 800;
-const GIANT_SHARE = [0.07, 0.03];
+const GIANT_PEAK = 0.07;
+const GIANT_BEND = 3.6 * ASTRONOMICAL_UNIT;
+const GIANT_POWERS = [-0.86, 1.59];
 const GIANT_SPAN = [1.7, 1.8, 1.5];
 const GIANT_LEAST = EARTH_MASS * 10 ** GIANT_SPAN[0];
 const PLANET_SHARE = 0.85;
@@ -929,13 +931,19 @@ function giantStretch(chance: number): number {
   return Math.min(STIRRED_STRETCH[1], level ** (1 / GIANT_STRETCH[0]));
 }
 
+function giantShare(distance: number, star: Physics): number {
+  if (balanceHeat(star.glow, distance, 0) > MIGRATED_HEAT) {
+    return MIGRATED_SHARE;
+  }
+  const [falling, rising] = GIANT_POWERS;
+  const bent = (distance * Math.sqrt(SUN_GLOW / star.glow)) / GIANT_BEND;
+  return (GIANT_PEAK * bent ** falling * (1 - Math.exp(-(bent ** rising)))) / (1 - Math.exp(-1));
+}
+
 function massAt(distance: number, star: Physics, random: Random): number {
   const place = distance / frostOf(star.glow);
   const pick = random.next();
-  const hot = balanceHeat(star.glow, distance, 0) > MIGRATED_HEAT;
-  const giants =
-    (star.mass / SUN_MASS) *
-    (place < 0.8 ? MIGRATED_SHARE[hot ? 1 : 0] : GIANT_SHARE[place < 3.5 ? 0 : 1]);
+  const giants = (star.mass / SUN_MASS) * giantShare(distance, star);
   const drawn =
     pick < giants
       ? GIANT_SPAN[0] + GIANT_SPAN[1] * random.next() ** GIANT_SPAN[2]

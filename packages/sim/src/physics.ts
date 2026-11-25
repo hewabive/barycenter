@@ -131,11 +131,11 @@ const SPIN_PACE = [0.5, 0.62];
 const SPIN_TURN = 0.67 * GIGAYEAR;
 const SPIN_LATE = 0.8;
 const STAR_TURNING = [0.07, 0.15];
-const COOLING_HEAT = 100;
+const COOLING_HEAT = 107;
 const COOLING_AGE = 4.5 * GIGAYEAR;
 const COOLING_PACE = 0.3;
 const COOLING_LIGHT = 0.25;
-const COOLING_HEAVY = [0.49, 20, 0.83];
+const COOLING_HEAVY = [0.468, 20, 0.83];
 const BURNING_POWER = 8;
 const DUST_HEAT = [1300, 2200];
 const SEEN_WAVES = [0.38e-6, 0.78e-6];
@@ -183,7 +183,8 @@ const BRIGHT_DECK = 0.76;
 const BRIGHT_ICE = 0.55;
 const BRIGHT_ROCK = 0.12;
 const BRIGHT_DUST = 0.25;
-const BRIGHT_GAS = 0.34;
+const BRIGHT_GAS = [0.32, 0.5];
+const BRIGHT_GAS_MASS = [16 * EARTH_MASS, JUPITER_MASS];
 const SUN_HYDROGEN = 0.86;
 const RICH_JUPITER = 2.4;
 const RICH_POWER = -1.11;
@@ -970,8 +971,15 @@ function tracesOf(mass: number): Partial<Record<Gas, number>> {
   return Object.fromEntries(Object.entries(SUN_TRACES).map(([gas, share]) => [gas, share * rich]));
 }
 
+function gasAlbedo(mass: number): number {
+  const [light, heavy] = BRIGHT_GAS_MASS;
+  const [dim, bright] = BRIGHT_GAS;
+  const share = Math.log(mass / light) / Math.log(heavy / light);
+  return dim + (bright - dim) * Math.max(0, Math.min(1, share));
+}
+
 export function envelopeOf(mass: number, glow: number, distance: number, inner: number): Climate {
-  const heat = (balanceHeat(glow, distance, BRIGHT_GAS) ** 4 + inner ** 4) ** 0.25;
+  const heat = (balanceHeat(glow, distance, gasAlbedo(mass)) ** 4 + inner ** 4) ** 0.25;
   const traces = tracesOf(mass);
   const broken: Partial<Record<Gas, number>> = {
     methane: smooth(900, 1300, heat),
