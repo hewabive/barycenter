@@ -396,6 +396,10 @@ const TROJAN_SLOW = 10 * DAY;
 const CHASE_CLEAR = 1.5;
 const DOUBLE_SHARE = 0.08;
 const DOUBLE_MASS = [0.05, 0.45];
+const DOUBLE_ROCK_MOST = 6;
+const DOUBLE_ICE = [-4, 0];
+const DOUBLE_ICE_SHARE = 0.45;
+const ICY_MOONS = 0.8;
 const SETTLED_STARS = [0.3, 1.6];
 const WILD_STARS = [0.08, 2.5];
 const BROWN_STARS = [0.013, 0.074];
@@ -1076,6 +1080,9 @@ function moonsOf(
   if (high <= low && !settledHere) {
     return moons;
   }
+  const icy = host.ice >= ICY_SHARE;
+  const lone = earths > 0.2 ? 0.3 : icy ? ICY_MOONS : 0.05;
+  const doubled = depth > 0 || fluid || settledHere ? 0 : doubleOdds(earths, icy, lone);
   const count =
     depth > 0
       ? random.next() < SUBMOON_SHARE
@@ -1085,7 +1092,7 @@ function moonsOf(
         ? 1 + (random.next() < 0.15 ? 1 : 0)
         : fluid
           ? (earths > 50 ? 2 : 0) + Math.floor(4 * random.next())
-          : random.next() < (earths > 0.2 ? 0.3 : 0.05)
+          : random.next() < lone
             ? 1
             : 0;
   let orbit =
@@ -1106,7 +1113,7 @@ function moonsOf(
           : fluid
             ? decades(random, -5, -3.7)
             : decades(random, -3.2, -1.8);
-    const double = turns.next() < DOUBLE_SHARE && depth === 0 && !fluid && !settledHere;
+    const double = turns.next() < doubled;
     const twin = DOUBLE_MASS[0] + DOUBLE_MASS[1] * turns.next() ** 2;
     const mass = host.mass * (double && index === 0 ? twin : usual);
     const seat = seats.at(-1);
@@ -1138,6 +1145,15 @@ function moonsOf(
     orbit *= between(random, 1.5, 2.3);
   }
   return moons;
+}
+
+function doubleOdds(earths: number, icy: boolean, moons: number): number {
+  if (!icy) {
+    return earths > DOUBLE_ROCK_MOST ? 0 : DOUBLE_SHARE;
+  }
+  const [least, most] = DOUBLE_ICE;
+  const left = Math.min(1, Math.max(0, (most - Math.log10(earths)) / (most - least)));
+  return (DOUBLE_ICE_SHARE * left) / moons;
 }
 
 function trojan(side: number, sway: number, part: number, round: number): Share {

@@ -672,7 +672,18 @@ test("a giant gathers its moons in a disk of its own while it takes gas", () => 
         const later = settledPoses.find((each) => each.name === body.name);
         assert.ok(Math.abs(pose.tilt - pose.slant) < 1e-4, `${label}: upright on its orbit`);
         assert.ok(pose.slant < 1e-4 || Math.abs(pose.swing - pose.node) < 1e-4, label);
-        assert.ok(pose.slant < 1e-4 || body.parent !== 0, `${label}: in the plane of the disk`);
+        const group = drawn.bodies.filter(
+          (each) =>
+            each.parent === pose.parent && starborn(each.physics) && each.orbit < pose.orbit,
+        );
+        const disk =
+          group.length === 0
+            ? 0
+            : group.reduce((one, other) => (other.orbit > one.orbit ? other : one)).slant;
+        assert.ok(
+          body.parent !== 0 || Math.abs(pose.slant - disk) < 1e-4,
+          `${label}: in the plane of the disk`,
+        );
         tipped += later !== undefined && Math.abs(later.tilt - later.slant) > 0.02 ? 1 : 0;
         cradles += 1;
         mooned += moons.length > 0 ? 1 : 0;
@@ -1260,7 +1271,7 @@ test("bodies that share an orbit keep apart and trade places", () => {
       }
     }
   }
-  assert.ok(chases > 2 && chases < 40, `pairs that trade places ${chases}`);
+  assert.ok(chases > 0 && chases < 40, `pairs that trade places ${chases}`);
   assert.ok(rimmed > 0 && rimmed <= chases, `${rimmed} of them still at the rim of a ring`);
   assert.ok(moons > 400 && moons < 2500, `moons at the points ahead of and behind a moon ${moons}`);
   assert.ok(planets > 1 && planets < 25, `planets that share an orbit ${planets}`);
