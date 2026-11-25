@@ -27,7 +27,14 @@ Barycenter is developed solo by AI agents that work with high autonomy. These ru
 
 - English only, and compact.
 - No pseudocode in documents.
-- `docs/design.md` is the source of truth for game rules and `docs/architecture.md` for technical decisions. Update them in the same commit as the change they describe.
+- Each document is the source of truth for its part. Update it in the same commit as the change it describes.
+  - `docs/design.md`: the rules of the game.
+  - `docs/architecture.md`: decisions shared by all packages, the protocol, the server, the flight and the stability runner.
+  - `docs/client.md`: the browser client.
+  - `docs/nature.md`: the model of nature behind the generator of star systems.
+  - `docs/sources.md`: the published works the documents rest on.
+- When a rule in `docs/nature.md` is added or changed, each of its numbers says where it comes from: a published work, a check against named known bodies, or a choice made for play. A number whose origin has not been checked is called unchecked. It is never given a likely source.
+- Cite a work in the text by its authors and year, with "and others" for more than two. Add it to `docs/sources.md` in the same commit: authors, year, title, where it was published, what is taken from it and where.
 - Do not add other documents unless the user asks.
 
 ## Verification

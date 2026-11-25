@@ -16,6 +16,9 @@ Status: the second stage is playable, with roads, garrisons and aimed attacks ad
 
 - [Game design](docs/design.md)
 - [Architecture](docs/architecture.md)
+- [Client](docs/client.md)
+- [Nature](docs/nature.md)
+- [Sources](docs/sources.md)
 - [Rules for agents](AGENTS.md)
 
 ## Development
