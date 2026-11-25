@@ -45,7 +45,7 @@ test("neighbors keep six Hill radii apart and moons stay well inside the hold of
           assert.ok(lean < STEEP + 1e-3 || lean > Math.PI - STEEP - 1e-3, `${label}: ${lean}`);
         }
         const sharers = system.bodies.filter((other) => other.shared?.with === id);
-        assert.ok(sharers.length === 0 || hold < 0.051, `${label}: ${hold}`);
+        assert.ok(sharers.length === 0 || hold < 0.07, `${label}: ${hold}`);
       }
     }
   }

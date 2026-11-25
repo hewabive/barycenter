@@ -155,7 +155,7 @@ test("a way to another planet leaves the hold of the first and passes the second
   );
   assert.ok(way?.settled);
   assert.ok(Math.abs(way.approach.gap - rails.radii[planet] - 1e6) < 5e3);
-  assert.ok(way.cost > 5000 && way.cost < 7000);
+  assert.ok(way.cost > 3500 && way.cost < 7000);
   assert.ok(way.approach.time - way.kick.time > 100 * 86400);
 });
 

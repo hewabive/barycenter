@@ -336,8 +336,10 @@ const TURN_SALT = 0x165667b1;
 const STIRRED_SHARE = 0.06;
 const STIRRED_STRETCH = [0.2, 0.6];
 const CALM_STRETCH = 0.15;
-const SCATTERED_SHARE = 0.2;
-const SCATTERED_KEPT = 0.4;
+const GIANT_STRETCH = [0.867, 3.03];
+const STRETCH_STEPS = 256;
+const SCATTERED_SHARE = 0.75;
+const SCATTERED_KEPT = 0.5;
 const SCATTERED_STIRRED = 0.6;
 const HOME_STRETCH = 0.03;
 const ROOM_SHARE = 0.8;
@@ -422,9 +424,11 @@ const SHED_AFTER = 1.001;
 const COMPANION_SHARE = [0.03, 0.06];
 const COMPANION_MOST = 0.08;
 const PLANET_MOST = 0.01;
-const MIGRATED_SHARE = [0.04, 0.2];
+const MIGRATED_SHARE = [0.02, 0.05];
 const MIGRATED_HEAT = 800;
+const GIANT_SHARE = [0.07, 0.03];
 const GIANT_SPAN = [1.7, 1.8, 1.5];
+const GIANT_LEAST = EARTH_MASS * 10 ** GIANT_SPAN[0];
 const PLANET_SHARE = 0.85;
 const PARCH_HEAT = 400;
 const ICE_HEAT = 160;
@@ -892,28 +896,46 @@ function settled(star: Physics, orbit: number, stretch: number, random: Random):
   };
 }
 
+const stretchSums = (() => {
+  const [early, late] = GIANT_STRETCH;
+  const sums = [0];
+  for (let step = 0; step < STRETCH_STEPS; step++) {
+    const level = (step + 0.5) / STRETCH_STEPS;
+    sums.push(sums[step] + (1 - level ** (1 / early)) ** (late - 1));
+  }
+  return sums.map((sum) => sum / sums[STRETCH_STEPS]);
+})();
+
+function giantStretch(chance: number): number {
+  const step = Math.max(
+    1,
+    stretchSums.findIndex((sum) => sum >= chance),
+  );
+  const low = stretchSums[step - 1];
+  const level = (step - 1 + (chance - low) / (stretchSums[step] - low)) / STRETCH_STEPS;
+  return Math.min(STIRRED_STRETCH[1], level ** (1 / GIANT_STRETCH[0]));
+}
+
 function massAt(distance: number, star: Physics, random: Random): number {
   const place = distance / frostOf(star.glow);
   const pick = random.next();
-  const giant = () => GIANT_SPAN[0] + GIANT_SPAN[1] * random.next() ** GIANT_SPAN[2];
-  const migrated = MIGRATED_SHARE[balanceHeat(star.glow, distance, 0) > MIGRATED_HEAT ? 1 : 0];
+  const hot = balanceHeat(star.glow, distance, 0) > MIGRATED_HEAT;
+  const giants =
+    (star.mass / SUN_MASS) *
+    (place < 0.8 ? MIGRATED_SHARE[hot ? 1 : 0] : GIANT_SHARE[place < 3.5 ? 0 : 1]);
   const drawn =
-    place < 0.8
-      ? pick < migrated
-        ? giant()
-        : pick < migrated + 0.14
+    pick < giants
+      ? GIANT_SPAN[0] + GIANT_SPAN[1] * random.next() ** GIANT_SPAN[2]
+      : place < 0.8
+        ? pick < giants + 0.14
           ? between(random, 0.5, 1)
           : between(random, -1.4, 0.45)
-      : place < 3.5
-        ? pick < 0.55
-          ? giant()
-          : pick < 0.8
+        : place < 3.5
+          ? pick < giants + 0.25
             ? between(random, 0.9, 1.5)
             : between(random, -1.5, 0.3)
-        : pick < 0.45
-          ? between(random, 0.9, 1.5)
-          : pick < 0.6
-            ? between(random, 1.6, 2.3)
+          : pick < giants + 0.45
+            ? between(random, 0.9, 1.5)
             : between(random, -3, -0.7);
   const share = PLANET_MOST * Math.sqrt(star.mass / SUN_MASS);
   const most = Math.log10((share * star.mass) / EARTH_MASS);
@@ -1796,8 +1818,6 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
   }
   const homeLevel = Math.max(0, spans(root, open).findIndex(settles));
 
-  const scattered = turns.next() < SCATTERED_SHARE && !plan.settled;
-  const kept = scattered ? SCATTERED_KEPT : PLANET_SHARE;
   const drafts: Draft[] = [];
   const youth = createRandom(world ^ YOUTH_SALT);
   const airy = YEAR * amid(GAS_YEARS[0], GAS_YEARS[1], youth.next());
@@ -2169,7 +2189,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       return { belts, row };
     }
     const empty = (orbit: number) => {
-      if (scattered || orbit * BELT_REACH > zone.outer) {
+      if (orbit * BELT_REACH > zone.outer) {
         return;
       }
       rungs.push(orbit);
@@ -2189,7 +2209,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
         if (inward < nearest) {
           break;
         }
-        if (random.next() < kept) {
+        if (random.next() < PLANET_SHARE) {
           orbits.unshift(inward);
         } else {
           empty(inward);
@@ -2208,7 +2228,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       if (outward > farthest) {
         break;
       }
-      if (random.next() < kept) {
+      if (random.next() < PLANET_SHARE) {
         orbits.push(outward);
       } else {
         empty(outward);
@@ -2228,6 +2248,43 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       orbits.push(brown.orbit);
     } else if (zone.last && outward * 1.6 < 1.5 * OUTER_EDGE * lit) {
       empty(outward * between(random, 1.4, 1.8));
+    }
+    const massOf = (rung: number) =>
+      rung === homeOrbit ? 0 : rung === brown?.orbit ? brown.mass : massAt(rung, star, random);
+    const formed = orbits.map((rung) => (plan.settled ? null : massOf(rung)));
+    const planets = formed.map((mass, at) => (orbits[at] === brown?.orbit ? 0 : (mass ?? 0)));
+    const top = planets.indexOf(Math.max(...planets));
+    const scattered =
+      !plan.settled && planets[top] >= GIANT_LEAST && turns.next() < SCATTERED_SHARE;
+    const roomOf = (rung: number, inside: number, outside: number) =>
+      ROOM_SHARE *
+      Math.min(
+        (rung - inside) / (rung + inside),
+        outside > 1e300 ? 1 : (outside - rung) / (outside + rung),
+      );
+    const flung = scattered
+      ? Math.min(giantStretch(turns.next()), roomOf(orbits[top], zone.floor, zone.outer))
+      : 0;
+    const stay = orbits.flatMap((rung, at) =>
+      !scattered || at === top || rung === brown?.orbit || random.next() < SCATTERED_KEPT
+        ? [at]
+        : [],
+    );
+    const masses = stay.map((at) => formed[at]);
+    orbits.splice(0, orbits.length, ...stay.map((at) => orbits[at]));
+    const survivor = scattered ? stay.indexOf(top) : -1;
+    const cleared =
+      survivor < 0
+        ? null
+        : {
+            orbit: orbits[survivor],
+            near: orbits[survivor] * (1 - flung),
+            mass: planets[top],
+          };
+    if (scattered) {
+      rungs.length = 0;
+      belts.length = 0;
+      beltRungs.length = 0;
     }
     rungs.push(...orbits);
     rungs.sort((left, right) => left - right);
@@ -2286,28 +2343,34 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
         most = Math.min(most, (near - wedgeOf(APART, mass, HOME_MOST) * reach) / orbit - 1);
         eased = Math.min(eased, (near - wedgeOf(roomy, mass, HOME_MOST) * reach) / orbit - 1);
       }
+      if (cleared !== null && rung < cleared.orbit) {
+        const reach = orbit + cleared.orbit;
+        const wedge = wedgeOf(APART, mass, cleared.mass);
+        if (orbit + wedge * reach > cleared.near) {
+          return null;
+        }
+        most = Math.min(most, (cleared.near - wedge * reach) / orbit - 1);
+        eased = Math.min(
+          eased,
+          (cleared.near - wedgeOf(roomy, mass, cleared.mass) * reach) / orbit - 1,
+        );
+      }
       return mass >= PLANET_LEAST ? { orbit, mass, most, eased } : null;
     };
-    for (const rung of orbits) {
+    for (const [index, rung] of orbits.entries()) {
       const settledHere = rung === homeOrbit;
       const at = rungs.indexOf(rung);
-      const inside = rungs[at - 1] ?? zone.floor;
-      const outside = rungs[at + 1] ?? zone.outer;
-      const room =
-        ROOM_SHARE *
-        Math.min(
-          (rung - inside) / (rung + inside),
-          outside > 1e300 ? 1 : (outside - rung) / (outside + rung),
-        );
+      const lone = index === survivor;
+      const room = roomOf(
+        rung,
+        (lone ? null : rungs[at - 1]) ?? zone.floor,
+        (lone ? null : rungs[at + 1]) ?? zone.outer,
+      );
       const stirred = turns.next() < (scattered ? SCATTERED_STIRRED : STIRRED_SHARE);
       const oval = turns.next();
       const tilted = turns.next() < TILTED_SHARE;
       const leaning = turns.next();
-      const drawn = settledHere
-        ? 0
-        : rung === brown?.orbit
-          ? brown.mass
-          : massAt(rung, star, random);
+      const drawn = masses[index] ?? massOf(rung);
       const inward = homeOrbit !== null && rung < homeOrbit;
       const roomy = ROOMY[0] + (ROOMY[1] - ROOMY[0]) * leaning;
       const fit = settledHere
@@ -2323,9 +2386,13 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       }
       const heavy = mass >= TIED_HEAVY[0] ? TIED_HEAVY[1] : 1;
       const tied = !settledHere && orbit < tiedWithin * heavy;
-      const wide = stirred
-        ? STIRRED_STRETCH[0] + (STIRRED_STRETCH[1] - STIRRED_STRETCH[0]) * oval
-        : CALM_STRETCH * oval ** 2.5;
+      const wide = lone
+        ? flung
+        : mass >= GIANT_LEAST && rung !== brown?.orbit
+          ? giantStretch(oval)
+          : stirred
+            ? STIRRED_STRETCH[0] + (STIRRED_STRETCH[1] - STIRRED_STRETCH[0]) * oval
+            : CALM_STRETCH * oval ** 2.5;
       const eased = (wished: number) =>
         wished <= fit.most ? wished : Math.max(0, Math.min(wished, fit.eased));
       const wished = Math.max(0, Math.min(room, wide));

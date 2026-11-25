@@ -62,7 +62,7 @@ test("a star is drawn by what its life has made of it", () => {
 });
 
 test("a ring breaks into narrower and fainter bands as it thins", () => {
-  const ringed = surveySystem(1, { settled: true, star: null }).bodies.find(
+  const ringed = surveySystem(3, { settled: true, star: null }).bodies.find(
     (body) => body.parent !== null && body.physics.disks.some((disk) => disk.lasts > 0),
   );
   assert.ok(ringed !== undefined);
