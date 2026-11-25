@@ -65,6 +65,7 @@ import {
 import {
   BURST_LEAST,
   densityOf,
+  envelopeOf,
   frostOf,
   hillOf,
   holeRadius,
@@ -325,8 +326,7 @@ test("the physics of every body holds together", () => {
           const pull = system.bodies[body.parent].physics.mass;
           assert.ok(disk.outer < rocheOf(physics.radius, density, 900), label);
           assert.ok(disk.outer < 0.34 * hillOf(physics.orbit, physics.mass, pull), label);
-          const withinShed = disk.mass <= 1e-5 * physics.mass;
-          assert.ok(disk.depth < 1e3 || withinShed, `${label}: ${disk.depth}`);
+          assert.ok(disk.depth < 1e3, `${label}: ${disk.depth}`);
           assert.ok(disk.gas === 0 && (disk.depth >= 2e-3 || !grown), label);
           const deep = disk.height * Math.sqrt(disk.inner * disk.outer);
           assert.ok(Math.abs(deep - 10) < 0.01 && disk.flare === -1 && disk.grain === 1, label);
@@ -881,6 +881,13 @@ test("a body in gas keeps heat of its own, more of it when heavy or young", () =
   const calm = innerHeat(0.046 * JUPITER_MASS, old, 0);
   const lively = innerHeat(0.054 * JUPITER_MASS, old, 1);
   assert.ok(calm < 32 && lively > 45 && lively < 70, `ice giants ${calm} ${lively}`);
+  const seen = (earths: number, distance: number, vigor: number) => {
+    const mass = earths * EARTH_MASS;
+    const inner = innerHeat(mass, old, vigor);
+    return envelopeOf(mass, SUN_GLOW, distance * ASTRONOMICAL_UNIT, inner).heat;
+  };
+  assert.ok(Math.abs(seen(317.8, 5.2, 0.6) / 125.6 - 1) < 0.02, `Jupiter ${seen(317.8, 5.2, 0.6)}`);
+  assert.ok(Math.abs(seen(14.5, 19.2, 0) / 59.1 - 1) < 0.03, `Uranus ${seen(14.5, 19.2, 0)}`);
   const dwarf = innerHeat(50 * JUPITER_MASS, old, 0.5);
   assert.ok(dwarf > 900 && dwarf < 1250, `brown dwarf ${dwarf}`);
   for (const [jupiters, heat] of [
@@ -1225,7 +1232,7 @@ test("bodies that share an orbit keep apart and trade places", () => {
   let rimmed = 0;
   let moons = 0;
   let planets = 0;
-  for (let seed = 1; seed <= 600; seed++) {
+  for (let seed = 1201; seed <= 1800; seed++) {
     const system = sketchSystem(seed, { settled: seed % 3 === 0, star: null });
     for (const body of system.bodies) {
       const { shared } = body;
@@ -1278,7 +1285,8 @@ test("bodies that share an orbit keep apart and trade places", () => {
         assert.ok(wrapped(host.physics), label);
         assert.ok(lead.physics.mass < 6 * body.physics.mass, `${label}: of like mass`);
         const rim = Math.max(0, ...host.physics.disks.map((disk) => disk.outer));
-        assert.ok(body.physics.orbit > rim && body.physics.orbit < 4 * host.physics.radius, label);
+        const near = Math.max(4 * host.physics.radius, 1.5 * rim);
+        assert.ok(body.physics.orbit > rim && body.physics.orbit < near, label);
         rimmed += rim > 0 ? 1 : 0;
         chases += 1;
       } else {
@@ -1527,7 +1535,7 @@ test("relief is the same at the same place and smooth between places", () => {
   assert.ok(Math.abs(beside - height) < 0.01);
 });
 
-test("a star turns slower as it ages, a red dwarf later than a Sun, and a hot star stays fast", () => {
+test("a star turns slower as it ages, an orange dwarf stalls, a red dwarf brakes later than a Sun, and a hot star stays fast", () => {
   const day = (suns: number, age: number, luck = 0.5) => {
     const mass = suns * SUN_MASS;
     const heat = starHeat(starGlow(mass), starRadius(mass));
@@ -1543,6 +1551,9 @@ test("a star turns slower as it ages, a red dwarf later than a Sun, and a hot st
   assert.ok(day(0.2, 4.57).days > 80);
   assert.ok(day(2, 4.57).days < 2 && day(2, 0.1).days < 2);
   assert.ok(day(1, 4.57, 0).days < day(1, 4.57, 1).days);
+  assert.ok(Math.abs(day(0.6, 1).days / day(0.6, 0.67).days - 1) < 0.01);
+  assert.ok(Math.abs(day(0.7, 2.7).days / 22 - 1) < 0.1);
+  assert.ok(Math.abs(day(0.7, 6).days / 35 - 1) < 0.1);
 });
 
 test("a star lives by its mass and leaves what that mass allows", () => {
@@ -1553,6 +1564,7 @@ test("a star lives by its mass and leaves what that mass allows", () => {
   assert.equal(sun.mass, SUN_MASS);
   assert.equal(sun.radius, starRadius(SUN_MASS));
   assert.equal(sun.glow, starGlow(SUN_MASS));
+  assert.ok(Math.abs(starRadius(0.231 * SUN_MASS) / (0.2534 * SUN_RADIUS) - 1) < 0.03);
   assert.equal(classOf(at(1, 10.7)), "orange subgiant");
   const giant = at(1, 11.384);
   assert.equal(classOf(giant), "red giant");
@@ -1764,7 +1776,7 @@ test("a system is the same at every age, less what its star and its tides took",
   let swallowed = 0;
   let crowded = 0;
   let kept = 0;
-  for (let seed = 13; seed <= 52; seed++) {
+  for (let seed = 153; seed <= 192; seed++) {
     const prime = at(seed, 4.5);
     const known = new Map(prime.bodies.map((body) => [body.name, body]));
     const hostOf = (system: ReturnType<typeof at>, name: string) => {

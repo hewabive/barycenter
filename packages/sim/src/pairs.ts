@@ -31,6 +31,7 @@ const LOOSE = [0.25, 1];
 const MERGED_SHED = 0.03;
 const COLLAPSE = 1.38 * SUN_MASS;
 const COLLAPSED = 1.25 * SUN_MASS;
+const PULSAR_MOST = 2.17 * SUN_MASS;
 const ROUNDING = [0.4, 0.9];
 const DETACHED = 0.5;
 const SQUEEZED = 0.5;
@@ -723,15 +724,20 @@ export function pairOf(
         tests.push((age) => age - met);
         acts.push((age) => {
           const sum = heavy.mass + light.mass;
-          const hole = heavy.ending === "hole" || light.ending === "hole";
-          const fallen = !hole && sum >= COLLAPSE;
+          const pulsars = [heavy, light].filter((phase) => phase.ending === "pulsar");
+          const dense = pulsars.reduce((whole, phase) => whole + phase.mass, 0);
+          const hole = heavy.ending === "hole" || light.ending === "hole" || dense > PULSAR_MOST;
+          const fallen = !hole && dense === 0 && sum >= COLLAPSE;
           const helium = pair.every((actor) => actor?.left?.helium ?? false);
           const told = { since: age, helium: false };
+          const born = pair.find((actor) => actor?.left?.ending === "pulsar")?.left?.since ?? age;
           const left: Left = hole
             ? { ending: "hole", mass: sum, burst: false, ...told }
-            : fallen
-              ? { ending: "pulsar", mass: COLLAPSED, burst: true, ...told }
-              : { ending: helium ? "core" : "dwarf", mass: sum, burst: false, ...told };
+            : dense > 0
+              ? { ending: "pulsar", mass: dense, burst: false, since: born, helium: false }
+              : fallen
+                ? { ending: "pulsar", mass: COLLAPSED, burst: true, ...told }
+                : { ending: helium ? "core" : "dwarf", mass: sum, burst: false, ...told };
           const clock = helium ? kindled(sum, age) : actors[0].clock;
           actors[0] = { ...actors[0], clock, extra: 0, left };
           actors[1] = null;

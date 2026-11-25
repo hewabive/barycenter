@@ -12,7 +12,15 @@ import {
   stirredHeight,
   wearOf,
 } from "./disks.ts";
-import { type Drift, type Sinker, sinkerOf, type Track, trackOf } from "./infall.ts";
+import {
+  type Drift,
+  type Mark,
+  type Sinker,
+  type Sun,
+  sinkerOf,
+  type Track,
+  trackOf,
+} from "./infall.ts";
 import { lobeOf, loneOf, type Pairing, type Phase, pairOf, type Turn } from "./pairs.ts";
 import {
   ASTRONOMICAL_UNIT,
@@ -169,6 +177,7 @@ interface Draft {
   fell: number | null;
   loose: ((age: number) => void) | null;
   freed: { from: number; at: number } | null;
+  aboard: ((time: number) => boolean) | null;
 }
 
 interface Sinking {
@@ -436,9 +445,11 @@ const SHED_AFTER = 1.001;
 const COMPANION_SHARE = [0.03, 0.06];
 const COMPANION_MOST = 0.08;
 const PLANET_MOST = 0.01;
-const MIGRATED_SHARE = [0.02, 0.05];
+const MIGRATED_SHARE = 0.05;
 const MIGRATED_HEAT = 800;
-const GIANT_SHARE = [0.07, 0.03];
+const GIANT_PEAK = 0.07;
+const GIANT_BEND = 3.6 * ASTRONOMICAL_UNIT;
+const GIANT_POWERS = [-0.86, 1.59];
 const GIANT_SPAN = [1.7, 1.8, 1.5];
 const GIANT_LEAST = EARTH_MASS * 10 ** GIANT_SPAN[0];
 const PLANET_SHARE = 0.85;
@@ -468,7 +479,7 @@ const ICE_WARM = 0.05;
 const MOON_LARGE = 3;
 const MOON_FROM = 0.6;
 const MOON_CLEAR = 1.45;
-const MOON_HOLD = 0.49;
+const MOON_HOLD = 0.4;
 const BORN_SHARE = 0.05;
 const YOUTH_SALT = 0x3c6ef35f;
 const GAS_YEARS = [2e6, 6e6, 0.5];
@@ -635,10 +646,12 @@ function ringOf(
   }
   const ice = bare < ICE_HEAT ? between(random, 0.6, 1) : between(random, 0, 0.1);
   const grain = ROCK_GRAIN - (ROCK_GRAIN - ICE_GRAIN) * ice;
-  const limit = Math.min(0.95 * rocheOf(radius, densityOf(mass, radius), grain), hold);
+  const density = densityOf(mass, radius);
+  const limit = Math.min(0.95 * rocheOf(radius, density, grain), hold);
   const dense = fluid && random.next() < 0.4;
   const inner = radius * between(random, 1.15, 1.5);
-  const outer = Math.min(limit, radius * between(random, 1.8, 2.4));
+  const gathers = tornAt(radius, density, grain);
+  const outer = Math.min(limit, Math.max(gathers, radius * between(random, 1.8, 2.4)));
   if (outer < inner * 1.15) {
     return [];
   }
@@ -929,13 +942,19 @@ function giantStretch(chance: number): number {
   return Math.min(STIRRED_STRETCH[1], level ** (1 / GIANT_STRETCH[0]));
 }
 
+function giantShare(distance: number, star: Physics): number {
+  if (balanceHeat(star.glow, distance, 0) > MIGRATED_HEAT) {
+    return MIGRATED_SHARE;
+  }
+  const [falling, rising] = GIANT_POWERS;
+  const bent = (distance * Math.sqrt(SUN_GLOW / star.glow)) / GIANT_BEND;
+  return (GIANT_PEAK * bent ** falling * (1 - Math.exp(-(bent ** rising)))) / (1 - Math.exp(-1));
+}
+
 function massAt(distance: number, star: Physics, random: Random): number {
   const place = distance / frostOf(star.glow);
   const pick = random.next();
-  const hot = balanceHeat(star.glow, distance, 0) > MIGRATED_HEAT;
-  const giants =
-    (star.mass / SUN_MASS) *
-    (place < 0.8 ? MIGRATED_SHARE[hot ? 1 : 0] : GIANT_SHARE[place < 3.5 ? 0 : 1]);
+  const giants = (star.mass / SUN_MASS) * giantShare(distance, star);
   const drawn =
     pick < giants
       ? GIANT_SPAN[0] + GIANT_SPAN[1] * random.next() ** GIANT_SPAN[2]
@@ -2008,7 +2027,6 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       fluid: wrapped(host),
     };
     const dense = densityOf(host.mass, host.radius);
-    const sync = syncOf(host.mass, spin);
     const courses = riders.map((moon) => {
       const { mass, radius, orbit, stretch } = moon.physics;
       const reach = {
@@ -2021,8 +2039,8 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       };
       const born = { mass, orbit };
       const led = moon === lead;
-      const stood =
-        orbit > sync && tied > prime ? tideOf(turner, born, reach, 0, tied, prime, false) : null;
+      const outward = orbit > syncOf(host.mass + mass, spin) && tied > prime;
+      const stood = outward ? tideOf(turner, born, reach, 0, tied, prime, false) : null;
       const kept = stood === null ? born : { mass, orbit: stood.orbit };
       const set = stood === null ? 0 : prime;
       return {
@@ -2060,16 +2078,18 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       },
     };
   };
-  const touching = (host: Draft, reach: number, body: Physics): boolean => {
-    const stand = host.setting;
-    if (stand === null || host.sinking === null) {
-      return false;
-    }
-    const sun = stand.star;
-    const grain = densityOf(body.mass, body.radius);
-    const torn = tornAt(sun.radius, densityOf(sun.mass, sun.radius), grain);
-    return host.physics.orbit * (1 - host.physics.stretch) - reach <= torn;
-  };
+  const plunging =
+    (born: number, body: Physics, far: (time: number) => number, widest: number) =>
+    (mark: Mark, star: () => Sun): boolean => {
+      const { mass, radius } = star();
+      const near = ((mark.orbit * born) / mass) * (1 - mark.stretch);
+      const torn = tornAt(radius, densityOf(mass, radius), densityOf(body.mass, body.radius));
+      if (near - widest > torn) {
+        return false;
+      }
+      const reach = far(mark.time);
+      return reach > 0 && near - reach <= torn;
+    };
   const adopt = (moon: Kin, parent: number, sway: Sway) => {
     const own = drafts.length;
     const { apart, lot, site } = moon;
@@ -2140,6 +2160,10 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       fell: null,
       loose: null,
       freed: null,
+      aboard: (time) => {
+        const freed = lead === undefined ? null : drafts[lead].freed;
+        return time >= sprung && (freed === null || freed.at > time) && !left(course(time));
+      },
     };
     draft.aged = (age) => {
       const host = drafts[parent];
@@ -2150,11 +2174,6 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       const near = orbit * (1 - site.stretch);
       if (lead !== undefined && drafts[lead].freed !== null) {
         draft.gone = true;
-        return;
-      }
-      if (touching(host, orbit * (1 + site.stretch), physics)) {
-        draft.gone = true;
-        draft.fell = age;
         return;
       }
       const sun = host.parent === null ? null : drafts[host.parent].physics;
@@ -2222,7 +2241,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
     course: (age: number) => Fate | undefined,
   ) => {
     const sun = zone.sun;
-    if (sun === null || moon.shared !== null) {
+    if (sun === null || moon.shared?.lead.apart === true) {
       return;
     }
     const { orbit: born, stretch: oval } = moon.site;
@@ -2236,18 +2255,40 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       }
       return fate.fell || fate.lost ? 0 : fate.orbit * (1 + oval);
     };
+    const widestAt = (age: number) => Math.max(born, course(age)?.orbit ?? born) * (1 + oval);
+    if (moon.shared !== null) {
+      draft.loose = (age) => {
+        if (draft.gone) {
+          return;
+        }
+        const widest = widestAt(age);
+        const mark = sinking.sinker.first(age, ({ orbit, stretch, time }) => {
+          const hold = SHARE_REST * share * orbit * (1 - stretch);
+          return hold < widest && hold < farAt(time);
+        });
+        const fell = drafts[host].fell;
+        draft.gone = mark !== null && (fell === null || mark.time < fell);
+      };
+      return;
+    }
     draft.loose = (age) => {
-      if (draft.freed !== null) {
+      if (draft.freed !== null || draft.gone) {
         return;
       }
-      const widest = Math.max(born, course(age)?.orbit ?? born) * (1 + oval);
-      const torn = (orbit: number, stretch: number, time: number) => {
+      const widest = widestAt(age);
+      const torn = ({ orbit, stretch, time }: Mark) => {
         const hold = MOON_HOLD * share * orbit * (1 - stretch);
         return hold < widest && hold < farAt(time);
       };
-      const mark = sinking.sinker.first(age, torn);
+      const plunges = plunging(trackFor(sun).born, moon.physics, farAt, widest);
+      const mark = sinking.sinker.first(age, (point, star) => torn(point) || plunges(point, star));
       const fell = drafts[host].fell;
       if (mark === null || (fell !== null && fell <= mark.time)) {
+        return;
+      }
+      if (!torn(mark)) {
+        draft.gone = true;
+        draft.fell = mark.time;
         return;
       }
       const own = sinkerOf(trackFor(sun), pulled, mark.orbit, mark.stretch, mark.time);
@@ -2574,6 +2615,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
         fell: null,
         loose: null,
         freed: null,
+        aboard: null,
       };
       const turned: {
         by: ((age: number) => Tide | undefined) | null;
@@ -2743,7 +2785,8 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
         adopt(moon, id, sway);
         const at = adopted.get(moon);
         if (sinking !== null && at !== undefined) {
-          loosen(drafts[at], moon, id, zone, sinking, (time) => sway.at(time).get(moon));
+          const led = moon.shared?.lead ?? moon;
+          loosen(drafts[at], moon, id, zone, sinking, (time) => sway.at(time).get(led));
         }
       }
       const large = moons.some(
@@ -2872,17 +2915,29 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
           fell: null,
           loose: null,
           freed: null,
+          aboard: (time) => parked(cycles(time).moon) !== null,
         };
+        const sun = zone.sun;
+        if (sinking !== null && sun !== null) {
+          sprig.loose = (age) => {
+            const { fell } = drafts[id];
+            if (sprig.gone || (fell === null && !drifted(sinking.sinker.at(age), sinking))) {
+              return;
+            }
+            const reach = parked(cycles(Math.min(age, fell ?? age)).moon)?.orbit ?? 0;
+            const plunges = plunging(trackFor(sun).born, sprig.physics, () => reach, reach);
+            const dive = reach > 0 ? sinking.sinker.first(age, plunges) : null;
+            if (dive !== null && (fell === null || dive.time < fell) && sprig.aboard?.(dive.time)) {
+              sprig.gone = true;
+              sprig.fell = dive.time;
+            }
+          };
+        }
         sprig.aged = (age) => {
           const host = drafts[id];
           const stand = host.setting;
           const moon = parked(cycles(age).moon);
           const early = smooth(MOON_FROM, 1, host.share) < 1;
-          if (moon !== null && touching(host, moon.orbit, sprig.physics)) {
-            sprig.gone = true;
-            sprig.fell = age;
-            return;
-          }
           if (stand === null || early || moon === null) {
             sprig.absent = true;
             return;
@@ -2990,7 +3045,15 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
     };
     const there = { gone: false, absent: false, share: 1, held: null, upright: 0, sprout: null };
     const stood = { setting: null };
-    const made = { aged: null, strew: null, sinking: null, fell: null, loose: null, freed: null };
+    const made = {
+      aged: null,
+      strew: null,
+      sinking: null,
+      fell: null,
+      loose: null,
+      freed: null,
+      aboard: null,
+    };
     drafts.push({ physics, parent, tilt, slant, ...alone, ...there, ...stood, ...made });
     const post: Post = { id, zones: [], belts: [], rows: [] };
     posts.set(star, post);
@@ -3073,10 +3136,20 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       draft.physics = { ...physics, day };
     }
   };
+  const follow = (draft: Draft): void => {
+    const host = [draft.parent, draft.shared?.with ?? null].find(
+      (id) => id !== null && drafts[id].gone,
+    );
+    if (draft.gone || host === undefined || host === null) {
+      return;
+    }
+    const fall = drafts[host].fell;
+    draft.gone = true;
+    draft.fell = fall !== null && draft.aboard?.(fall) === true ? fall : null;
+  };
   if (plan.settled) {
-    const left = (id: number | null) => id !== null && drafts[id].gone;
     for (const draft of drafts) {
-      draft.gone ||= left(draft.parent) || left(draft.shared?.with ?? null);
+      follow(draft);
     }
     quicken(prime);
   }
@@ -3337,7 +3410,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
     for (const draft of drafts) {
       draft.loose?.(moment);
       if (left(draft.parent) || left(draft.shared?.with ?? null)) {
-        draft.gone = true;
+        follow(draft);
       } else if (away(draft.parent) || away(draft.shared?.with ?? null)) {
         draft.absent = true;
       } else if (!draft.gone && !draft.absent) {
@@ -3345,7 +3418,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       }
     }
     for (const draft of drafts) {
-      draft.gone ||= left(draft.parent) || left(draft.shared?.with ?? null);
+      follow(draft);
     }
     quicken(moment);
     for (const post of posts.values()) {
@@ -3542,15 +3615,8 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       bodies[seats[at]] = { ...bodies[seats[at]], name: called };
     }
   }
-  const fellOf = (at: number): number | null => {
-    const { fell, gone, parent, freed } = drafts[at];
-    if (fell !== null || !gone || parent === null || freed !== null) {
-      return gone ? fell : null;
-    }
-    return starborn(drafts[parent].physics) ? null : fellOf(parent);
-  };
   for (const [at, draft] of drafts.entries()) {
-    const fell = fellOf(at);
+    const fell = draft.gone ? draft.fell : null;
     let sun = draft.parent;
     while (sun !== null && !starborn(drafts[sun].physics)) {
       sun = drafts[sun].parent;

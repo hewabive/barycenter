@@ -23,6 +23,7 @@ const WEDGE_MOST = 0.9;
 export const GATHERED = 0.2;
 const TURNS_MOST = 16;
 const SYNC_SHY = 0.9;
+const HELD_CLEAR = 1.05;
 
 export const MOONS_APART = 5;
 
@@ -265,9 +266,10 @@ export function cycleOf(
       break;
     }
     const born = at + spread;
+    const edge = Math.max(rim.edge, HELD_CLEAR * reach.torn);
     const even = born >= tied ? never : syncOf(host.mass, host.day);
-    const orbit = even > rim.edge ? Math.min(IN_STEP * rim.edge, SYNC_SHY * even) : rim.edge;
-    const moon = { mass: GATHERED * mass, orbit: Math.max(orbit, rim.edge) };
+    const orbit = even > edge ? Math.min(IN_STEP * edge, SYNC_SHY * even) : edge;
+    const moon = { mass: GATHERED * mass, orbit: Math.max(orbit, edge) };
     if (born > age || moon.orbit > rim.far) {
       break;
     }
