@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { BROWN_LEAST, jacobiOf, standingsOf, starborn, surveySystem, trial } from "../src/index.ts";
 
-const STEEP = 0.68;
+const LEAN = [0.96, 2.269];
 
 test("neighbors keep six Hill radii apart and moons stay well inside the hold of their host", () => {
   let planets = 0;
@@ -36,13 +36,13 @@ test("neighbors keep six Hill radii apart and moons stay well inside the hold of
         moons += 1;
         const fed = system.bodies[host.parent].passages.some(({ kind }) => kind === "took");
         assert.ok(
-          hold < (fed ? 0.491 : 0.301) || (id === parent + 1 && parent === system.home),
+          hold < (fed ? 0.491 : 0.361) || (id === parent + 1 && parent === system.home),
           `${label}: ${hold}`,
         );
         assert.ok(led || gap > 4.99, `${label}: ${gap}`);
         if (laplace > 1.05) {
           level += lean < 1e-3 ? 1 : 0;
-          assert.ok(lean < STEEP + 1e-3 || lean > Math.PI - STEEP - 1e-3, `${label}: ${lean}`);
+          assert.ok(lean < LEAN[0] + 1e-3 || lean > LEAN[1] - 1e-3, `${label}: ${lean}`);
         }
         const sharers = system.bodies.filter((other) => other.shared?.with === id);
         assert.ok(sharers.length === 0 || hold < 0.051, `${label}: ${hold}`);

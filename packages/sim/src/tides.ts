@@ -2,13 +2,14 @@ import { spreadOf } from "./disks.ts";
 import { densityOf, GRAVITY } from "./physics.ts";
 import type { Wreck } from "./types.ts";
 
-const TIDE_FLUID = 1e-6;
+const TIDE_FLUID = 1.1e-5;
 const SOLID_LOSS = 100;
 const LOVE_MOST = 0.4;
 const ROCK_STIFF = 5e10;
 const ICE_STIFF = 4e9;
 const TURNING_SOLID = 0.33;
 const TURNING_FLUID = 0.25;
+const TURNING_EVEN = 0.4;
 const POWER = 6.5;
 const SCAN = 48;
 const HALVINGS = 40;
@@ -74,7 +75,7 @@ export interface Sprung {
 
 export interface Rim {
   edge: number;
-  torn: number;
+  torn: (mass: number) => number;
   far: number;
   turn: number;
   wear: number;
@@ -96,6 +97,14 @@ export function yieldOf(host: Pick<Turner, "mass" | "radius" | "ice" | "fluid">)
   const weight = (densityOf(host.mass, host.radius) * GRAVITY * host.mass) / host.radius;
   const soft = (2 * weight) / (19 * stiff);
   return Math.min(LOVE_MOST, (1.5 * soft) / (1 + soft)) / SOLID_LOSS;
+}
+
+export function lockOf(moon: Turner, host: number, orbit: number): number {
+  const spin = (2 * Math.PI) / moon.day;
+  const inertia = TURNING_EVEN * moon.mass * moon.radius ** 2;
+  return (
+    (spin * orbit ** 6 * inertia) / (3 * GRAVITY * host ** 2 * moon.radius ** 5 * yieldOf(moon))
+  );
 }
 
 export function pullOf(host: Turner, moon: number): number {
@@ -245,13 +254,13 @@ export function cycleOf(
   age: number,
 ): { feeds: Feed[]; moon: Sprung | null } {
   const feeds: Feed[] = [];
-  const reach = { torn: rim.torn, born: rim.edge, far: rim.far };
   const never = Number.POSITIVE_INFINITY;
   let { at, mass } = first;
   for (let turn = 0; turn < TURNS_MOST && at <= age; turn++) {
     feeds.push({ at, mass, wreck: turn === 0 ? first.wreck : "return" });
     const spread = spreadOf(mass, host.mass, rim.turn);
-    if (spread > rim.wear || rim.torn <= PLUNGE * host.radius) {
+    const reach = { torn: rim.torn(GATHERED * mass), born: rim.edge, far: rim.far };
+    if (spread > rim.wear || reach.torn <= PLUNGE * host.radius) {
       break;
     }
     const born = at + spread;

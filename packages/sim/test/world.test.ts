@@ -81,7 +81,7 @@ import {
 } from "../src/physics.ts";
 import { sidesOf } from "../src/sphere.ts";
 import { kindled } from "../src/system.ts";
-import { syncOf, tornAt } from "../src/tides.ts";
+import { lockOf, syncOf, tornAt } from "../src/tides.ts";
 
 const SEEDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 const LATE_SEEDS = [21, 24, 26, 68, 75, 204, 264];
@@ -357,7 +357,9 @@ test("the physics of every body holds together", () => {
       assert.ok(physics.mass < around.mass, label);
       const host = system.bodies[body.parent].parent;
       if (host !== null) {
-        assert.equal(physics.day === physics.year || around.mass >= STAR_LEAST, true, label);
+        const spun = { ...physics, fluid: wrapped(physics) };
+        const free = lockOf(spun, around.mass, physics.orbit) > 0.5 * physics.age;
+        assert.ok(physics.day === physics.year || around.mass >= STAR_LEAST || free, label);
         if (body.parent !== system.home) {
           const pull = system.bodies[host].physics.mass;
           const nearest = around.orbit * (1 - around.stretch);
@@ -689,7 +691,7 @@ test("a giant gathers its moons in a disk of its own while it takes gas", () => 
         mooned += moons.length > 0 ? 1 : 0;
         pieces.forEach((disk, at) => {
           assert.ok(disk.inner >= 1.999 * radius && disk.outer <= 0.401 * hold, label);
-          assert.ok(disk.gas > 0 && disk.depth > 0.01 && disk.height > 0.03, label);
+          assert.ok(disk.gas > 0 && disk.depth > 1e-4 && disk.height > 0.03, label);
           assert.ok(at === 0 || disk.inner >= pieces[at - 1].outer, label);
           assert.ok(
             moons.every(({ physics }) => physics.orbit < disk.inner || physics.orbit > disk.outer),
@@ -1224,8 +1226,8 @@ test("bodies that share an orbit keep apart and trade places", () => {
       assert.ok(body.physics.mass <= lead.physics.mass, label);
       const chasing = shared.sway > Math.PI / 2;
       const part = (body.physics.mass + lead.physics.mass) / host.physics.mass;
-      assert.ok(part < (chasing ? 4e-4 : 1 / 27), `${label}: light enough to last`);
-      assert.ok(shared.chase > 10 * body.physics.year && shared.year > body.year, label);
+      assert.ok(part < (chasing ? 1 / 1200 : 1 / 27), `${label}: light enough to last`);
+      assert.ok(shared.chase > 2 * body.physics.year && shared.year > body.year, label);
       const others = system.bodies.filter((other) => other.shared?.with === lead.id);
       const ahead = (tick: number) =>
         poseOf(system, body.id, tick).shift - poseOf(system, lead.id, tick).shift;

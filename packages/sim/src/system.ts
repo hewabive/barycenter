@@ -77,6 +77,7 @@ import {
   type Fate,
   type Feed,
   GATHERED,
+  lockOf,
   MOONS_APART,
   PLUNGE,
   type Sprung,
@@ -347,6 +348,8 @@ const CALM_SLANT = 0.08;
 const MOON_STRETCH = 0.02;
 const CAUGHT_SHARE = 0.3;
 const CAUGHT_STRETCH = 0.2;
+const CAUGHT_LEAN = [0.96, 2.269];
+const CAUGHT_GIANT = 4;
 const TIED_REACH = 0.5 * ASTRONOMICAL_UNIT;
 const TIED_HEAVY = [10 * EARTH_MASS, 0.3];
 const KEPLER_STEPS = 5;
@@ -383,7 +386,8 @@ const RIM_CLEAR = 1.05;
 const RING_DENSE = 0.55;
 const CHASE_SHARE = 1 / 30;
 const CHASE_WIDE = [1.6, 4];
-const CHASE_MOST = 0.49;
+const CHASE_APART = 5.5;
+const CHASE_HORN = 2.5;
 const TROJAN_MOONS = 0.2;
 const TROJAN_BOTH = 0.3;
 const TROJAN_LIGHT = [-6, -4];
@@ -463,15 +467,15 @@ const YOUNG_AGES = [3e5, 1e8];
 const MOON_GRAIN = 2000;
 const DRIFT_LEAST = 1e-3;
 const BELT_SHARE = 0.6;
-const MOON_REST = 0.3;
+const MOON_REST = 0.36;
 const SUBMOON_REST = 0.33;
 const SHARE_REST = 0.05;
 const APART = 6;
 const ROOMY = [8, 10];
 const WEDGE_MOST = 0.75;
 const SPREAD_MOST = 3;
-const STEEP_LEAST = 0.68;
-const STEEP_TILT = 0.87;
+const STEEP_TILT = 1.2021;
+const STEEP_BAND = [0.9, 1.25];
 const HOME_MOST = 1.25 * EARTH_MASS;
 const PLANET_LEAST = 1e-3 * EARTH_MASS;
 const HOLD_STEPS = 24;
@@ -928,6 +932,7 @@ function moonsOf(
   lent: number,
   depth: number,
   lying: boolean,
+  age: number,
   random: Random,
   turns: Random,
   rare: Random,
@@ -941,24 +946,28 @@ function moonsOf(
   };
   let girth = bulgeOf(host);
   const seats: Seat[] = [];
-  const beyond = (orbit: number) =>
-    orbit > laplaceOf(girth, host.orbit, host.stretch, host.mass, around.mass);
-  const settle = (moon: Kin) => {
-    const { mass, orbit, stretch } = moon.physics;
+  const levelOf = () => laplaceOf(girth, host.orbit, host.stretch, host.mass, around.mass);
+  const beyond = (orbit: number) => orbit > levelOf();
+  const unsteady = (orbit: number) =>
+    lying && orbit > STEEP_BAND[0] * levelOf() && orbit < STEEP_BAND[1] * levelOf();
+  const settle = (moon: Kin, stretch = moon.physics.stretch) => {
+    const { mass, orbit } = moon.physics;
     girth += (0.5 * mass * orbit ** 2) / host.mass;
     seats.push({ orbit, far: orbit * (1 + stretch), mass });
   };
   const wedgeOf = (seat: Seat, mass: number) =>
     (MOONS_APART / 2) * Math.cbrt((seat.mass + mass) / (3 * host.mass));
-  const kin = (mass: number, orbit: number, stray: boolean): Kin => {
-    const caught = turns.next() < CAUGHT_SHARE && stray && !fluid;
+  const kin = (mass: number, orbit: number, caught: boolean): Kin => {
     const stretch = (caught ? CAUGHT_STRETCH : MOON_STRETCH) * turns.next();
     const tip = caught ? Math.PI * turns.next() : null;
-    const level = laplaceOf(girth, host.orbit, host.stretch, host.mass, around.mass);
+    const level = levelOf();
     const far = orbit > level;
     const site = siteAt(orbit, stretch);
-    const lot = lotOf(mass, site, random, true);
-    const physics = shaped(lot, site);
+    const drawn = lotOf(mass, site, random, false);
+    const loose = shaped(drawn, site);
+    const free = lockOf({ ...loose, fluid: wrapped(loose) }, host.mass, orbit) > age;
+    const lot = free ? drawn : { ...drawn, free: null };
+    const physics = free ? loose : { ...loose, day: loose.year };
     const moons = moonsOf(
       physics,
       host,
@@ -967,6 +976,7 @@ function moonsOf(
       site.lent,
       depth + 1,
       false,
+      age,
       random,
       turns,
       rare,
@@ -1031,10 +1041,11 @@ function moonsOf(
     const [least, most] = fluid ? STRAY_FLUID : STRAY_SOLID;
     const mass = Math.min(STRAY_MOST * host.mass, decades(random, least, most));
     const place = nearest * (farthest / nearest) ** share;
-    if (lying && beyond(place)) {
-      break;
+    const caught = !fluid && turns.next() < CAUGHT_SHARE;
+    if (unsteady(place)) {
+      continue;
     }
-    const moon = kin(mass, place, true);
+    const moon = kin(mass, place, caught);
     const { orbit, stretch } = moon.physics;
     const seat = seats.at(-1);
     if (
@@ -1051,12 +1062,10 @@ function moonsOf(
     const heavy = Math.min(STRAY_MOST * host.mass, decades(rare, least, most));
     const light = heavy / (1 + 4 * rare.next());
     const part = (heavy + light) / host.mass;
-    const wide = Math.min(
-      between(rare, CHASE_WIDE[0], CHASE_WIDE[1]),
-      CHASE_MOST / part ** (1 / 6),
-    );
+    const room = 1 / (CHASE_APART * Math.cbrt(part / 3)) - CHASE_HORN;
+    const wide = Math.min(between(rare, CHASE_WIDE[0], CHASE_WIDE[1]), Math.sqrt(room));
     const lane = wide * Math.sqrt((8 * part) / 3);
-    const closest = 1 / wide ** 2;
+    const closest = 1 / (wide ** 2 + CHASE_HORN);
     const orbit = nearest * between(rare, 1.02, 1.15);
     const round = yearOf(orbit, host.mass);
     const chase = ((4 * round) / (3 * lane)) * (1 - closest / Math.PI);
@@ -1069,7 +1078,7 @@ function moonsOf(
       slant: null,
       lean: beyond(orbit) ? 0 : null,
       tip: null,
-      level: laplaceOf(girth, host.orbit, host.stretch, host.mass, around.mass),
+      level: levelOf(),
       moons: [],
       shared: null,
       apart: true,
@@ -1125,8 +1134,9 @@ function moonsOf(
       }
       orbit = Math.max(orbit, least);
     }
-    if (lying && beyond(orbit)) {
-      break;
+    if (unsteady(orbit)) {
+      orbit *= between(random, 1.5, 2.3);
+      continue;
     }
     const moon = kin(mass, orbit, false);
     moons.push(moon);
@@ -1144,7 +1154,35 @@ function moonsOf(
     }
     orbit *= between(random, 1.5, 2.3);
   }
+  const captures = depth === 0 && fluid ? Math.floor(CAUGHT_GIANT * random.next() ** 2) : 0;
+  const inner = Math.max(low, levelOf(), ...seats.map((seat) => seat.far));
+  const outer = (MOON_REST * hold) / (1 + CAUGHT_STRETCH);
+  const places = Array.from({ length: outer > inner ? captures : 0 }, () => random.next());
+  for (const share of places.sort((left, right) => left - right)) {
+    const [least, most] = STRAY_FLUID;
+    const mass = Math.min(STRAY_MOST * host.mass, decades(random, least, most));
+    const place = inner * (outer / inner) ** share;
+    if (unsteady(place)) {
+      continue;
+    }
+    const moon = kin(mass, place, true);
+    const { orbit } = moon.physics;
+    const swung = Math.max(moon.physics.stretch, stirredOf(moon.lean ?? 0));
+    const seat = seats.at(-1);
+    if (
+      orbit * (1 + swung) <= MOON_REST * hold &&
+      (seat === undefined ||
+        orbit * (1 - swung) - seat.far >= wedgeOf(seat, mass) * (seat.orbit + orbit))
+    ) {
+      moons.push(moon);
+      settle(moon, swung);
+    }
+  }
   return moons;
+}
+
+function stirredOf(lean: number): number {
+  return Math.sqrt(Math.max(0, (1 - 5 * Math.cos(2 * lean)) / 6));
 }
 
 function doubleOdds(earths: number, icy: boolean, moons: number): number {
@@ -1184,8 +1222,11 @@ function looseOf(share: number, needed: number): number {
 }
 
 function gentle(tip: number): number {
-  const share = STEEP_LEAST / (Math.PI / 2);
-  return tip < Math.PI / 2 ? tip * share : Math.PI - (Math.PI - tip) * share;
+  const [forward, backward] = CAUGHT_LEAN;
+  const right = Math.PI / 2;
+  return tip < right
+    ? (tip * forward) / right
+    : Math.PI - ((Math.PI - tip) * (Math.PI - backward)) / right;
 }
 
 function tipped(
@@ -1877,6 +1918,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
     season: planet.year,
   });
   const adopted = new Map<Kin, number>();
+  const captured = new Set<Draft>();
   const swayed = (
     host: Physics,
     spin: number,
@@ -1910,7 +1952,10 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       const reach = {
         torn: tornAt(host.radius, dense, densityOf(mass, radius)),
         born: orbit,
-        far: Math.min(far / (1 + stretch), lying ? moon.level : Number.POSITIVE_INFINITY),
+        far: Math.min(
+          far / (1 + stretch),
+          lying && orbit < moon.level ? STEEP_BAND[0] * moon.level : Number.POSITIVE_INFINITY,
+        ),
       };
       const born = { mass, orbit };
       const led = moon === lead;
@@ -1991,6 +2036,11 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
     const physics = beside === null ? fresh : { ...fresh, year: beside, day: beside };
     const chasing = moon.shared === null ? moon.apart : moon.shared.lead.apart;
     const sprung = chasing ? sway.since : 0;
+    const shaken = (orbit: number, host: Physics, sun: number) =>
+      moon.shared !== null &&
+      !chasing &&
+      orbit * (1 + site.stretch) >
+        SHARE_REST * hillOf(host.orbit * (1 - host.stretch), host.mass, sun);
     const shared =
       moon.shared === null || lead === undefined
         ? null
@@ -1998,7 +2048,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
             ahead: moon.shared.ahead,
             sway: moon.shared.sway,
             lane: moon.shared.lane,
-            chase: moon.shared.chase,
+            chase: (moon.shared.chase * drafts[lead].physics.year) / moon.shared.lead.physics.year,
             with: lead,
           };
     adopted.set(moon, own);
@@ -2012,7 +2062,11 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       apart,
       sprung: false,
       gone: false,
-      absent: left(first) || drafts[parent].absent || prime < sprung,
+      absent:
+        left(first) ||
+        drafts[parent].absent ||
+        prime < sprung ||
+        shaken(stood, around, site.star.mass),
       share: 1,
       held: null,
       upright: 0,
@@ -2054,9 +2108,16 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
         }
       }
       const early =
-        share < BORN_SHARE || (moon.shared !== null && age < GROWN_MOST) || age < sprung;
+        share < BORN_SHARE ||
+        (moon.shared !== null && age < GROWN_MOST) ||
+        (moon.tip !== null && host.share < 1) ||
+        age < sprung;
       if (stand === null || early || left(fate) || near < MOON_CLEAR * host.physics.radius) {
         draft.absent = true;
+        return;
+      }
+      if (shaken(orbit, host.physics, stand.star.mass)) {
+        draft.gone = true;
         return;
       }
       const warmth = lightAt(glowOf(host.physics.radius, host.physics.heat), orbit);
@@ -2071,6 +2132,9 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       draft.share = share;
       draft.setting = setting;
     };
+    if (moon.tip !== null) {
+      captured.add(draft);
+    }
     drafts.push(draft);
     const hold = hillOf(stood * (1 - site.stretch), physics.mass, around.mass);
     const lesser = swayed(
@@ -2404,7 +2468,9 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
             return;
           }
           const stations = drafts
-            .filter((kid) => kid.parent === id && kid.shared === null && !kid.gone)
+            .filter(
+              (kid) => kid.parent === id && kid.shared === null && !kid.gone && !captured.has(kid),
+            )
             .map((kid) => ({
               orbit: kid.physics.orbit,
               share: kid.absent ? 0 : kid.share,
@@ -2522,7 +2588,19 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
         seat.home = id;
       }
       const lying = !tied && tilt > STEEP_TILT && tilt < Math.PI - STEEP_TILT;
-      const moons = moonsOf(planet, star, star, distance, zone.lent, 0, lying, random, turns, rare);
+      const moons = moonsOf(
+        planet,
+        star,
+        star,
+        distance,
+        zone.lent,
+        0,
+        lying,
+        age,
+        random,
+        turns,
+        rare,
+      );
       const reach = MOON_REST * hillOf(orbit * (1 - stretch), planet.mass, star.mass);
       const bound = settledHere ? Number.POSITIVE_INFINITY : tiedFrom(orbit, heavy);
       const spin = lot?.free ?? planet.day;
@@ -2535,7 +2613,10 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
         }
       }
       const large = moons.some(
-        (moon) => moon.shared === null && moon.site.orbit >= MOON_LARGE * planet.radius,
+        (moon) =>
+          moon.shared === null &&
+          moon.tip === null &&
+          moon.site.orbit >= MOON_LARGE * planet.radius,
       );
       const shed = lot !== null && airborne && large ? lot.shed * planet.mass : 0;
       const feeds = (age: number) => [
@@ -2570,7 +2651,8 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
         const whole = shaped(seedling, perch);
         const band = {
           edge,
-          torn: tornAt(planet.radius, dense, densityOf(whole.mass, whole.radius)),
+          torn: (mass: number) =>
+            tornAt(planet.radius, dense, densityOf(mass, radiusOf(mass, whole))),
           far: reach,
           turn,
           wear: lot.wear,
