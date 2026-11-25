@@ -138,7 +138,7 @@ const ROCK_CREEP = 1e-6;
 const STUFFY_HEAT = [600, 2000];
 const STUFFY_MOST = 0.8;
 const ESCAPE_MARGIN = 6;
-const DAYSIDE = 1.4;
+const EXOBASE = 1000;
 const MELTING = 273;
 const TRIPLE_AIR = 1000;
 const TRACE_AIR = 1;
@@ -720,8 +720,12 @@ export function balanceHeat(glow: number, distance: number, albedo: number): num
   return ((glow * (1 - albedo)) / (16 * Math.PI * RADIATION * distance ** 2)) ** 0.25;
 }
 
+function exobaseOf(heat: number): number {
+  return Math.max(heat, EXOBASE * (heat / balanceHeat(SUN_GLOW, ASTRONOMICAL_UNIT, 0)) ** 2);
+}
+
 export function gripOf(mass: number, radius: number, heat: number, gas: Gas): number {
-  const thermal = Math.sqrt((3 * BOLTZMANN * DAYSIDE * heat) / (WEIGHTS[gas] * DALTON));
+  const thermal = Math.sqrt((3 * BOLTZMANN * exobaseOf(heat)) / (WEIGHTS[gas] * DALTON));
   return escapeOf(mass, radius) / (ESCAPE_MARGIN * thermal);
 }
 

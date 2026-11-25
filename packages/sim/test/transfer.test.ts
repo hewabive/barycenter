@@ -71,7 +71,7 @@ test("a way between two places in a given time is the one a ship then flies", ()
   assert.equal(lambert(EARTH_PULL, [7e6, 0, 0], [-1.4e7, 0, 0], 9000, [0, 0, 1]), null);
 });
 
-const system = surveySystem(1, { settled: true, star: null });
+const system = surveySystem(4, { settled: true, star: null });
 const rails = railsOf(system);
 const named = (name: string): number => {
   const body = system.bodies.find((each) => each.name === name);
@@ -87,8 +87,8 @@ const blank: Kick = { time: 600, along: 0, north: 0, out: 0, about: null, drive 
 
 test("a way to a moon is found, and the engine flies the ship past it at the height asked", () => {
   const fly = createFlyer(rails);
-  const home = named("Riran");
-  const moon = named("Surais");
+  const home = named("Ellin");
+  const moon = named("Kevex");
   const flight = parked(home);
   const { way, trouble } = found(
     seek({ rails, fly, flight, plan: [], kick: blank, target: moon, height: 1e5 }),
@@ -97,7 +97,7 @@ test("a way to a moon is found, and the engine flies the ship past it at the hei
   assert.ok(way?.settled);
   const wanted = rails.radii[moon] + 1e5;
   assert.ok(Math.abs(way.approach.gap - wanted) < 1e3);
-  assert.ok(way.cost > 3800 && way.cost < 4150);
+  assert.ok(way.cost > 3100 && way.cost < 3400);
 
   const forecast = createForecast(rails, fly, flight, [way.kick], null, 4000);
   while (!forecast.done) {
@@ -105,7 +105,7 @@ test("a way to a moon is found, and the engine flies the ship past it at the hei
   }
   const size = Math.hypot(...forecast.pushes);
   const span = burnFor(drive, 2e4, size);
-  assert.ok(span > 505 && span < 550);
+  assert.ok(span > 440 && span < 485);
   const burn: Burn = {
     ...drive,
     heading: "hold",
@@ -141,12 +141,12 @@ test("a way to a moon is found, and the engine flies the ship past it at the hei
 
 test("a way to another planet leaves the hold of the first and passes the second as asked", () => {
   const fly = createFlyer(rails);
-  const planet = named("Haran");
+  const planet = named("Sunoon");
   const { way } = found(
     seek({
       rails,
       fly,
-      flight: parked(named("Riran")),
+      flight: parked(named("Ellin")),
       plan: [],
       kick: blank,
       target: planet,
@@ -161,12 +161,12 @@ test("a way to another planet leaves the hold of the first and passes the second
 
 test("a way down to the body a moon circles is found from the moon", () => {
   const fly = createFlyer(rails);
-  const home = named("Riran");
+  const home = named("Ellin");
   const { way } = found(
     seek({
       rails,
       fly,
-      flight: parked(named("Surais")),
+      flight: parked(named("Kevex")),
       plan: [],
       kick: { ...blank, time: 20000 },
       target: home,
@@ -180,7 +180,7 @@ test("a way down to the body a moon circles is found from the moon", () => {
 
 test("no way is sought to the body the ship circles, nor from a moon to another planet", () => {
   const fly = createFlyer(rails);
-  const home = named("Riran");
+  const home = named("Ellin");
   const same = found(
     seek({ rails, fly, flight: parked(home), plan: [], kick: blank, target: home, height: 1e5 }),
   );
@@ -190,10 +190,10 @@ test("no way is sought to the body the ship circles, nor from a moon to another 
     seek({
       rails,
       fly,
-      flight: parked(named("Surais")),
+      flight: parked(named("Kevex")),
       plan: [],
       kick: blank,
-      target: named("Haran"),
+      target: named("Sunoon"),
       height: 1e6,
     }),
   );

@@ -137,5 +137,5 @@ test("the moons of a planet drawn into its star are torn away or go in with it",
   assert.equal(eaten.get("Keraon")?.of, "Elshar");
   assert.equal(eaten.get("Suvem")?.since, eaten.get("Elshar")?.since);
   const late = at(10.99).bodies[0].swallowed.map((entry) => entry.name);
-  assert.ok(["Elshar", "Suvem", "Keraon", "Rimil", "Rivea"].every((name) => late.includes(name)));
+  assert.ok(["Elshar", "Suvem", "Keraon", "Rimil", "Tamith"].every((name) => late.includes(name)));
 });
