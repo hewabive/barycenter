@@ -55,7 +55,7 @@ test("gas that leaves the tip swings past the other star to one side", () => {
 });
 
 test("a star that has just thrown off its envelope stands in a shell that grows and fades", () => {
-  const ended = 1.0721305;
+  const ended = 0.619734;
   const fresh = surveySystem(21, { settled: false, star: null, age: ended * GIGAYEAR });
   const dwarf = fresh.bodies.find((body) => body.shell !== null);
   assert.ok(dwarf !== undefined && dwarf.shell !== null);
@@ -77,7 +77,7 @@ test("a star that has just thrown off its envelope stands in a shell that grows 
 });
 
 test("a giant that fills its lobe is drawn as wide beside its companion as it is", () => {
-  const system = sketchSystem(325, { settled: false, star: null, age: 8.72 * GIGAYEAR });
+  const system = sketchSystem(325, { settled: false, star: null, age: 7.75 * GIGAYEAR });
   const stars = system.bodies.filter((body) => starborn(body.physics));
   const giver = stars.find((body) => body.lobe === 1);
   const taker = stars.find((body) => body !== giver);

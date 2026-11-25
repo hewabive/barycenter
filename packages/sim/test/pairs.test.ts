@@ -207,7 +207,7 @@ test("the twins of seed 325 are both still there when the first has swollen", ()
   assert.equal(young.length, 2);
   assert.ok(young.every((body) => body.physics.day === young[1].physics.year));
   const whole = young.reduce((sum, body) => sum + body.physics.mass, 0);
-  const passing = at(8.72);
+  const passing = at(7.75);
   const giver = passing.find((body) => body.passages.some(({ kind }) => kind === "gave"));
   const taker = passing.find((body) => body.passages.some(({ kind }) => kind === "took"));
   assert.ok(giver !== undefined && taker !== undefined);
@@ -216,7 +216,7 @@ test("the twins of seed 325 are both still there when the first has swollen", ()
   assert.ok(giver.passages[0].until === null && giver.passages[0].rate > 0);
   assert.equal(giver.physics.day, giver.physics.year);
   assert.ok(taker.physics.mass > giver.physics.mass);
-  const done = at(9);
+  const done = at(8);
   assert.deepEqual(done.map((body) => body.name).sort(), young.map((body) => body.name).sort());
   const left = done.reduce((sum, body) => sum + body.physics.mass, 0);
   const lost = whole - left;

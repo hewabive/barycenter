@@ -96,10 +96,10 @@ test("a star turns faster for what it swallowed and brakes again on the main seq
 test("Elshar is drawn into its giant star and left in its list", () => {
   const at = (age: number) =>
     sketchSystem(274326, { settled: false, star: null, age: age * GIGAYEAR });
-  const drawn = at(10.915).bodies.find((body) => body.name === "Elshar");
+  const drawn = at(10.717).bodies.find((body) => body.name === "Elshar");
   assert.ok(drawn?.drawn !== null && drawn?.drawn !== undefined, "Elshar is being drawn in");
   assert.ok(drawn.physics.orbit < drawn.drawn.from && drawn.drawn.falls !== null);
-  const later = at(10.95);
+  const later = at(10.752);
   assert.ok(!later.bodies.some((body) => ["Elshar", "Suvem"].includes(body.name)));
   const taken = later.bodies[0].swallowed.find((entry) => entry.name === "Elshar");
   assert.ok(taken !== undefined && taken.of === null);
@@ -109,7 +109,7 @@ test("Elshar is drawn into its giant star and left in its list", () => {
 test("the moons of a planet drawn into its star are torn away or go in with it", () => {
   const at = (age: number) =>
     sketchSystem(274326, { settled: false, star: null, age: age * GIGAYEAR });
-  const last = at(10.9218278);
+  const last = at(10.7241032);
   const star = last.bodies[0];
   const elshar = last.bodies.find((body) => body.name === "Elshar");
   assert.ok(elshar !== undefined);
@@ -127,7 +127,7 @@ test("the moons of a planet drawn into its star are torn away or go in with it",
       `${name} keeps the plane of Elshar`,
     );
   }
-  const after = at(10.93);
+  const after = at(10.73);
   const rimil = after.bodies.find((body) => body.name === "Rimil");
   assert.equal(rimil?.parent, 0);
   assert.equal(rimil?.freed?.from, "Elshar");
@@ -136,6 +136,6 @@ test("the moons of a planet drawn into its star are torn away or go in with it",
   assert.equal(eaten.get("Suvem")?.of, "Elshar");
   assert.equal(eaten.get("Keraon")?.of, "Elshar");
   assert.equal(eaten.get("Suvem")?.since, eaten.get("Elshar")?.since);
-  const late = at(10.99).bodies[0].swallowed.map((entry) => entry.name);
+  const late = at(10.79).bodies[0].swallowed.map((entry) => entry.name);
   assert.ok(["Elshar", "Suvem", "Keraon", "Rimil", "Rivea"].every((name) => late.includes(name)));
 });
