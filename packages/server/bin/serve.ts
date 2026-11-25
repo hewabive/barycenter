@@ -30,7 +30,7 @@ const server = await startServer({
 
 process.stdout.write(`Barycenter server listening on ws://${values.host}:${server.port}\n`);
 if (client !== null && client !== "") {
-  process.stdout.write(`Open http://${values.host}:${server.port} to play\n`);
+  process.stdout.write(`Open http://${values.host}:${server.port}/strategy.html to play\n`);
 }
 if (values.tuning) {
   process.stdout.write("Live tuning of constants is enabled\n");

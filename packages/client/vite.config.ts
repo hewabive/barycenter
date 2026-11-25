@@ -1,6 +1,9 @@
 import { defineConfig } from "vite";
 
-export default defineConfig({
+const STANDALONE = ["index.html", "flight.html", "atlas.html"];
+
+export default defineConfig(({ mode }) => ({
+  base: "./",
   server: {
     host: "0.0.0.0",
     port: 5183,
@@ -11,7 +14,7 @@ export default defineConfig({
   build: {
     target: "es2023",
     rollupOptions: {
-      input: ["index.html", "atlas.html", "generator.html", "flight.html"],
+      input: mode === "pages" ? STANDALONE : [...STANDALONE, "strategy.html"],
     },
   },
-});
+}));

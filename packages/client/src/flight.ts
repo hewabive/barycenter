@@ -2021,7 +2021,7 @@ const lists = card(
   el(
     "div",
     { class: "strip" },
-    el("a", { href: `generator.html?${search}&scale=real` }, "The whole system and its numbers"),
+    el("a", { href: `./?${search}&scale=real` }, "The whole system and its numbers"),
   ),
 );
 

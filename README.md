@@ -40,18 +40,18 @@ Add `--home yes` or `--home no` for systems with a home only or without one, `--
 
 ## Playing
 
-Build the client once and start the server, then open `http://127.0.0.1:8787`:
+Build the client once and start the server, then open `http://127.0.0.1:8787/strategy.html`:
 
     pnpm build
     pnpm serve
 
 Add `--tuning` to change constants from the page while playing. Other options are `--port`, `--host`, `--saves`, `--client`, `--tick-rate` and `--seed`.
 
-While developing, run the server and the client with live reload and open `http://localhost:5183`. The Vite server listens on all interfaces and forwards game traffic from `/socket` to the local game server, so only port 5183 needs to be reachable:
+While developing, run the server and the client with live reload and open `http://localhost:5183/strategy.html`. The Vite server listens on all interfaces and forwards game traffic from `/socket` to the local game server, so only port 5183 needs to be reachable:
 
     pnpm dev
 
-Three more pages need no game server. `http://localhost:5183/generator.html` makes star systems from a seed, with a home or lifeless, lists every number of a body and shows the system on the drawn scale or the real one. `http://localhost:5183/flight.html` flies a ship through such a system on its real scale, and takes the same `?seed=`, `?home=`, `?star=` and `?age=`. `http://localhost:5183/atlas.html` draws a sheet of bodies by mass and by distance from the star.
+Three more pages need no game server and are published at [hewabive.github.io/barycenter](https://hewabive.github.io/barycenter/). The start page `http://localhost:5183/` makes star systems from a seed, with a home or lifeless, lists every number of a body and shows the system on the drawn scale or the real one. `http://localhost:5183/flight.html` flies a ship through such a system on its real scale, and takes the same `?seed=`, `?home=`, `?star=` and `?age=`. `http://localhost:5183/atlas.html` draws a sheet of bodies by mass and by distance from the star.
 
 Click a region to select it, then settle its neutral land or press a rival from the panel. The same panel sets the garrison of the region, lays roads to its neighbors and aims an attack at one cell. The sliders in the panel set the leaning of the whole power. Space pauses and resumes, and the keys 1 to 4 set the speed. The address accepts `?room=name` to keep several games apart, and `?seed=` and `?rivals=` to set up a new one.
 
