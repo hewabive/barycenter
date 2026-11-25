@@ -262,11 +262,6 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
     const { parent, orbit, physics } = system.bodies[id];
     return parent === null ? 0 : span(parent) + orbit * (1 + physics.stretch);
   };
-  const widest = Math.max(
-    ...system.bodies.map((body) => span(body.id) + (body.shell?.radius ?? 0)),
-  );
-  const outmost = Math.max(FARTHEST, FAR_VIEW * widest);
-  controls.maxDistance = outmost;
   const brim = Math.max(
     ...system.bodies.map(
       (body) =>
@@ -274,6 +269,8 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
         Math.max(body.radius, body.shell?.radius ?? 0, ...body.disks.map((lane) => lane.outer)),
     ),
   );
+  const outmost = Math.max(FARTHEST, FAR_VIEW * brim);
+  controls.maxDistance = outmost;
 
   let stale = true;
   const invalidate = () => {
