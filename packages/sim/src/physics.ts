@@ -111,7 +111,7 @@ const COOLING_HEAT = 100;
 const COOLING_AGE = 4.5 * GIGAYEAR;
 const COOLING_PACE = 0.3;
 const COOLING_LIGHT = 0.25;
-const COOLING_HEAVY = 0.6;
+const COOLING_HEAVY = [0.49, 20, 0.83];
 const BURNING_POWER = 8;
 const DUST_HEAT = [1300, 2200];
 const SEEN_WAVES = [0.38e-6, 0.78e-6];
@@ -143,24 +143,26 @@ const MELTING = 273;
 const TRIPLE_AIR = 1000;
 const TRACE_AIR = 1;
 export const DAMP_LEAST = 1e-5;
-const HUMIDITY = 0.6;
+const HUMIDITY: Partial<Record<Gas, number>> = { water: 0.6, methane: 0.45 };
 const COLD_TRAP = 0.75;
 const CLIMATE_ROUNDS = 40;
-const XUV_DOSE = 6e15;
+const XUV_GLOW = 10 ** -3.5;
+const XUV_SATURATED = 1e8 * YEAR;
+const XUV_FADING = 0.5;
 const XUV_SHARE = 0.1;
-const XUV_SPAN = [0.3, 10];
 const CRITICAL = 647;
 const STEAM_LEFT = 200;
 const THERMOSTAT = 278;
 const THERMOSTAT_STEPS = 14;
 const BRIGHT_AIR = 0.3;
-const BRIGHT_DECK = 0.65;
+const BRIGHT_DECK = 0.76;
 const BRIGHT_ICE = 0.55;
 const BRIGHT_ROCK = 0.12;
+const BRIGHT_DUST = 0.25;
 const BRIGHT_GAS = 0.34;
 const SUN_HYDROGEN = 0.86;
-const RICH_JUPITER = 4;
-const RICH_POWER = -0.8;
+const RICH_JUPITER = 2.4;
+const RICH_POWER = -1.11;
 const RICH_MOST = 200;
 
 const WEIGHTS: Record<Gas, number> = {
@@ -186,14 +188,14 @@ const VAPORS: Record<Gas, [boiling: number, latent: number] | null> = {
 };
 
 const WARMING: Record<Gas, [gain: number, power: number]> = {
-  hydrogen: [4.9, 1.16],
+  hydrogen: [8, 1.16],
   helium: [0, 1],
-  methane: [1.5, 0.3],
+  methane: [1.9, 0.3],
   ammonia: [3, 0.3],
   water: [3, 0.3],
   nitrogen: [0, 1],
   oxygen: [0, 1],
-  "carbon dioxide": [5.19, 0.72],
+  "carbon dioxide": [5.65, 0.72],
 };
 
 const SUN_TRACES: Partial<Record<Gas, number>> = {
@@ -579,8 +581,12 @@ export function innerHeat(mass: number, age: number, vigor: number): number {
   const jupiters = mass / JUPITER_MASS;
   const steady = smooth(-1, 0.5, Math.log10(jupiters));
   const mood = 1 + (0.75 * vigor - 0.45) * (1 - steady);
-  const slope = jupiters < 1 ? COOLING_LIGHT : COOLING_HEAVY;
-  const cooling = COOLING_HEAT * jupiters ** slope * (COOLING_AGE / age) ** COOLING_PACE * mood;
+  const [heavy, dwarf, steep] = COOLING_HEAVY;
+  const grown =
+    jupiters < 1
+      ? jupiters ** COOLING_LIGHT
+      : Math.min(jupiters, dwarf) ** heavy * Math.max(1, jupiters / dwarf) ** steep;
+  const cooling = COOLING_HEAT * grown * (COOLING_AGE / age) ** COOLING_PACE * mood;
   const limit = starHeat(starGlow(STAR_LEAST), starRadius(STAR_LEAST));
   const burning = limit * (mass / STAR_LEAST) ** BURNING_POWER;
   return Math.min(limit, (cooling ** 4 + burning ** 4) ** 0.25);
@@ -753,19 +759,21 @@ export function climateOf(given: Volatiles): Climate {
   const carbon = given.stock[GASES.indexOf("carbon dioxide")];
   const water = GASES.indexOf("water");
   const sheltered = given.stock[GASES.indexOf("hydrogen")] > 0;
-  const settle = (weathered: number, steam: number) => {
+  const settle = (weathered: number, steam: number, pooled: boolean) => {
     let heat = balanceHeat(given.glow, given.distance, BRIGHT_AIR);
     let partials = given.stock;
     let air = whole(partials);
     for (let round = 0; round < CLIMATE_ROUNDS; round++) {
       const trap = COLD_TRAP + (1 - COLD_TRAP) * smooth(3, 5, Math.log10(Math.max(air, 1)));
       partials = GASES.map((gas, index) => {
+        const coldest = gas === "water" && pooled ? heat : trap * heat;
+        const vapor = (HUMIDITY[gas] ?? 1) * vaporOf(gas, coldest);
         const most =
           gas === "water"
-            ? Math.min(steam, HUMIDITY * vaporOf(gas, heat))
+            ? Math.min(steam, vapor)
             : gas === "carbon dioxide"
-              ? Math.min(weathered, vaporOf(gas, trap * heat))
-              : vaporOf(gas, trap * heat);
+              ? Math.min(weathered, vapor)
+              : vapor;
         return Math.min(given.stock[index], most);
       });
       air = whole(partials);
@@ -775,7 +783,7 @@ export function climateOf(given: Volatiles): Climate {
           ? BRIGHT_AIR + (BRIGHT_DECK - BRIGHT_AIR) * deck
           : given.frozen
             ? BRIGHT_ICE
-            : BRIGHT_ROCK;
+            : BRIGHT_DUST;
       const bare = balanceHeat(given.glow, given.distance, albedo);
       const kept = 1 - STUFFY_MOST * smooth(STUFFY_HEAT[0], STUFFY_HEAT[1], bare);
       const next = Math.min(given.ceiling ?? bare * 10, bare * (1 + (warmed(partials) - 1) * kept));
@@ -788,9 +796,9 @@ export function climateOf(given: Volatiles): Climate {
       heat <= boilingAt(air);
     return { air, heat, sea, gases: partials.map((part) => part / Math.max(air, 1e-12)) };
   };
-  const wet = (weathered: number) => settle(weathered, Number.POSITIVE_INFINITY);
+  const wet = (weathered: number) => settle(weathered, Number.POSITIVE_INFINITY, true);
   const dry = () =>
-    settle(Number.POSITIVE_INFINITY, sheltered ? Number.POSITIVE_INFINITY : STEAM_LEFT);
+    settle(Number.POSITIVE_INFINITY, sheltered ? Number.POSITIVE_INFINITY : STEAM_LEFT, false);
   const regulated = () => {
     if (given.stock[water] < given.pool || wet(carbon).heat < THERMOSTAT) {
       return dry();
@@ -863,7 +871,7 @@ export function roughOf(physics: Physics): number {
   }
   const round = ROUND_ROCK - (ROUND_ROCK - ROUND_ICE) * (physics.ice / solid);
   const stiff = 1 - Math.min(1, 2 * moltenOf(physics));
-  return stiff * (1 - smooth(0.5, 1.2, physics.radius / round));
+  return stiff * (1 - smooth(0.5, 1.5, physics.radius / round));
 }
 
 export function moltenOf(physics: Physics): number {
@@ -890,11 +898,11 @@ export function columnOf(mass: number, radius: number): number {
 export function strippedShare(
   mass: number,
   radius: number,
-  star: { mass: number; glow: number },
+  star: { mass: number },
   distance: number,
 ): number {
-  const lively = Math.max(XUV_SPAN[0], Math.min(XUV_SPAN[1], (SUN_MASS / star.mass) ** 1.5));
-  const dose = (XUV_DOSE * lively * (star.glow / SUN_GLOW)) / (distance / ASTRONOMICAL_UNIT) ** 2;
+  const hard = XUV_GLOW * SUN_GLOW * (star.mass / SUN_MASS);
+  const dose = (hard * XUV_SATURATED * (1 + 1 / XUV_FADING)) / (4 * Math.PI * distance ** 2);
   return (XUV_SHARE * Math.PI * radius ** 3 * dose) / (GRAVITY * mass ** 2);
 }
 

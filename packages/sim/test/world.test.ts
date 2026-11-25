@@ -518,9 +518,10 @@ test("the air of a body follows from what it keeps and how warm it is", () => {
   const venus = climateOf({
     ...sun,
     distance: 0.723 * ASTRONOMICAL_UNIT,
-    stock: stocked({ nitrogen: 3.2 * bar, "carbon dioxide": 92 * bar }),
+    stock: stocked({ nitrogen: 3.2 * bar, "carbon dioxide": 87.6 * bar }),
   });
-  assert.ok(venus.heat > 650 && venus.heat < 900, `venus ${venus.heat}`);
+  assert.ok(venus.heat > 710 && venus.heat < 765, `venus ${venus.heat}`);
+  assert.ok(Math.abs(venus.air / 92e5 - 1) < 0.05, `venus ${venus.air}`);
   assert.ok(share(venus, "carbon dioxide") > 0.9);
 
   const mars = climateOf({
@@ -528,7 +529,8 @@ test("the air of a body follows from what it keeps and how warm it is", () => {
     distance: 1.524 * ASTRONOMICAL_UNIT,
     stock: stocked({ nitrogen: 2e-4 * bar, "carbon dioxide": 0.006 * bar, water: 2 * bar }),
   });
-  assert.ok(mars.heat > 205 && mars.heat < 240, `mars ${mars.heat}`);
+  assert.ok(mars.heat > 200 && mars.heat < 225, `mars ${mars.heat}`);
+  assert.ok(share(mars, "water") < 1e-4);
 
   const titan = climateOf({
     ...sun,
@@ -541,8 +543,8 @@ test("the air of a body follows from what it keeps and how warm it is", () => {
       water: 1e4 * bar,
     }),
   });
-  assert.ok(titan.heat > 85 && titan.heat < 102, `titan ${titan.heat}`);
-  assert.ok(share(titan, "methane") > 0.03 && share(titan, "methane") < 0.25);
+  assert.ok(titan.heat > 88 && titan.heat < 100, `titan ${titan.heat}`);
+  assert.ok(share(titan, "methane") > 0.04 && share(titan, "methane") < 0.08);
   assert.equal(share(titan, "carbon dioxide") < 1e-6, true);
 
   const cold = climateOf({
@@ -560,7 +562,7 @@ test("the air of a body follows from what it keeps and how warm it is", () => {
       stock: stocked({ hydrogen: hydrogen * bar, water: 260 * bar }),
     });
   const outer = wrapped(10, 40);
-  assert.ok(outer.heat > 262 && outer.heat < 300, `hydrogen at 10 AU ${outer.heat}`);
+  assert.ok(outer.heat > 270 && outer.heat < 290, `hydrogen at 10 AU ${outer.heat}`);
   const inner = wrapped(1.4, 300);
   assert.ok(inner.heat > 1000, `hydrogen at 1.4 AU ${inner.heat}`);
   assert.ok(share(inner, "water") > 0.1);
@@ -586,6 +588,7 @@ test("the light of the star takes a thin wrap of gas from a body near it", () =>
   assert.ok(lost(2) / wrap > 0.5 && lost(2) / wrap < 2);
   const dwarf = { mass: 0.3 * SUN_MASS, glow: 0.01 * SUN_GLOW };
   assert.ok(strippedShare(mass, radius, dwarf, 0.1 * ASTRONOMICAL_UNIT) > lost(1));
+  assert.ok(Math.abs(strippedShare(mass, radius, dwarf, ASTRONOMICAL_UNIT) / lost(1) - 0.3) < 1e-9);
   for (let seed = 1; seed <= 40; seed++) {
     for (const body of sketchSystem(seed, { settled: false, star: null }).bodies) {
       const hot = seaCover(body.physics) > 0 && body.physics.heat > 647;
@@ -876,6 +879,17 @@ test("a body in gas keeps heat of its own, more of it when heavy or young", () =
   assert.ok(calm < 32 && lively > 45 && lively < 70, `ice giants ${calm} ${lively}`);
   const dwarf = innerHeat(50 * JUPITER_MASS, old, 0.5);
   assert.ok(dwarf > 900 && dwarf < 1250, `brown dwarf ${dwarf}`);
+  for (const [jupiters, heat] of [
+    [2, 134],
+    [10, 284],
+    [20, 421],
+    [25, 483],
+  ]) {
+    const found = innerHeat(jupiters * JUPITER_MASS, 5 * GIGAYEAR, 0.5);
+    assert.ok(Math.abs(found / heat - 1) < 0.1, `${jupiters} Jupiters ${found}`);
+  }
+  const fifty = innerHeat(0.05 * SUN_MASS, old, 0.5);
+  assert.ok(Math.abs(fifty / 957 - 1) < 0.05, `a twentieth of a Sun ${fifty}`);
   assert.ok(innerHeat(50 * JUPITER_MASS, GIGAYEAR, 0.5) > 1.3 * dwarf);
   assert.ok(innerHeat(20 * JUPITER_MASS, old, 0.5) < 0.7 * dwarf);
   const least = starHeat(starGlow(STAR_LEAST), starRadius(STAR_LEAST));
@@ -889,9 +903,9 @@ test("a body in gas keeps heat of its own, more of it when heavy or young", () =
 });
 
 test("light is drawn on a scale that keeps what is brighter brighter", () => {
-  assert.ok(Math.abs(LUMENS * seenShare(5772) - 93) < 3);
-  assert.ok(Math.abs(LUMENS * seenShare(2900) - 17) < 2);
-  assert.ok(Math.abs(LUMENS * EARTH_SEEN - 127000) < 4000);
+  assert.ok(Math.abs(LUMENS * seenShare(5772) - 92) < 1);
+  assert.ok(Math.abs(LUMENS * seenShare(2900) - 17.6) < 0.5);
+  assert.ok(Math.abs(LUMENS * EARTH_SEEN - 125000) < 1500);
   const ember = (LUMENS * seenGlow(1000)) / Math.PI;
   assert.ok(ember > 1 && ember < 6, `a thousand kelvin ${ember}`);
   assert.equal(seenGlow(30), 0);
@@ -1433,6 +1447,8 @@ test("small bodies are loose and not round, and rock melts where it is hot", () 
   assert.ok(roughOf(body(5.6e18, 0.7)) > 0.9);
   const middling = roughOf(body(2.6e20, 0));
   assert.ok(middling > 0.2 && middling < 0.8, `vesta ${middling}`);
+  const potato = body(4.34e20, 0);
+  assert.ok(Math.abs(potato.radius / 3e5 - 1) < 0.02 && Math.abs(roughOf(potato) - 0.5) < 0.03);
   assert.equal(roughOf(body(9.4e20, 0.25)), 0);
   assert.equal(roughOf(body(EARTH_MASS, 0)), 0);
 
