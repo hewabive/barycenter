@@ -773,7 +773,7 @@ const marked = <Item extends HTMLElement>(item: Item, name: string): Item => {
 };
 const scale = button("", "", () => go(read(), !choice.real));
 const fly = el("a", { class: "away", title: "Fly a ship through this system" }, "Fly");
-const described = () => {
+const linked = () => {
   const view = space.view();
   const shot: Shot = {
     focus: system.bodies[view.focus].name,
@@ -781,6 +781,9 @@ const described = () => {
     tick,
     weather: choice.real ? weather : null,
   };
+  return `${location.origin}${location.pathname}${address(choice)}&${shotQuery(shot)}`;
+};
+const detailed = () => {
   const speed = pacesOf(choice.real).find(([rate]) => rate === pace)?.[1] ?? `${pace}`;
   const setting = [
     pace === 0 ? "time paused" : `time at ${speed}`,
@@ -793,7 +796,7 @@ const described = () => {
     space.gpu(),
     navigator.userAgent,
   ];
-  return `${location.origin}${location.pathname}${address(choice)}&${shotQuery(shot)}\n${setting.join(" · ")}`;
+  return `${linked()}\n${setting.join(" · ")}`;
 };
 const copied = async (text: string): Promise<boolean> => {
   try {
@@ -809,21 +812,31 @@ const copied = async (text: string): Promise<boolean> => {
     return done;
   }
 };
-let copiedTimer = 0;
-const copy = button(
-  "Copy view",
-  "Copy a link to this system, the body in focus, the camera and the clock, with the size of the screen, the build and the graphics card, to show someone what is drawn",
-  () => {
-    const text = described();
+const copier = (label: string, title: string, textOf: () => string) => {
+  let timer = 0;
+  const control = button(label, title, () => {
+    const text = textOf();
     void copied(text).then((done) => {
       if (!done) {
-        prompt("Copy the view", text);
+        prompt(label, text);
       }
-      write(copy, done ? "Copied" : "Copy view");
-      clearTimeout(copiedTimer);
-      copiedTimer = setTimeout(() => write(copy, "Copy view"), COPIED_FOR);
+      write(control, done ? "Copied" : label);
+      clearTimeout(timer);
+      timer = setTimeout(() => write(control, label), COPIED_FOR);
     });
-  },
+  });
+  control.classList.add("copy");
+  return control;
+};
+const copyLink = copier(
+  "Copy link",
+  "Copy a link that opens this system on the same frame: the body in focus, the camera and the clock, paused",
+  linked,
+);
+const copyDetails = copier(
+  "Copy details",
+  "Copy the link with the speed of time, the size of the screen, the build, the graphics card and the browser, to report what is drawn",
+  detailed,
 );
 topbar.append(
   el("strong", { class: "title" }, "Generator"),
@@ -866,7 +879,8 @@ topbar.append(
     scale,
     el("a", { class: "away", href: "atlas.html" }, "Atlas"),
     fly,
-    marked(copy, "copy"),
+    copyLink,
+    copyDetails,
   ),
   marked(
     button("Next", "Make the system of the next seed", () => go(read() + 1)),
