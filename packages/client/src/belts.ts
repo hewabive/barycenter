@@ -88,6 +88,7 @@ export interface Jet {
 
 export interface Crossing {
   mesh: Mesh;
+  cavity: Vector3;
   place(star: Vector3): void;
   turn(tick: number): void;
 }
@@ -108,6 +109,7 @@ export interface Haze {
   eye: Vector3;
   blockers: Vector4[];
   blockerPoles: Vector4[];
+  lopsided: Vector4;
   screens: Vector4[];
   bubbles: Vector4[];
   reach: number;
@@ -416,6 +418,7 @@ export function createHaze(
   const hull = new Vector3(profile.outer, shade.top, shade.steep);
   const blockers = Array.from({ length: BLOCKER_ROOM }, () => new Vector4(0, 0, 0, 0));
   const blockerPoles = Array.from({ length: BLOCKER_ROOM }, () => new Vector4(0, 1, 0, 0));
+  const lopsided = new Vector4(0, 1, 0, 1);
   const mesh = new Mesh(
     new CylinderGeometry(wide, wide, 2 * shade.top, HAZE_SIDES, 1),
     new ShaderMaterial({
@@ -447,6 +450,7 @@ export function createHaze(
         faint,
         blockers: { value: blockers },
         blockerPoles: { value: blockerPoles },
+        lopsided: { value: lopsided },
       },
       transparent: true,
       premultipliedAlpha: true,
@@ -461,6 +465,7 @@ export function createHaze(
     eye,
     blockers,
     blockerPoles,
+    lopsided,
     screens,
     bubbles,
     reach: Math.hypot(wide, shade.top),
@@ -629,6 +634,7 @@ export function createCrossing(
     ...cloaked(),
     star: { value: new Vector3() },
     bend: { value: new Vector3(edge, landing, CROSSING_LEAD) },
+    cavity: { value: new Vector3(0, 1, 0) },
     wide: { value: CROSSING_WIDE * edge },
     tint: { value: tint },
     strength: { value: strength },
@@ -651,6 +657,7 @@ export function createCrossing(
   mesh.frustumCulled = false;
   return {
     mesh,
+    cavity: uniforms.cavity.value,
     place(star) {
       uniforms.star.value.copy(star);
     },

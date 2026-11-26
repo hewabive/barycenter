@@ -1668,6 +1668,7 @@ void main() {
 export const CROSSING_VERTEX = `
 uniform vec3 star;
 uniform vec3 bend;
+uniform vec3 cavity;
 uniform float wide;
 varying float vAcross;
 varying float vAlong;
@@ -1683,7 +1684,8 @@ void main() {
   float lead = bend.z;
   float turned = atan(star.z, star.x);
   float near = length(star.xz);
-  vec2 from = edge * vec2(cos(turned + lead), sin(turned + lead));
+  vec2 outward = vec2(cos(turned + lead), sin(turned + lead));
+  vec2 from = edge * (1.0 - cavity.x * cavity.x) / (1.0 + cavity.x * dot(outward, cavity.yz)) * outward;
   float midway = mix(edge, near, ${real(CROSSING_MIDDLE[0])});
   vec2 middle = midway * vec2(cos(turned + ${real(CROSSING_MIDDLE[1])} * lead), sin(turned + ${real(CROSSING_MIDDLE[1])} * lead));
   vec2 toward = from - star.xz;
@@ -1725,6 +1727,7 @@ void main() {
 export const BLOCKER_ROOM = 2;
 const BLOCKER_SOFT = [0.8, 1.25];
 const BLOCKER_LEAST = 1e-4;
+const LOPSIDED_FADE = 3;
 
 export const HAZE_STEPS = [10, 3];
 
@@ -1760,6 +1763,17 @@ uniform vec4 spirals[${SPIRAL_ROOM}];
 uniform float faint;
 uniform vec4 blockers[${BLOCKER_ROOM}];
 uniform vec4 blockerPoles[${BLOCKER_ROOM}];
+uniform vec4 lopsided;
+
+float lopsidedReach(vec2 spot) {
+  float reach = length(spot);
+  if (lopsided.x <= 0.0) {
+    return reach;
+  }
+  float facing = dot(spot, lopsided.yz) / max(reach, 1e-12);
+  float stretch = lopsided.x * exp(-${real(LOPSIDED_FADE)} * max(reach / lopsided.w - 1.0, 0.0));
+  return reach * (1.0 + stretch * facing) / (1.0 - stretch * stretch);
+}
 
 float blocked(vec3 at) {
   float sum = 0.0;
@@ -1837,7 +1851,7 @@ float brimAt(float reach) {
 Probe probe(vec3 ray, float anchor, float base, float offset) {
   Probe found;
   found.spot = eye.xz + (anchor + offset) * ray.xz;
-  float reach = length(found.spot);
+  float reach = lopsidedReach(found.spot);
   found.share = along(reach);
   vec4 lane = laneAt(found.share);
   found.thick = exp(lane.r);

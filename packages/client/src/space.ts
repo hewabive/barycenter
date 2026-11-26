@@ -200,6 +200,9 @@ const CROSSING_LEAST = (1e-9 * SUN_MASS) / YEAR;
 const SHADOW_FAR = 1.5;
 const SHADOW_MOST = 0.7;
 const SHADOW_CUTS = 18;
+const CAVITY_STRETCH = 0.2;
+const CAVITY_TURNS = 1000;
+const CAVITY_SEED = 0.618034;
 const CROSSING_LANDING = 1.2;
 const CROSSING_REACH = 0.5;
 const CROSSING_SHINE = 0.25;
@@ -639,7 +642,9 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
           const own = hazes.find((haze) => haze.owner === look && haze.about === null);
           return { look, own, angle: own === undefined ? 0 : shadowOf(own) };
         });
-      return { ring, members };
+      ring.lopsided.set(CAVITY_STRETCH, 1, 0, ring.shroud.span.x * (1 + CAVITY_STRETCH));
+      const start = 2 * Math.PI * ((ring.owner.body.seed * CAVITY_SEED) % 1);
+      return { ring, members, start, year: system.bodies[ring.about ?? 0].year };
     });
   const crossings = looks.flatMap((look) => {
     const around = starborn(look.body.physics) ? enclosing(look) : undefined;
@@ -1054,7 +1059,10 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
           }
         });
       }
-      for (const { ring, members } of ringed) {
+      for (const { ring, members, start, year } of ringed) {
+        const apse = start + (2 * Math.PI * shown) / (CAVITY_TURNS * year);
+        ring.lopsided.y = Math.cos(apse);
+        ring.lopsided.z = Math.sin(apse);
         ring.mesh.getWorldQuaternion(across).invert();
         members.forEach(({ look, own, angle }, index) => {
           ring.mesh.worldToLocal(seat.copy(places[look.body.id]));
@@ -1071,6 +1079,7 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
         });
       }
       for (const { look, around, crossing } of crossings) {
+        crossing.cavity.set(around.lopsided.x, around.lopsided.y, around.lopsided.z);
         crossing.place(around.mesh.worldToLocal(seat.copy(places[look.body.id])));
         crossing.turn(shown);
       }
