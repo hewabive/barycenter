@@ -1,5 +1,5 @@
-import { flatOf } from "./interior.ts";
-import { roughOf, STAR_LEAST, wrapped } from "./physics.ts";
+import { flatOf, wrapped } from "./interior.ts";
+import { roughOf, STAR_LEAST } from "./physics.ts";
 import { bowlOf, createGround, type Ground, PIT_SHAPE, RELIEF_SHAPE } from "./relief.ts";
 import type { Body, Physics, Sketch, Vector } from "./types.ts";
 

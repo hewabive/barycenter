@@ -755,7 +755,9 @@ test("a ring is the wreck of a moon: it comes late, thins and is gone", () => {
         }
         if (before === undefined && now !== undefined) {
           born += 1;
-          assert.ok(now.since <= 1.001 * passed, `${label}: fed since the last look`);
+          const wide = looks[at - 1].bodies.find((each) => each.name === body.name);
+          const covered = wide !== undefined && now.inner < 1.05 * wide.physics.radius;
+          assert.ok(covered || now.since <= 1.001 * passed, `${label}: fed since the last look`);
           const host = looks[at].bodies.find((each) => each.name === body.name);
           const lost = looks[at - 1].bodies.filter(
             (moon) =>
@@ -907,11 +909,12 @@ test("a body in gas keeps heat of its own, more of it when heavy or young", () =
   const least = starHeat(starGlow(STAR_LEAST), starRadius(STAR_LEAST));
   assert.ok(Math.abs(innerHeat(0.999 * STAR_LEAST, old, 0.5) / least - 1) < 0.06);
   const gas = { iron: 0.01, rock: 0.02, ice: 0.02, gas: 0.95 };
-  const cool = radiusOf(JUPITER_MASS, gas, 500);
-  assert.equal(radiusOf(JUPITER_MASS, gas), cool);
-  const puffed = radiusOf(JUPITER_MASS, gas, 1800) / cool;
-  assert.ok(puffed > 1.25 && puffed < 1.6, `puffed ${puffed}`);
-  assert.ok(radiusOf(5 * JUPITER_MASS, gas, 1800) / radiusOf(5 * JUPITER_MASS, gas) < puffed);
+  const cool = radiusOf(JUPITER_MASS, gas, 107, 100);
+  const puffed = radiusOf(JUPITER_MASS, gas, 107, 1300) / cool;
+  assert.ok(puffed > 1.2 && puffed < 1.6, `puffed ${puffed}`);
+  const heavy =
+    radiusOf(5 * JUPITER_MASS, gas, 240, 1300) / radiusOf(5 * JUPITER_MASS, gas, 240, 100);
+  assert.ok(heavy > 1 && heavy < puffed, `heavy ${heavy}`);
 });
 
 test("light is drawn on a scale that keeps what is brighter brighter", () => {

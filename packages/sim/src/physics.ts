@@ -1,3 +1,4 @@
+import { wrapped } from "./interior.ts";
 import { GASES, type Gas, type Physics } from "./types.ts";
 
 export const SUN_MASS = 1.989e30;
@@ -23,7 +24,7 @@ export const ROCK_MELT = 1400;
 export const GRAVITY = 6.674e-11;
 export const LIGHT_SPEED = 2.998e8;
 const FROST_LINE = 2.7 * ASTRONOMICAL_UNIT;
-const RADIATION = 5.67e-8;
+export const RADIATION = 5.67e-8;
 const HOLD_LEAST = 0.02;
 export const SPIN_MOST = 0.3;
 export const BOLTZMANN = 1.381e-23;
@@ -32,7 +33,6 @@ export const GAS_WEIGHT = 2.34;
 const GAS_FROM = 3;
 const GAS_FULL = 300;
 const GAS_MOST = 0.95;
-const DEEP_AIR = 1e8;
 export const ROUND_ROCK = 3e5;
 export const ROUND_ICE = 2e5;
 const SPAN_FIT = [1315, 2498.6, 160.75, 0.035266, 0.34263];
@@ -745,10 +745,6 @@ export function gasShare(mass: number): number {
   return GAS_MOST * smooth(Math.log(GAS_FROM), Math.log(GAS_FULL), Math.log(earths)) ** 2;
 }
 
-export function wrapped(physics: Pick<Physics, "mass" | "radius" | "gas">): boolean {
-  return physics.gas >= 1 || columnOf(physics.mass, physics.radius) * physics.gas >= DEEP_AIR;
-}
-
 export function densityOf(mass: number, radius: number): number {
   return mass / ((4 / 3) * Math.PI * radius ** 3);
 }
@@ -927,7 +923,7 @@ function tracesOf(mass: number): Partial<Record<Gas, number>> {
   return Object.fromEntries(Object.entries(SUN_TRACES).map(([gas, share]) => [gas, share * rich]));
 }
 
-function gasAlbedo(mass: number): number {
+export function gasAlbedo(mass: number): number {
   const [light, heavy] = BRIGHT_GAS_MASS;
   const [dim, bright] = BRIGHT_GAS;
   const share = Math.log(mass / light) / Math.log(heavy / light);

@@ -29,6 +29,7 @@ import {
   lampsAt,
   lampsOf,
   lightAt,
+  type Matter,
   moltenOf,
   type Physics,
   pullOf,
@@ -91,6 +92,14 @@ const WEATHER_MOST = 16;
 const LAMPS = 2;
 const HEAVY = 0.03;
 const THIN_SHELL = 1e-3;
+const MATTERS: Record<Matter, string> = {
+  iron: "iron",
+  rock: "rock",
+  ice: "ice",
+  blend: "mix",
+  metal: "metallic hydrogen",
+  gas: "hydrogen and helium",
+};
 const ROCK_GRAIN = 3000;
 const ICE_GRAIN = 900;
 const AGE_LEAST = 1e-4;
@@ -269,6 +278,8 @@ function factsOf(body: Body): Fact[] {
   const rough = roughOf(physics);
   const molten = moltenOf(physics);
   const inside = interiorOf(physics);
+  const stuff = (matter: Matter) =>
+    matter === "ice" && family === "fluid" ? "water" : MATTERS[matter];
   const shells = (inside?.layers ?? []).filter(
     ({ radius }, index, layers) =>
       radius - (layers[index - 1]?.radius ?? 0) >= THIN_SHELL * physics.radius,
@@ -366,7 +377,7 @@ function factsOf(body: Body): Fact[] {
               shells.length === 1 && shells[0].matter === "blend"
                 ? "one mix all the way down, too small to have parted into layers"
                 : shells
-                    .map(({ matter, radius }) => `${matter} to ${figure(radius / 1000)} km`)
+                    .map(({ matter, radius }) => `${stuff(matter)} to ${figure(radius / 1000)} km`)
                     .join(" · "),
             ],
             [
@@ -375,9 +386,12 @@ function factsOf(body: Body): Fact[] {
                 `${squeeze(inside.centre)} at the centre`,
                 ...shells
                   .slice(1)
-                  .map(({ matter, pressure }) => `${squeeze(pressure)} under the ${matter}`),
+                  .map(({ matter, pressure }) => `${squeeze(pressure)} under the ${stuff(matter)}`),
               ].join(" · "),
             ],
+            ...(inside.skin > 0
+              ? [["Temperature at one bar", `${figure(inside.skin)} K`] satisfies Fact]
+              : []),
             ["Moment of inertia", `${figure(inside.turning)} of its mass times its radius squared`],
           ] satisfies Fact[])),
       ["Temperature", `${figure(physics.heat)} K · ${figure(physics.heat - 273.15)} °C`],

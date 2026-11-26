@@ -72,6 +72,7 @@ export {
   radiusOf,
   solidOf,
   turningOf,
+  wrapped,
 } from "./interior.ts";
 export type { Duty, Muster, Route } from "./muster.ts";
 export {
@@ -159,7 +160,6 @@ export {
   turnover,
   type Volatiles,
   vaporOf,
-  wrapped,
   YEAR,
 } from "./physics.ts";
 export { createRandom, type Random } from "./random.ts";

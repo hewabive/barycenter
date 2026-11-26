@@ -21,7 +21,7 @@ import {
   type Track,
   trackOf,
 } from "./infall.ts";
-import { bulgeOf, radiusOf, turningOf } from "./interior.ts";
+import { bulgeOf, radiusOf, turningOf, wrapped } from "./interior.ts";
 import { lobeOf, loneOf, type Pairing, type Phase, pairOf, type Turn } from "./pairs.ts";
 import {
   ASTRONOMICAL_UNIT,
@@ -41,6 +41,7 @@ import {
   frostOf,
   type Gain,
   GIGAYEAR,
+  gasAlbedo,
   gasShare,
   glowOf,
   gravityOf,
@@ -70,7 +71,6 @@ import {
   stocked,
   strippedShare,
   swingOf,
-  wrapped,
   YEAR,
   yearOf,
 } from "./physics.ts";
@@ -696,14 +696,14 @@ function framed(
   const falling = fed > 0 ? (gravityOf(mass, cold) * fed) / (Math.PI * cold) : 0;
   const glow = fed > 0 ? 4 * Math.PI * site.distance ** 2 * (light + falling) : lit;
   const inner = innerHeat(mass, site.star.age, lot.vigor);
-  const warmth = Math.max(fed > 0 ? balanceHeat(glow, site.distance, 0) : bare, inner);
+  const shone = balanceHeat(glow, site.distance, gasAlbedo(mass));
   const baked =
     lot.beyond &&
     worst > ICE_LOST &&
-    gripOf(mass, radiusOf(mass, soaked, warmth), worst, "water") < LOOSE_GRIP;
+    gripOf(mass, radiusOf(mass, soaked, inner, shone), worst, "water") < LOOSE_GRIP;
   const { iron, rock, ice } = baked ? sharesOf(gas, lot.damp * DRIED, lot.metal) : soaked;
-  const radius = radiusOf(mass, { iron, rock, ice, gas }, warmth);
-  const fluid = wrapped({ mass, radius, gas });
+  const radius = radiusOf(mass, { iron, rock, ice, gas }, inner, shone);
+  const fluid = wrapped({ mass, iron, rock, ice, gas });
   const grip = (kind: Gas) => gripOf(mass, radius, worst, kind);
   return { light, glow, bare, worst, inner, iron, rock, ice, radius, fluid, grip };
 }
@@ -723,7 +723,7 @@ function lotOf(mass: number, site: Site, random: Random, locked: boolean): Lot {
     ? between(random, 0.3, 0.65)
     : decades(random, -5.5, -3.2) * (young > PARCH_HEAT ? 0.01 : 1);
   const metal = random.next() < 0.06 ? between(random, 0.45, 0.7) : between(random, 0.15, 0.38);
-  const puffed = radiusOf(mass, sharesOf(gathered, damp, metal), Math.max(young, inner));
+  const puffed = radiusOf(mass, sharesOf(gathered, damp, metal), inner, young);
   const gas = Math.max(0, gathered - strippedShare(mass, puffed, then.star, then.distance));
   const core = { mass, vigor, gas, damp, metal, beyond };
   const frame = framed(core, site);
@@ -2940,7 +2940,8 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
           const stand = host.setting;
           const moon = parked(cycles(age).moon);
           const early = smooth(MOON_FROM, 1, host.share) < 1;
-          if (stand === null || early || moon === null) {
+          const deep = moon !== null && moon.orbit < MOON_CLEAR * host.physics.radius;
+          if (stand === null || early || moon === null || deep) {
             sprig.absent = true;
             return;
           }
