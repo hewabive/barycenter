@@ -79,7 +79,7 @@ Messages are JSON over one WebSocket. A client first joins a room. A room that d
 - A save written by another version of the format is set aside under another name, and a fresh game starts in its place.
 - A snapshot is a debugging aid that keeps the moment a question came up. On request the server writes the room as it stands to `snapshots/<room>-<tick>.json` inside the saves folder and answers with that name. The file is a save without seat tokens, plus the seat that asked, the region it had selected and the state of the clock. It holds everything, with no fog. Copied into a saves folder, it opens as a room of its own.
 - Live tuning is off unless the server is started with the tuning flag.
-- The server also hands out the built client, so one process and one address are enough to play. The game is the page `strategy.html`, since the start page is the generator while the strategy waits. Text files are sent gzipped, 284 KB instead of 919 KB for the largest script, and files with a hash in their name are cached for good.
+- The server also hands out the built client, so one process and one address are enough to play. The game is the page `strategy.html`, since the start page is the generator while the strategy waits. Text files are sent gzipped, 286 KB instead of 923 KB for the largest script, and files with a hash in their name are cached for good.
 
 ## Flight
 

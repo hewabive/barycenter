@@ -104,7 +104,7 @@ const EMBER_DAY = [0.25, 2];
 const PULSAR_MASS = [1.17, 0.0692];
 const PULSAR_RADIUS = 11500;
 const PULSAR_HEAT = [1.6e6, 100 * YEAR, 1 / 12, 6e5 * YEAR];
-const PULSAR_DAY = [0.04, 0.52, 1.95e-14];
+const PULSAR_DAY = [0.04, 0.52];
 const HOLE_SHARE = 0.3;
 const HOLE_HEAT = 6.17e-8;
 const HOLE_SPIN = [0.1, 0.88];
@@ -335,6 +335,14 @@ export function dwarfOf(mass: number, spent: number): Left {
     glow: SUN_GLOW * left * cooled,
   };
 }
+
+export function dwarfSpent(mass: number, glow: number): number {
+  const left = Math.min(mass / SUN_MASS, 0.999 * EMBER_RADIUS[1]);
+  const [pace, power, first] = EMBER_COOLING;
+  return Math.max(0, pace / (glow / (SUN_GLOW * left)) ** (1 / power) - first);
+}
+
+export const PULSAR_SLOWING = 1.95e-14;
 
 export function pulsarOf(mass: number, spent: number): Left {
   const [warm, early, slope, late] = PULSAR_HEAT;
@@ -611,7 +619,7 @@ export function starTurn(
   }
   if (ending === "pulsar") {
     const newborn = PULSAR_DAY[0] + PULSAR_DAY[1] * luck;
-    return Math.sqrt(newborn ** 2 + 2 * PULSAR_DAY[2] * life.spent);
+    return Math.sqrt(newborn ** 2 + 2 * PULSAR_SLOWING * life.spent);
   }
   return DAY * (EMBER_DAY[0] + EMBER_DAY[1] * luck);
 }

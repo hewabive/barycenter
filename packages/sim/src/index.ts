@@ -23,6 +23,16 @@ export {
   type Shipment,
 } from "./economy.ts";
 export {
+  type Field,
+  fieldOf,
+  reachOf,
+  type Shield,
+  type Source,
+  shieldOf,
+  VACUUM,
+  windAt,
+} from "./field.ts";
+export {
   type Balance,
   type Burn,
   burnFor,

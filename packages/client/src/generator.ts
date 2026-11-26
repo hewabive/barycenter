@@ -42,6 +42,7 @@ import {
   scaleHeight,
   seaCover,
   seenGlow,
+  shieldOf,
   sketchSystem,
   starborn,
   starHeat,
@@ -94,6 +95,14 @@ const WEATHER_MOST = 16;
 const LAMPS = 2;
 const HEAVY = 0.03;
 const THIN_SHELL = 1e-3;
+const EARTH_FIELD = 29.8e-6;
+const FIELD_SOURCES = {
+  core: "the stirring of its iron core",
+  metal: "hydrogen pressed into a metal, turning over",
+  water: "a shell of water that conducts, turning over",
+  shell: "the stirred shell of the star",
+  frozen: "a field kept from before, not made anew",
+};
 const SPENT_LEAST = 0.01;
 const MATTERS: Record<Matter, string> = {
   iron: "iron",
@@ -189,6 +198,14 @@ const power = (watts: number) =>
     : watts >= 1e8
       ? `${figure(watts / 1e9)} GW`
       : `${figure(watts / 1e6)} MW`;
+const tesla = (value: number) =>
+  value >= 1
+    ? `${figure(value)} T`
+    : value >= 1e-3
+      ? `${figure(value * 1e3)} mT`
+      : value >= 1e-6
+        ? `${figure(value * 1e6)} µT`
+        : `${figure(value * 1e9)} nT`;
 const span = (seconds: number) =>
   seconds >= 2 * YEAR
     ? `${figure(seconds / YEAR)} years`
@@ -547,6 +564,40 @@ function factsOf(body: Body): Fact[] {
       ["Life", physics.life > 0 ? "yes" : "no"],
     );
   }
+  const { field, press, reach: held, inside: host } = shieldOf(system, body.id);
+  const wide = held / physics.radius;
+  const shelter =
+    host !== null
+      ? `inside the field of ${system.bodies[host].name}${
+          field === null ? "" : ` · its own holds out to ${figure(wide)} of its radii`
+        }`
+      : press <= 0 || family === "star"
+        ? null
+        : field === null || wide <= 1
+          ? `none: the wind of ${sun.name} reaches it`
+          : `holds off the wind of ${sun.name} out to ${figure(wide)} of its radii`;
+  facts.push(
+    "Field",
+    ...(field === null
+      ? ([["Field of its own", "none"]] satisfies Fact[])
+      : ([
+          [
+            "Field of its own",
+            `${tesla(field.surface)} at its equator · ${figure(field.surface / EARTH_FIELD)} of the Earth's`,
+          ],
+          ["Made by", FIELD_SOURCES[field.source]],
+          [
+            "Poles",
+            `${field.split ? "many, with a dipole" : "two, a dipole"} tilted ${figure(
+              (180 * field.tilt) / Math.PI,
+            )}° to its axis · ${figure(field.moment)} A·m²`,
+          ],
+          ...(field.source === "shell"
+            ? [["Mean over its surface", tesla(field.mean)] satisfies Fact]
+            : []),
+        ] satisfies Fact[])),
+    ...(shelter === null ? [] : [["Shelter", shelter] satisfies Fact]),
+  );
   if (parent !== null) {
     const hill = hillOf(physics.orbit, physics.mass, parent.physics.mass);
     const holder = system.bodies.find(
