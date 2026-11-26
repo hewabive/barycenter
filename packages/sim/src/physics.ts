@@ -44,7 +44,8 @@ const DAWN_LEAST = 1e5 * YEAR;
 const DAWN_SWELL = 0.33;
 const DAWN_HEAT = [4300, 0.16];
 const DAWN_WARMING = 1.175;
-const DAWN_HEAVY = 2;
+const DAWN_HEAVY = 1.5;
+const DAWN_RADIATIVE = 1.02;
 const DAWN_STEADY = [1, 3];
 const GLOW_LIGHT = [
   [2.028, -0.976],
@@ -1087,11 +1088,19 @@ export function classOf(physics: Physics): string {
     if (size < STAR_SIZES[0]) {
       return physics.mass < SUBDWARF_MASS * SUN_MASS ? "hot subdwarf" : "Wolf-Rayet star";
     }
+    const gassy = physics.disks.some((disk) => disk.gas > 0);
+    if (physics.age < starDawn(physics.mass) && (size >= STAR_SIZES[1] || gassy)) {
+      const suns = physics.mass / SUN_MASS;
+      if (suns < DAWN_HEAVY) {
+        return "T Tauri star";
+      }
+      const hayashi = DAWN_HEAT[0] * suns ** DAWN_HEAT[1];
+      return physics.heat > DAWN_RADIATIVE * hayashi
+        ? "Herbig star"
+        : "intermediate-mass T Tauri star";
+    }
     if (size < STAR_SIZES[1]) {
       return shade === "red" ? "red dwarf" : `${shade} star`;
-    }
-    if (physics.age < starDawn(physics.mass)) {
-      return physics.mass < DAWN_HEAVY * SUN_MASS ? "T Tauri star" : "Herbig star";
     }
     if (physics.mass >= BURST_LEAST) {
       return `${shade} supergiant`;

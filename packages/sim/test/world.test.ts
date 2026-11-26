@@ -1890,6 +1890,11 @@ test("a young star is wide and cool and settles on the main sequence", () => {
   assert.ok(dim.glow > 0.4 * SUN_GLOW && dim.glow < 0.6 * SUN_GLOW);
   assert.ok(sun.day < at(1, 1e8).day && at(1, 1e8).day < at(1, 4.5e9).day);
   assert.equal(classOf(at(3, 5e5)), "Herbig star");
+  const middle = at(1.9, 2e5);
+  assert.equal(classOf(middle), "intermediate-mass T Tauri star");
+  const fed = { ...at(1.9, 2e6), disks: [{ gas: 1 } as never] };
+  assert.equal(classOf(fed), "Herbig star");
+  assert.ok(!/Tauri|Herbig/.test(classOf({ ...fed, disks: [] })));
   assert.equal(classOf(at(0.1, 1e8)), "T Tauri star");
   assert.equal(classOf(at(0.1, 5e8)), "red dwarf");
   assert.ok(Math.abs(at(0.1, 1e6).radius / SUN_RADIUS - 0.9) < 0.1);
