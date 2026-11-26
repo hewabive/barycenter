@@ -255,6 +255,8 @@ const JET_WIDE = 2.5;
 const JET_KNOTS = [5, 8];
 const JET_GLOW = 0.7;
 const JET_ASIDE = [0.1, 0.35];
+const CROSSING_MIDDLE = [0.55, 0.6];
+const CROSSING_CLUMPS = 3;
 const ARC_WIDE = 2.4;
 const SPIRAL_TWIST = 5;
 const SPIRAL_REACH = 0.5;
@@ -1659,6 +1661,63 @@ void main() {
   float knots = 0.3 + 0.7 * first * first * (0.4 + 0.6 * second);
   float ends = smoothstep(0.0, 0.01, vHigh) * (1.0 - smoothstep(0.55 * top, top, vHigh));
   gl_FragColor = vec4(${HYDROGEN} * ${real(JET_GLOW)} * strength * core * knots * ends * vClear, 1.0);
+  #include <colorspace_fragment>
+}
+`;
+
+export const CROSSING_VERTEX = `
+uniform vec3 star;
+uniform vec3 bend;
+uniform float wide;
+varying float vAcross;
+varying float vAlong;
+varying float vClear;
+${SHROUD}
+vec2 swept(float along, vec2 from, vec2 middle, vec2 to) {
+  float rest = 1.0 - along;
+  return rest * rest * from + 2.0 * rest * along * middle + along * along * to;
+}
+void main() {
+  float edge = bend.x;
+  float landing = bend.y;
+  float lead = bend.z;
+  float turned = atan(star.z, star.x);
+  float near = length(star.xz);
+  vec2 from = edge * vec2(cos(turned + lead), sin(turned + lead));
+  float midway = mix(edge, near, ${real(CROSSING_MIDDLE[0])});
+  vec2 middle = midway * vec2(cos(turned + ${real(CROSSING_MIDDLE[1])} * lead), sin(turned + ${real(CROSSING_MIDDLE[1])} * lead));
+  vec2 toward = from - star.xz;
+  vec2 to = star.xz + toward / max(length(toward), 1e-12) * landing;
+  float along = position.y;
+  vec2 curve = swept(along, from, middle, to);
+  vec2 ahead = swept(min(1.0, along + 0.01), from, middle, to) - swept(max(0.0, along - 0.01), from, middle, to);
+  vec3 spot = vec3(curve.x, star.y * along, curve.y);
+  vec4 placed = modelViewMatrix * vec4(spot, 1.0);
+  vec3 line = normalize((modelViewMatrix * vec4(ahead.x, 0.0, ahead.y, 0.0)).xyz);
+  vec3 across = cross(line, normalize(placed.xyz));
+  float lean = length(across);
+  placed.xyz += (lean > 1e-4 ? across / lean : vec3(0.0)) * position.x * wide * (1.0 - 0.6 * along);
+  vAcross = position.x;
+  vAlong = along;
+  vClear = passing(spot);
+  gl_Position = projectionMatrix * placed;
+}
+`;
+
+export const CROSSING_FRAGMENT = `
+uniform vec3 tint;
+uniform float strength;
+uniform float flow;
+uniform float pulse;
+varying float vAcross;
+varying float vAlong;
+varying float vClear;
+
+void main() {
+  float edge = 1.0 - vAcross * vAcross;
+  float clumps = 0.55 + 0.45 * sin(6.2831853 * (${real(CROSSING_CLUMPS)} * vAlong - flow));
+  float ends = smoothstep(0.0, 0.15, vAlong) * (1.0 - smoothstep(0.85, 1.0, vAlong));
+  gl_FragColor = vec4(tint * strength * pulse * edge * edge * clumps * ends * vClear, 1.0);
   #include <colorspace_fragment>
 }
 `;

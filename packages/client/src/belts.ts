@@ -49,6 +49,8 @@ import {
   BELT_FRAGMENT,
   BELT_VERTEX,
   BUBBLE_ROOM,
+  CROSSING_FRAGMENT,
+  CROSSING_VERTEX,
   HAZE_FRAGMENT,
   HAZE_STEPS,
   HAZE_VERTEX,
@@ -81,6 +83,12 @@ export interface Jet {
   outerInto: Matrix4;
   veilAlso(shroud: Shroud): void;
   turn(tick: number, distance: number): void;
+}
+
+export interface Crossing {
+  mesh: Mesh;
+  place(star: Vector3): void;
+  turn(tick: number): void;
 }
 
 export interface Swarm extends Belt {
@@ -144,6 +152,11 @@ const JET_OPEN = 0.029;
 const JET_FAR = [1.2, 2.5];
 const JET_FOOT = 0.5;
 const JET_YEARS = 36;
+const CROSSING_STEPS = 40;
+const CROSSING_WIDE = 0.05;
+const CROSSING_LEAD = -0.9;
+const CROSSING_YEARS = 9;
+const CROSSING_PULSE = 0.5;
 const SWARM_LEAST = 120;
 const SWARM_MOST = 700;
 const SWARM_DENSE = 900;
@@ -579,6 +592,64 @@ export function createJet(
       const foot = Math.min(1, (JET_FOOT * distance) / reach);
       uniforms.flow.value = gone - Math.floor(gone);
       uniforms.top.value = foot + (1 - foot) * grown;
+    },
+  };
+}
+
+export function createCrossing(
+  edge: number,
+  landing: number,
+  tint: Color,
+  strength: number,
+  pair: { year: number; phase: number },
+  shroud: Shroud,
+): Crossing {
+  const spots: number[] = [];
+  const corners: number[] = [];
+  for (let step = 0; step <= CROSSING_STEPS; step++) {
+    spots.push(-1, step / CROSSING_STEPS, 0, 1, step / CROSSING_STEPS, 0);
+    if (step < CROSSING_STEPS) {
+      const low = 2 * step;
+      corners.push(low, low + 1, low + 2, low + 1, low + 3, low + 2);
+    }
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute("position", new BufferAttribute(new Float32Array(spots), 3));
+  geometry.setIndex(corners);
+  const uniforms = {
+    ...cloaked(),
+    star: { value: new Vector3() },
+    bend: { value: new Vector3(edge, landing, CROSSING_LEAD) },
+    wide: { value: CROSSING_WIDE * edge },
+    tint: { value: tint },
+    strength: { value: strength },
+    flow: { value: 0 },
+    pulse: { value: 1 },
+  };
+  cloak(uniforms, shroud);
+  const mesh = new Mesh(
+    geometry,
+    new ShaderMaterial({
+      vertexShader: CROSSING_VERTEX,
+      fragmentShader: CROSSING_FRAGMENT,
+      uniforms,
+      transparent: true,
+      blending: AdditiveBlending,
+      depthWrite: false,
+      side: DoubleSide,
+    }),
+  );
+  mesh.frustumCulled = false;
+  return {
+    mesh,
+    place(star) {
+      uniforms.star.value.copy(star);
+    },
+    turn(tick) {
+      const turns = tick / pair.year + pair.phase / (2 * Math.PI);
+      const gone = tick / (CROSSING_YEARS * pair.year);
+      uniforms.flow.value = gone - Math.floor(gone);
+      uniforms.pulse.value = 1 + CROSSING_PULSE * Math.cos(2 * Math.PI * turns - Math.PI);
     },
   };
 }

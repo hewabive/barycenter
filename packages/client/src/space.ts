@@ -50,7 +50,14 @@ import {
   WebGLRenderer,
 } from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { createBelt, createHaze, createJet, createMist, createSwarm } from "./belts.ts";
+import {
+  createBelt,
+  createCrossing,
+  createHaze,
+  createJet,
+  createMist,
+  createSwarm,
+} from "./belts.ts";
 import { createLooks, type Look, type Paint } from "./bodies.ts";
 import { el } from "./dom.ts";
 import { createGush, createHusk, stanceOf } from "./flows.ts";
@@ -188,6 +195,10 @@ const SPIRAL_GAIN = 0.7;
 const JET_LEAST = (1e-8 * SUN_MASS) / YEAR;
 const JET_LONG = 3;
 const JET_GIRTH = 0.25;
+const CROSSING_LEAST = (1e-9 * SUN_MASS) / YEAR;
+const CROSSING_LANDING = 1.2;
+const CROSSING_REACH = 0.5;
+const CROSSING_SHINE = 0.25;
 const HAZE_BUBBLE = 6;
 const HAZE_NEAR = [10, 30];
 const TRACK_ORDER = 0.5;
@@ -540,6 +551,12 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
       (haze) =>
         haze.about !== null && (haze.owner === look || haze.owner.body.id === look.body.parent),
     );
+  const mateOf = (look: Look): Body | undefined =>
+    look.body.parent !== null && starborn(system.bodies[look.body.parent].physics)
+      ? look.body
+      : system.bodies
+          .filter((body) => body.parent === look.body.id && starborn(body.physics))
+          .sort((left, right) => left.orbit - right.orbit)[0];
   const wrapped = hazes.flatMap((haze) => {
     const around = haze.about === null ? enclosing(haze.owner) : undefined;
     if (haze.jet === null || around === undefined) {
@@ -565,12 +582,7 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
       funnels.group.scale.setScalar(look.girth);
       look.frame.add(funnels.group);
     }
-    const mate =
-      look.body.parent !== null && starborn(system.bodies[look.body.parent].physics)
-        ? look.body
-        : system.bodies
-            .filter((body) => body.parent === look.body.id && starborn(body.physics))
-            .sort((left, right) => left.orbit - right.orbit)[0];
+    const mate = mateOf(look);
     const strength = Math.min(1, Math.log10(Math.max(1, fall.rate / JET_LEAST)));
     const jet =
       strength > 0 && mate !== undefined
@@ -587,6 +599,32 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
       look.frame.add(jet.mesh);
     }
     return [{ look, around, jet, funnels }];
+  });
+  const crossings = looks.flatMap((look) => {
+    const around = starborn(look.body.physics) ? enclosing(look) : undefined;
+    const fall = around === undefined ? null : fallOf(look.body, system.bodies);
+    const mate = mateOf(look);
+    if (around === undefined || fall === null || mate === undefined) {
+      return [];
+    }
+    const own = hazes.find((haze) => haze.owner === look && haze.about === null);
+    const landing =
+      own === undefined ? CROSSING_LANDING * look.girth : CROSSING_REACH * own.shroud.span.y;
+    const strength = Math.max(0, Math.min(1, Math.log10(fall.rate / CROSSING_LEAST) / 2));
+    if (strength <= 0) {
+      return [];
+    }
+    const crossing = createCrossing(
+      around.shroud.span.x,
+      landing,
+      tintOf(around.owner.body).multiplyScalar(CROSSING_SHINE),
+      strength,
+      { year: mate.year, phase: mate.phase },
+      around.shroud,
+    );
+    crossing.mesh.renderOrder = BELT_ORDER;
+    around.mesh.add(crossing.mesh);
+    return [{ look, around, crossing }];
   });
   for (const belt of belts) {
     world.add(belt.points);
@@ -972,6 +1010,10 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
             bubble.set(seat.x, seat.y, seat.z, HAZE_BUBBLE * found.look.girth * near);
           }
         });
+      }
+      for (const { look, around, crossing } of crossings) {
+        crossing.place(around.mesh.worldToLocal(seat.copy(places[look.body.id])));
+        crossing.turn(shown);
       }
       for (const { jet, around } of wrapped) {
         jet.mesh.updateWorldMatrix(true, false);
