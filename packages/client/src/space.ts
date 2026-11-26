@@ -7,6 +7,8 @@ import {
   createRandom,
   type Disk,
   dustLight,
+  fallOf,
+  fieldOf,
   heatAt,
   inflowOf,
   poleOf,
@@ -51,6 +53,7 @@ import { createBelt, createHaze, createJet, createMist, createSwarm } from "./be
 import { createLooks, type Look, type Paint } from "./bodies.ts";
 import { el } from "./dom.ts";
 import { createGush, createHusk, stanceOf } from "./flows.ts";
+import { createFunnels } from "./funnels.ts";
 import type { Layer } from "./haze.ts";
 import { holeOf } from "./looks.ts";
 import { ORBIT, SKY } from "./palette.ts";
@@ -517,7 +520,17 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
         jet.mesh.renderOrder = BELT_ORDER;
         haze.mesh.add(jet.mesh);
       }
-      return [{ ...haze, about, owner, lamps, swarms, jet }];
+      const fall = about === null && starborn(owner.body.physics) ? fallOf(owner.body) : null;
+      const field = fall === null ? null : fieldOf(owner.body.physics, null);
+      const funnels =
+        fall === null || field === null || fall.edge <= owner.body.physics.radius
+          ? null
+          : createFunnels(owner.body, fall, field, layers[0].lane.inner / owner.girth);
+      if (funnels !== null) {
+        funnels.group.scale.setScalar(owner.girth);
+        owner.frame.add(funnels.group);
+      }
+      return [{ ...haze, about, owner, lamps, swarms, jet, funnels }];
     });
   });
   for (const belt of belts) {
@@ -877,6 +890,7 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
         haze.turn(shown, (2 * slope) / mist.grid.y);
         haze.mesh.worldToLocal(haze.eye.copy(camera.position));
         haze.jet?.turn(shown, haze.eye.length());
+        haze.funnels?.turn(shown);
         const parent = haze.owner.body.parent;
         const around = hazes.find((other) => other.owner.body.id === parent);
         if (around !== undefined) {

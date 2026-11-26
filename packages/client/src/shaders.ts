@@ -2107,6 +2107,46 @@ void main() {
 }
 `;
 
+export const FUNNEL_FRAGMENT = `
+uniform vec3 tint;
+uniform float flow;
+uniform float might;
+varying vec2 vSeat;
+
+void main() {
+  float edge = 1.0 - vSeat.x * vSeat.x;
+  float knots = 0.8 + 0.2 * sin(6.2831853 * (4.0 * vSeat.y - flow));
+  float risen = smoothstep(0.0, 0.15, vSeat.y);
+  float fallen = 0.4 + 0.6 * vSeat.y * vSeat.y;
+  gl_FragColor = vec4(tint * might * edge * edge * knots * risen * fallen, 1.0);
+  #include <colorspace_fragment>
+}
+`;
+
+export const SPOT_VERTEX = `
+uniform vec2 cap;
+varying vec2 vAt;
+
+void main() {
+  vAt = position.xy;
+  vec3 bent = cap.y * normalize(vec3(cap.x * position.xy, 1.0));
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(bent, 1.0);
+}
+`;
+
+export const SPOT_FRAGMENT = `
+uniform vec3 tint;
+uniform float might;
+varying vec2 vAt;
+
+void main() {
+  float far = dot(vAt, vAt);
+  float glow = exp(-3.0 * far) * (1.0 - smoothstep(0.6, 1.0, far));
+  gl_FragColor = vec4(tint * might * glow, 1.0);
+  #include <colorspace_fragment>
+}
+`;
+
 export const WHIRL_VERTEX = `
 varying vec3 vAt;
 

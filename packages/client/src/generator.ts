@@ -15,6 +15,7 @@ import {
   EARTH_RADIUS,
   EARTH_SEEN,
   escapeOf,
+  fallOf,
   frostOf,
   GASES,
   GIGAYEAR,
@@ -566,6 +567,7 @@ function factsOf(body: Body): Fact[] {
   }
   const { field, press, reach: held, inside: host } = shieldOf(system, body.id);
   const wide = held / physics.radius;
+  const fall = family === "star" ? fallOf(body) : null;
   const shelter =
     host !== null
       ? `inside the field of ${system.bodies[host].name}${
@@ -597,6 +599,20 @@ function factsOf(body: Body): Fact[] {
             : []),
         ] satisfies Fact[])),
     ...(shelter === null ? [] : [["Shelter", shelter] satisfies Fact]),
+    ...(fall === null
+      ? []
+      : [
+          [
+            "Gas falling in",
+            `${figure((fall.rate * YEAR) / SUN_MASS)} suns a year · ${
+              fall.edge > physics.radius
+                ? `stopped by the field at ${figure(fall.edge / physics.radius)} radii, it falls at ${figure(
+                    fall.speed / 1000,
+                  )} km/s onto ${share(fall.spots)} of the surface, lit to ${figure(fall.heat)} K`
+                : "straight from the disk onto the equator"
+            } · ${figure(fall.light / SUN_GLOW)} suns of light`,
+          ] satisfies Fact,
+        ]),
   );
   if (parent !== null) {
     const hill = hillOf(physics.orbit, physics.mass, parent.physics.mass);

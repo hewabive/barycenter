@@ -12,6 +12,7 @@ import {
   stirredHeight,
   wearOf,
 } from "./disks.ts";
+import { fallOf } from "./field.ts";
 import { forcedBy } from "./heat.ts";
 import {
   type Drift,
@@ -360,6 +361,7 @@ const CALM_SLANT = 0.08;
 const MOON_STRETCH = 0.02;
 const PAIRED_STEP = 2 ** (2 / 3);
 const PAIRED_NEAR = 0.02;
+const FED_ROUNDS = 4;
 const CAUGHT_SHARE = 0.3;
 const CAUGHT_STRETCH = 0.2;
 const CAUGHT_LEAN = [0.96, 2.269];
@@ -1822,7 +1824,25 @@ function rounded(bodies: Body[]): Body[] {
       ? forcedBy(pairedHeat(physics, next.physics, turner), physics, around.mass)
       : 0;
     const stretch = Math.max(left, Math.min(forced, MOON_STRETCH));
-    return { ...body, physics: { ...physics, stretch } };
+    return { ...body, physics: { ...physics, stretch: trim(stretch) } };
+  });
+}
+
+function fed(bodies: Body[]): Body[] {
+  return bodies.map((body) => {
+    const { physics } = body;
+    if (!starborn(physics) || physics.day === physics.year) {
+      return body;
+    }
+    let day = physics.day;
+    for (let round = 0; round < FED_ROUNDS; round++) {
+      const fall = fallOf({ seed: body.seed, physics: { ...physics, day } });
+      if (fall === null || fall.edge <= physics.radius) {
+        return body;
+      }
+      day = yearOf(fall.edge, physics.mass);
+    }
+    return { ...body, physics: { ...physics, day: trim(day) } };
   });
 }
 
@@ -3746,7 +3766,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
   for (const body of bodies) {
     body.swallowed.sort((left, right) => left.since - right.since);
   }
-  return { ...ranked(rounded(bodies), home), anchor };
+  return { ...ranked(fed(rounded(bodies)), home), anchor };
 }
 
 export function sketchSystem(world: number, plan: Plan): Sketch {

@@ -23,7 +23,9 @@ export {
   type Shipment,
 } from "./economy.ts";
 export {
+  type Fall,
   type Field,
+  fallOf,
   fieldOf,
   reachOf,
   type Shield,

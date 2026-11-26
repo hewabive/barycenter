@@ -1,3 +1,4 @@
+import { inflowOf } from "./disks.ts";
 import { warmthOf } from "./heat.ts";
 import { denseAt, interiorOf, wrapped } from "./interior.ts";
 import {
@@ -5,8 +6,10 @@ import {
   densityOf,
   dwarfSpent,
   GIGAYEAR,
+  GRAVITY,
   holeRadius,
   PULSAR_SLOWING,
+  RADIATION,
   STAR_LEAST,
   SUN_GLOW,
   SUN_MASS,
@@ -19,7 +22,7 @@ import {
 } from "./physics.ts";
 import { createRandom } from "./random.ts";
 import { withinOf } from "./stars.ts";
-import type { Physics, Sketch } from "./types.ts";
+import type { Body, Physics, Sketch } from "./types.ts";
 
 export type Source = "core" | "metal" | "water" | "shell" | "frozen";
 
@@ -28,6 +31,15 @@ export interface Shield {
   press: number;
   reach: number;
   inside: number | null;
+}
+
+export interface Fall {
+  rate: number;
+  edge: number;
+  light: number;
+  speed: number;
+  spots: number;
+  heat: number;
 }
 
 export interface Field {
@@ -72,6 +84,9 @@ const PULSAR = 3.2e19 * GAUSS;
 const CALM_LEAN = 12;
 const SPLIT_LEAN = [30, 60];
 const DEGREE = Math.PI / 180;
+const EDGE = [2, 140 * GAUSS, (1e-8 * SUN_MASS) / YEAR, 0.8 * SUN_MASS, 2 * SUN_RADIUS];
+const LANDING = 0.5;
+const SPOT_HEAT = 8000;
 
 function shaped(
   source: Source,
@@ -276,4 +291,26 @@ export function shieldOf(system: Sketch, id: number): Shield {
         ? reachOf(field, body.physics.radius, press)
         : Number.POSITIVE_INFINITY;
   return { field, press, reach, inside: held ? parent.id : null };
+}
+
+export function fallOf(star: Pick<Body, "seed" | "physics">): Fall | null {
+  const { physics } = star;
+  const rate = burning(physics) ? inflowOf(star) : 0;
+  if (rate <= 0) {
+    return null;
+  }
+  const { mass, radius } = physics;
+  const [scale, strong, fed, heavy, wide] = EDGE;
+  const stopped =
+    scale *
+    ((fieldOf(physics, null)?.surface ?? 0) / strong) ** (4 / 7) *
+    (rate / fed) ** (-2 / 7) *
+    (mass / heavy) ** (-1 / 7) *
+    (radius / wide) ** (5 / 7);
+  const edge = radius * Math.max(1, stopped);
+  const fallen = 1 - radius / edge;
+  const light = ((GRAVITY * mass * rate) / radius) * Math.max(LANDING, fallen);
+  const spots = Math.min(1, light / (4 * Math.PI * radius ** 2 * RADIATION * SPOT_HEAT ** 4));
+  const speed = Math.sqrt(((2 * GRAVITY * mass) / radius) * fallen);
+  return { rate, edge, light, speed, spots, heat: SPOT_HEAT };
 }
