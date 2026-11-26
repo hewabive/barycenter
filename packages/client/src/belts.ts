@@ -48,6 +48,7 @@ import {
   ARC_ROOM,
   BELT_FRAGMENT,
   BELT_VERTEX,
+  BLOCKER_ROOM,
   BUBBLE_ROOM,
   CROSSING_FRAGMENT,
   CROSSING_VERTEX,
@@ -105,6 +106,8 @@ export interface Lamp {
 export interface Haze {
   mesh: Mesh;
   eye: Vector3;
+  blockers: Vector4[];
+  blockerPoles: Vector4[];
   screens: Vector4[];
   bubbles: Vector4[];
   reach: number;
@@ -411,6 +414,8 @@ export function createHaze(
     });
   const span = new Vector2(profile.inner, profile.outer);
   const hull = new Vector3(profile.outer, shade.top, shade.steep);
+  const blockers = Array.from({ length: BLOCKER_ROOM }, () => new Vector4(0, 0, 0, 0));
+  const blockerPoles = Array.from({ length: BLOCKER_ROOM }, () => new Vector4(0, 1, 0, 0));
   const mesh = new Mesh(
     new CylinderGeometry(wide, wide, 2 * shade.top, HAZE_SIDES, 1),
     new ShaderMaterial({
@@ -440,6 +445,8 @@ export function createHaze(
         lifts: { value: lifts },
         spirals: { value: spirals },
         faint,
+        blockers: { value: blockers },
+        blockerPoles: { value: blockerPoles },
       },
       transparent: true,
       premultipliedAlpha: true,
@@ -452,6 +459,8 @@ export function createHaze(
   return {
     mesh,
     eye,
+    blockers,
+    blockerPoles,
     screens,
     bubbles,
     reach: Math.hypot(wide, shade.top),

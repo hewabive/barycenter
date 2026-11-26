@@ -1722,6 +1722,10 @@ void main() {
 }
 `;
 
+export const BLOCKER_ROOM = 2;
+const BLOCKER_SOFT = [0.8, 1.25];
+const BLOCKER_LEAST = 1e-4;
+
 export const HAZE_STEPS = [10, 3];
 
 export const HAZE_VERTEX = `
@@ -1754,6 +1758,27 @@ uniform vec4 arcs[${ARC_ROOM}];
 uniform float lifts[${ARC_ROOM}];
 uniform vec4 spirals[${SPIRAL_ROOM}];
 uniform float faint;
+uniform vec4 blockers[${BLOCKER_ROOM}];
+uniform vec4 blockerPoles[${BLOCKER_ROOM}];
+
+float blocked(vec3 at) {
+  float sum = 0.0;
+  float kept = 0.0;
+  for (int index = 0; index < ${BLOCKER_ROOM}; index++) {
+    vec4 place = blockers[index];
+    if (place.w > 0.0) {
+      vec3 toward = at - place.xyz;
+      float far = max(dot(toward, toward), 1e-24);
+      float weight = place.w / far;
+      vec4 pole = blockerPoles[index];
+      float rise = abs(dot(toward, pole.xyz)) * inversesqrt(far);
+      float open = pole.w > 0.0 ? smoothstep(${real(BLOCKER_SOFT[0])} * pole.w, ${real(BLOCKER_SOFT[1])} * pole.w, rise) : 1.0;
+      sum += weight;
+      kept += weight * open;
+    }
+  }
+  return sum > 0.0 ? max(kept / sum, ${real(BLOCKER_LEAST)}) : 1.0;
+}
 varying vec3 vRay;
 ${SLAB}
 float flake(vec2 cell, float seed) {
@@ -1834,7 +1859,7 @@ Probe probe(vec3 ray, float anchor, float base, float offset) {
     (0.5 + ${real(SHADE_COLUMNS - 1)} * found.share) / ${real(SHADE_COLUMNS)},
     (0.5 + ${real(SHADE_ROWS - 1)} * min(high / ${real(SHADE_REACH)}, 1.0)) / ${real(SHADE_ROWS)}
   );
-  found.shadow = exp(textureLod(shade, at, 0.0).r);
+  found.shadow = exp(textureLod(shade, at, 0.0).r) - log(blocked(vec3(found.spot.x, lift, found.spot.y)));
   found.lit = exp(-found.shadow);
   return found;
 }

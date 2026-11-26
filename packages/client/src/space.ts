@@ -18,6 +18,7 @@ import {
   type Ridge,
   ridgeOf,
   type Sketch,
+  SUN_GLOW,
   SUN_MASS,
   seenGlow,
   shownLight,
@@ -196,6 +197,9 @@ const JET_LEAST = (1e-8 * SUN_MASS) / YEAR;
 const JET_LONG = 3;
 const JET_GIRTH = 0.25;
 const CROSSING_LEAST = (1e-9 * SUN_MASS) / YEAR;
+const SHADOW_FAR = 1.5;
+const SHADOW_MOST = 0.7;
+const SHADOW_CUTS = 18;
 const CROSSING_LANDING = 1.2;
 const CROSSING_REACH = 0.5;
 const CROSSING_SHINE = 0.25;
@@ -600,6 +604,43 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
     }
     return [{ look, around, jet, funnels }];
   });
+  const origin = new Vector3();
+  const sloped = new Vector3();
+  const shadowOf = (haze: (typeof hazes)[number]) => {
+    const far = SHADOW_FAR * haze.shroud.span.y;
+    let [low, high] = [0, SHADOW_MOST];
+    for (let cut = 0; cut < SHADOW_CUTS; cut++) {
+      const middle = 0.5 * (low + high);
+      sloped.set(far * Math.cos(middle), far * Math.sin(middle), 0);
+      if (haze.passing(origin, sloped) < 0.5) {
+        low = middle;
+      } else {
+        high = middle;
+      }
+    }
+    return Math.sin(0.5 * (low + high));
+  };
+  const ringed = hazes
+    .filter((ring) => ring.about !== null)
+    .map((ring) => {
+      const reach = system.bodies[ring.about ?? 0].orbit;
+      const members = [
+        ring.owner,
+        ...looks.filter(
+          (look) =>
+            look.body.parent === ring.owner.body.id &&
+            starborn(look.body.physics) &&
+            look.body.orbit <= reach,
+        ),
+      ]
+        .sort((left, right) => right.body.physics.glow - left.body.physics.glow)
+        .slice(0, ring.blockers.length)
+        .map((look) => {
+          const own = hazes.find((haze) => haze.owner === look && haze.about === null);
+          return { look, own, angle: own === undefined ? 0 : shadowOf(own) };
+        });
+      return { ring, members };
+    });
   const crossings = looks.flatMap((look) => {
     const around = starborn(look.body.physics) ? enclosing(look) : undefined;
     const fall = around === undefined ? null : fallOf(look.body, system.bodies);
@@ -774,6 +815,8 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
   const still = new Quaternion();
   const rig = new Quaternion();
   const places = looks.map(() => new Vector3());
+  const across = new Quaternion();
+  const along = new Quaternion();
   const tiny = looks.map(() => false);
   const swung = looks.map(
     ({ body }) => body.physics.hottest > (1 + SWING_LEAST) * body.physics.coldest,
@@ -1009,6 +1052,22 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
             haze.mesh.worldToLocal(seat.copy(found.place));
             bubble.set(seat.x, seat.y, seat.z, HAZE_BUBBLE * found.look.girth * near);
           }
+        });
+      }
+      for (const { ring, members } of ringed) {
+        ring.mesh.getWorldQuaternion(across).invert();
+        members.forEach(({ look, own, angle }, index) => {
+          ring.mesh.worldToLocal(seat.copy(places[look.body.id]));
+          ring.blockers[index].set(seat.x, seat.y, seat.z, look.body.physics.glow / SUN_GLOW);
+          if (own === undefined) {
+            ring.blockerPoles[index].set(0, 1, 0, 0);
+            return;
+          }
+          sloped
+            .set(0, 1, 0)
+            .applyQuaternion(own.mesh.getWorldQuaternion(along))
+            .applyQuaternion(across);
+          ring.blockerPoles[index].set(sloped.x, sloped.y, sloped.z, angle);
         });
       }
       for (const { look, around, crossing } of crossings) {
