@@ -290,3 +290,18 @@ test("two close pairs in three lose their disks within a million years, the ligh
   assert.ok(close >= 15, `close pairs ${close}`);
   assert.ok(bare / close > 0.45 && bare / close < 0.9, `bare ${bare} of ${close}`);
 });
+
+test("a body too light to clear its orbit lies in a belt and grows slowly far out", () => {
+  const at = (age: number) =>
+    sketchSystem(447178, { settled: false, star: null, age: age * MYR }).bodies;
+  const old = at(400);
+  const far = old.find((body) => body.name === "Elshan");
+  assert.ok(far !== undefined);
+  const { orbit, mass } = far.physics;
+  const around = old[0].physics.disks.find((disk) => disk.inner < orbit && disk.outer > orbit);
+  assert.ok(around !== undefined && around.ice > 0.4, "a belt of ice around it");
+  const young = at(20).find((body) => body.name === "Elshan");
+  assert.ok(young !== undefined && young.physics.mass < 0.5 * mass, "still growing at 20 Myr");
+  const ring = at(20)[0].physics.disks.find((disk) => disk.inner < orbit && disk.outer > orbit);
+  assert.ok(ring !== undefined && ring.mass > 10 * around.mass, "the leftover is still there");
+});

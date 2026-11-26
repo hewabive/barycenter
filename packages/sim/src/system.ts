@@ -491,12 +491,15 @@ const MOON_HOLD = 0.4;
 const BORN_SHARE = 0.05;
 const YOUTH_SALT = 0x3c6ef35f;
 const PAIR_SALT = 0x1f83d9ab;
+const DWARF_SALT = 0x5be0cd19;
+const CLEARING = [1.9e-4, 2 * Math.sqrt(3)];
 const PAIR_CLOSE = 40 * ASTRONOMICAL_UNIT;
 const PAIR_QUICK = 2 / 3;
 const PAIR_QUICK_YEARS = [3e5, 1e6];
 const PAIR_LIGHTER = 100 * ASTRONOMICAL_UNIT;
 const PAIR_LIGHTER_SHARE = 0.6;
 const GAS_YEARS = [2e6, 6e6, 0.5];
+const ICY_YEARS = [1.45e8, 80, 2];
 const GAS_BEARING = 0.01;
 const DISK_REACH = 1.5;
 const YOUNG_SHARE = 0.03;
@@ -671,6 +674,17 @@ function ringOf(
   }
   const depth = dense ? between(random, 0.55, 0.95) : between(random, 0.2, 0.5);
   return [diskOf(inner, outer, ice, { depth })];
+}
+
+function clearingOf(orbit: number, centre: number): number {
+  const [scale, reach] = CLEARING;
+  return (
+    scale *
+    reach ** 1.5 *
+    EARTH_MASS *
+    (centre / SUN_MASS) ** 2.5 *
+    (orbit / ASTRONOMICAL_UNIT) ** (9 / 8)
+  );
 }
 
 function beltOf(orbit: number, star: Physics, random: Random): Disk {
@@ -1982,6 +1996,8 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
 
   const drafts: Draft[] = [];
   const youth = createRandom(world ^ YOUTH_SALT);
+  const dwarfs = createRandom(world ^ DWARF_SALT);
+  const belted = new Set<Draft>();
   const airy = YEAR * amid(GAS_YEARS[0], GAS_YEARS[1], youth.next());
   const gasFor = (mass: number) => airy * (mass / SUN_MASS) ** -GAS_YEARS[2];
   const pairing = createRandom(world ^ PAIR_SALT);
@@ -2709,11 +2725,13 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
         ? zone.airy * amid(0.5, 1, haste)
         : Math.min(
             GROWN_MOST,
-            SOLID_YEARS *
-              YEAR *
-              (planet.mass / EARTH_MASS) *
-              Math.sqrt(planet.year / YEAR) *
-              amid(0.5, 2, haste),
+            Math.max(
+              SOLID_YEARS * YEAR * (planet.mass / EARTH_MASS) * Math.sqrt(planet.year / YEAR),
+              ICY_YEARS[0] *
+                YEAR *
+                (planet.orbit / (ICY_YEARS[1] * ASTRONOMICAL_UNIT)) ** 3 *
+                ((ICY_YEARS[2] * SUN_MASS) / star.mass) ** 1.5,
+            ) * amid(0.5, 2, haste),
           );
       let here = site;
       let fed = 0;
@@ -3095,6 +3113,13 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
         seats.push({ orbit, far: orbit * (1 + stretch), mass: retinue + other.mass });
       }
     }
+    for (const { draft, orbit, mass } of row) {
+      if (mass > 0 && mass < clearingOf(orbit, star.mass) && orbit * BELT_REACH <= zone.outer) {
+        belts.push(beltOf(orbit, star, dwarfs));
+        beltRungs.push(orbit);
+        belted.add(draft);
+      }
+    }
     const stirred = stirredHeight(
       Math.max(0, ...row.map(({ draft }) => draft.physics.mass)),
       zone.centre.mass,
@@ -3443,12 +3468,14 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
         const bare = zone.outer <= zone.inner;
         const blinding = zone.centre.glow >= BLINDING;
         const stations: Station[] = [
-          ...kept.map(({ draft, orbit }) => ({
-            orbit,
-            share: draft.absent ? 0 : draft.share,
-            mass: draft.absent ? 0 : draft.physics.mass,
-            belt: null,
-          })),
+          ...kept
+            .filter(({ draft }) => !belted.has(draft))
+            .map(({ draft, orbit }) => ({
+              orbit,
+              share: draft.absent ? 0 : draft.share,
+              mass: draft.absent ? 0 : draft.physics.mass,
+              belt: null,
+            })),
           ...post.belts[level].map((belt) => ({
             orbit: Math.sqrt(belt.inner * belt.outer),
             share: 0,
