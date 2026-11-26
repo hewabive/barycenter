@@ -21,7 +21,7 @@ import {
   yearOf,
 } from "../src/physics.ts";
 import { sketchSystem } from "../src/system.ts";
-import type { Physics } from "../src/types.ts";
+import type { Body, Physics } from "../src/types.ts";
 
 const GAUSS = 1e-4;
 const AGE = 4.567 * GIGAYEAR;
@@ -246,9 +246,11 @@ test("every body of a made system has a field that can be reckoned, and moons li
 
 test("the field of a young star stops its disk, and the gas falls in from there", () => {
   const young = (suns: number, age: number, seed = 256) =>
-    sketchSystem(seed, { settled: false, star: suns * SUN_MASS, age: age * GIGAYEAR }).bodies[0];
-  const star = young(1, 5e-4);
-  const fall = fallOf(star);
+    sketchSystem(seed, { settled: false, star: suns * SUN_MASS, age: age * GIGAYEAR }).bodies;
+  const alone = (bodies: Body[]) => fallOf(bodies[0], bodies);
+  const system = young(1, 5e-4);
+  const star = system[0];
+  const fall = alone(system);
   assert.ok(fall !== null);
   const { mass, radius, day } = star.physics;
   assert.ok(near((fall.rate * YEAR) / SUN_MASS, 1.1e-7, 0.05), `rate ${fall.rate}`);
@@ -257,17 +259,17 @@ test("the field of a young star stops its disk, and the gas falls in from there"
   assert.ok(between(day / DAY, 3, 10), `day ${day / DAY}`);
   assert.ok(between(fall.light / SUN_GLOW, 0.5, 1.2), `light ${fall.light / SUN_GLOW}`);
   assert.ok(between(fall.speed, 2e5, 4e5) && between(fall.spots, 0.001, 0.1), `${fall.spots}`);
-  assert.equal(fallOf(young(1, 0.05)), null);
-  assert.equal(fallOf(sketchSystem(1, { settled: true, star: null }).bodies[0]), null);
-  const heavy = young(2, 1e-3, 9);
-  const landing = fallOf(heavy);
+  assert.equal(alone(young(1, 0.05)), null);
+  assert.equal(alone(sketchSystem(1, { settled: true, star: null }).bodies), null);
+  const heavy = young(2, 1e-3, 9)[0];
+  const landing = alone(young(2, 1e-3, 9));
   assert.ok(landing !== null && landing.edge === heavy.physics.radius && landing.speed === 0);
   assert.ok(heavy.physics.day < 3 * DAY, "a star that cannot hold its disk off keeps its day");
   const days: number[] = [];
   for (let seed = 1; seed <= 120; seed++) {
     const system = sketchSystem(seed, { settled: false, star: null, age: 2e-3 * GIGAYEAR });
     for (const body of system.bodies) {
-      const fed = starborn(body.physics) ? fallOf(body) : null;
+      const fed = starborn(body.physics) ? fallOf(body, system.bodies) : null;
       if (fed !== null && fed.edge > body.physics.radius) {
         days.push(body.physics.day / DAY);
       }
@@ -275,4 +277,21 @@ test("the field of a young star stops its disk, and the gas falls in from there"
   }
   days.sort((left, right) => left - right);
   assert.ok(days.length > 60 && between(days[days.length >> 1], 3, 10), `${days.length} days`);
+});
+
+test("both stars of a pair take gas from the disk around them, the lighter more", () => {
+  const pair = sketchSystem(447178, { settled: false, star: null, age: 2e-4 * GIGAYEAR }).bodies;
+  const [heavy, light] = pair.filter((body) => starborn(body.physics));
+  const [one, two] = [fallOf(heavy, pair), fallOf(light, pair)];
+  assert.ok(one !== null && two !== null);
+  const ratio = light.physics.mass / heavy.physics.mass;
+  assert.ok(near(two.rate / one.rate, 1 / (0.1 + 0.9 * ratio), 1e-9), `${two.rate / one.rate}`);
+  const tight = sketchSystem(30, { settled: false, star: null, age: 5e-4 * GIGAYEAR }).bodies;
+  const stars = tight.filter((body) => starborn(body.physics));
+  assert.equal(stars.length, 2);
+  for (const star of stars) {
+    const fall = fallOf(star, tight);
+    assert.ok(fall !== null && fall.edge === star.physics.radius, star.name);
+    assert.ok(fall.edge < stars[1].physics.orbit, star.name);
+  }
 });

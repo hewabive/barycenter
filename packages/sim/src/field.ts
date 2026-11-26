@@ -1,4 +1,4 @@
-import { inflowOf } from "./disks.ts";
+import { feedOf } from "./disks.ts";
 import { warmthOf } from "./heat.ts";
 import { denseAt, interiorOf, wrapped } from "./interior.ts";
 import {
@@ -293,9 +293,14 @@ export function shieldOf(system: Sketch, id: number): Shield {
   return { field, press, reach, inside: held ? parent.id : null };
 }
 
-export function fallOf(star: Pick<Body, "seed" | "physics">): Fall | null {
+export function fallOf(
+  star: Pick<Body, "id" | "parent" | "seed" | "physics">,
+  bodies: readonly Pick<Body, "id" | "parent" | "seed" | "physics">[],
+): Fall | null {
   const { physics } = star;
-  const rate = burning(physics) ? inflowOf(star) : 0;
+  const { rate, room } = burning(physics)
+    ? feedOf(star, bodies)
+    : { rate: 0, room: Number.POSITIVE_INFINITY };
   if (rate <= 0) {
     return null;
   }
@@ -307,7 +312,7 @@ export function fallOf(star: Pick<Body, "seed" | "physics">): Fall | null {
     (rate / fed) ** (-2 / 7) *
     (mass / heavy) ** (-1 / 7) *
     (radius / wide) ** (5 / 7);
-  const edge = radius * Math.max(1, stopped);
+  const edge = Math.max(radius, Math.min(radius * stopped, room));
   const fallen = 1 - radius / edge;
   const light = ((GRAVITY * mass * rate) / radius) * Math.max(LANDING, fallen);
   const spots = Math.min(1, light / (4 * Math.PI * radius ** 2 * RADIATION * SPOT_HEAT ** 4));

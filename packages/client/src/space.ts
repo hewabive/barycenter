@@ -505,7 +505,7 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
         .forEach((swarm, slot) => {
           swarm.slot = slot;
         });
-      const flow = starborn(owner.body.physics) ? inflowOf(owner.body) : 0;
+      const flow = starborn(owner.body.physics) ? inflowOf(owner.body, system.bodies) : 0;
       const strength = Math.min(1, Math.log10(Math.max(1, flow / JET_LEAST)));
       const jet =
         strength > 0 && about === null
@@ -521,7 +521,8 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
         jet.mesh.renderOrder = BELT_ORDER;
         haze.mesh.add(jet.mesh);
       }
-      const fall = about === null && starborn(owner.body.physics) ? fallOf(owner.body) : null;
+      const fall =
+        about === null && starborn(owner.body.physics) ? fallOf(owner.body, system.bodies) : null;
       const field = fall === null ? null : fieldOf(owner.body.physics, null);
       const funnels =
         fall === null || field === null || fall.edge <= owner.body.physics.radius

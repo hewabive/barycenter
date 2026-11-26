@@ -1843,7 +1843,7 @@ function fed(bodies: Body[]): Body[] {
     }
     let day = physics.day;
     for (let round = 0; round < FED_ROUNDS; round++) {
-      const fall = fallOf({ seed: body.seed, physics: { ...physics, day } });
+      const fall = fallOf({ ...body, physics: { ...physics, day } }, bodies);
       if (fall === null || fall.edge <= physics.radius) {
         return body;
       }

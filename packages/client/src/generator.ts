@@ -567,7 +567,7 @@ function factsOf(body: Body): Fact[] {
   }
   const { field, press, reach: held, inside: host } = shieldOf(system, body.id);
   const wide = held / physics.radius;
-  const fall = family === "star" ? fallOf(body) : null;
+  const fall = family === "star" ? fallOf(body, system.bodies) : null;
   const shelter =
     host !== null
       ? `inside the field of ${system.bodies[host].name}${

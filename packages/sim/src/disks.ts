@@ -7,8 +7,10 @@ import {
   GAS_WEIGHT,
   GRAVITY,
   hillOf,
+  holdOf,
   SUN_GLOW,
   SUN_MASS,
+  starborn,
   YEAR,
   yearOf,
 } from "./physics.ts";
@@ -64,6 +66,8 @@ const INFLOW_AGE = [1e5 * YEAR, 1e6 * YEAR];
 const INFLOW_FALL = 1.5;
 const INFLOW_SPREAD = 0.5;
 const INFLOW_SALT = 977;
+const CROSSING_SPLIT = [0.1, 0.9];
+const CROSSING_ROOM = 0.8;
 
 export interface Station {
   orbit: number;
@@ -134,18 +138,71 @@ export function settledBy(left: number): number {
   return left > 0 ? 1 / Math.sqrt(1 + SETTLES * (1 / left - 1)) : 0;
 }
 
-export function inflowOf(star: Pick<Body, "seed" | "physics">): number {
-  const { mass, age, disks } = star.physics;
-  const nearest = disks
-    .filter((disk) => disk.lasts === 0)
-    .sort((left, right) => left.inner - right.inner)[0];
-  if (nearest === undefined || nearest.gas <= 0) {
-    return 0;
-  }
-  const random = createRandom(star.seed + INFLOW_SALT);
+export interface Feed {
+  rate: number;
+  room: number;
+}
+
+type Fed = Pick<Body, "id" | "parent" | "seed" | "physics">;
+
+function takenBy(seed: number, mass: number, age: number): number {
+  const random = createRandom(seed + INFLOW_SALT);
   const luck = 2 * (random.next() + random.next() + random.next() - 1.5);
   const young = Math.max(age, INFLOW_AGE[0]) / INFLOW_AGE[1];
   return INFLOW * (mass / SUN_MASS) ** 2 * young ** -INFLOW_FALL * 10 ** (INFLOW_SPREAD * luck);
+}
+
+function circling(owner: Fed, disk: Disk, bodies: readonly Fed[]): Fed[] {
+  return bodies.filter(
+    (body) => body.parent === owner.id && starborn(body.physics) && body.physics.orbit < disk.inner,
+  );
+}
+
+function lighterShare(lighter: number, heavier: number): number {
+  const ratio = (CROSSING_SPLIT[0] + CROSSING_SPLIT[1] * (lighter / heavier)) ** -1;
+  return ratio / (1 + ratio);
+}
+
+export function feedOf(star: Fed, bodies: readonly Fed[]): Feed {
+  const kept = (owner: Fed) =>
+    owner.physics.disks
+      .filter((disk) => disk.lasts === 0)
+      .map((disk) => ({ owner, disk, inside: circling(owner, disk, bodies) }));
+  const nearest = <T extends { disk: Disk }>(list: T[]) =>
+    list.sort((left, right) => left.disk.inner - right.disk.inner)[0];
+  const host = star.parent === null ? null : bodies[star.parent];
+  const shared = nearest([
+    ...kept(star).filter(({ inside }) => inside.length > 0),
+    ...(host !== null && starborn(host.physics)
+      ? kept(host).filter(({ disk }) => disk.inner > star.physics.orbit)
+      : []),
+  ]);
+  if (shared === undefined || shared.disk.gas <= 0) {
+    const own = nearest(kept(star).filter(({ inside }) => inside.length === 0));
+    const rate =
+      own !== undefined && own.disk.gas > 0
+        ? takenBy(star.seed, star.physics.mass, star.physics.age)
+        : 0;
+    return { rate, room: Number.POSITIVE_INFINITY };
+  }
+  const { owner, inside } = shared;
+  const group = owner.physics.mass + inside.reduce((sum, body) => sum + body.physics.mass, 0);
+  const crossing = takenBy(owner.seed, group, owner.physics.age);
+  const mine = star.physics.mass;
+  const rest = group - mine;
+  const share = mine <= rest ? lighterShare(mine, rest) : 1 - lighterShare(rest, mine);
+  const near =
+    star.id === owner.id
+      ? [...inside].sort((left, right) => left.physics.orbit - right.physics.orbit)[0]
+      : star;
+  const other = star.id === owner.id ? near.physics.mass : rest;
+  const room =
+    CROSSING_ROOM * holdOf(other / (mine + other), near.physics.stretch) * near.physics.orbit;
+  return { rate: share * crossing, room };
+}
+
+export function inflowOf(star: Fed, bodies: readonly Fed[]): number {
+  return feedOf(star, bodies).rate;
 }
 
 export function wearOf(at: number, centre: number, age: number): number {
