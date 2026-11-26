@@ -12,6 +12,7 @@ import {
   starborn,
   starHeat,
 } from "./physics.ts";
+import { withinOf } from "./stars.ts";
 import type { Physics } from "./types.ts";
 
 export type Matter = "iron" | "rock" | "ice" | "blend" | "metal" | "gas";
@@ -142,7 +143,6 @@ const POROUS_MOST = 0.4;
 const POROUS_SPAN = [18.5, 20.5];
 const TURNING_FLUID = 0.25;
 const TURNING_EVEN = 0.4;
-const LOVE_STAR = 0.03;
 const LOVE_FLUID = 0.4;
 const FLAT_MOST = 0.2;
 const GAS_GUESS = 7e7;
@@ -659,9 +659,14 @@ export function turningOf(physics: Solid): number {
   return firm(physics) ? solidOf(physics.mass * (1 - physics.gas), physics).turning : TURNING_FLUID;
 }
 
-export function loveOf(physics: Solid): number {
+type Spun = Solid & Pick<Physics, "radius" | "day" | "glow" | "age">;
+
+export function loveOf(physics: Spun): number {
+  if (starborn(physics)) {
+    return withinOf(physics)?.love ?? 0;
+  }
   if (!firm(physics)) {
-    return starborn(physics) ? LOVE_STAR : LOVE_FLUID;
+    return LOVE_FLUID;
   }
   return 5 / (1 + (2.5 - 3.75 * turningOf(physics)) ** 2) - 1;
 }
@@ -670,13 +675,11 @@ function spinOf(physics: Pick<Physics, "mass" | "radius" | "day">): number {
   return (((2 * Math.PI) / physics.day) ** 2 * physics.radius ** 3) / (GRAVITY * physics.mass);
 }
 
-type Spun = Solid & Pick<Physics, "radius" | "day">;
-
 export function bulgeOf(physics: Spun): number {
   return (loveOf(physics) / 3) * Math.min(SPIN_MOST, spinOf(physics)) * physics.radius ** 2;
 }
 
 export function flatOf(physics: Spun): number {
-  const love = firm(physics) ? loveOf(physics) : LOVE_FLUID;
+  const love = loveOf(physics);
   return Math.min(FLAT_MOST, ((1 + love) / 2) * spinOf(physics));
 }

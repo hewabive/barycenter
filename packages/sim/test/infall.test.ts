@@ -110,7 +110,7 @@ test("Ollis is drawn into its giant star and left in its list", () => {
 test("the moons of a planet drawn into its star are torn away or go in with it", () => {
   const at = (age: number) =>
     sketchSystem(587, { settled: false, star: SUN_MASS, age: age * GIGAYEAR });
-  const last = at(11.3053);
+  const last = at(11.3048);
   const star = last.bodies[0];
   const host = last.bodies.find((body) => body.name === "Ollis");
   assert.ok(host !== undefined);

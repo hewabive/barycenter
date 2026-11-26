@@ -1,4 +1,5 @@
 import { wrapped } from "./interior.ts";
+import { type Star, withinOf } from "./stars.ts";
 import { GASES, type Gas, type Physics } from "./types.ts";
 
 export const SUN_MASS = 1.989e30;
@@ -107,7 +108,7 @@ const PULSAR_DAY = [0.04, 0.52, 1.95e-14];
 const HOLE_SHARE = 0.3;
 const HOLE_HEAT = 6.17e-8;
 const HOLE_SPIN = [0.1, 0.88];
-const DENSE_STAR = [1e7, 1e13];
+export const DENSE_STAR = [1e7, 1e13];
 const STAR_SIZES = [0.7, 1.3, 3];
 const SUN_AGE = 4.57 * GIGAYEAR;
 const SUN_ROSSBY = 2;
@@ -116,7 +117,7 @@ const SPIN_TURN = 0.67 * GIGAYEAR;
 const SPIN_LATE = 0.8;
 const SPIN_STALL = 0.36;
 const SPIN_COOL = 2.85;
-const STAR_TURNING = [0.07, 0.15];
+const STAR_TURNING = 0.07;
 const COOLING_HEAT = 107;
 const COOLING_AGE = 4.5 * GIGAYEAR;
 const COOLING_PACE = 0.3;
@@ -599,7 +600,7 @@ export function starTurn(
     if (late <= 0) {
       return day;
     }
-    const turning = STAR_TURNING[1] * life.mass * life.radius ** 2;
+    const turning = turningAt({ ...life, age }) * life.mass * life.radius ** 2;
     const fastest = Math.sqrt((SPIN_MOST * GRAVITY * life.mass) / life.radius ** 3);
     return (2 * Math.PI) / Math.min(fastest, (2 * Math.PI) / day + late / turning);
   }
@@ -613,6 +614,10 @@ export function starTurn(
     return Math.sqrt(newborn ** 2 + 2 * PULSAR_DAY[2] * life.spent);
   }
   return DAY * (EMBER_DAY[0] + EMBER_DAY[1] * luck);
+}
+
+function turningAt(star: Star): number {
+  return withinOf(star)?.turning ?? STAR_TURNING;
 }
 
 export function turnover(heat: number): number {
@@ -650,9 +655,10 @@ function youthOf(mass: number, heat: number, day: number, luck: number): number 
 }
 
 function sped(born: number, heat: number, luck: number, gains: Gain[]): number {
-  const turning = STAR_TURNING[0] * born * starRadius(born) ** 2;
+  const dwarf = { mass: born, radius: starRadius(born), glow: starGlow(born) };
   let shift = 0;
   for (const gain of [...gains].sort((left, right) => left.at - right.at)) {
+    const turning = turningAt({ ...dwarf, age: gain.at }) * born * dwarf.radius ** 2;
     const day = starDay(born, heat, gain.at + shift, luck);
     const spun = (2 * Math.PI) / ((2 * Math.PI) / day + gain.spin / turning);
     shift = Math.min(shift, youthOf(born, heat, spun, luck) - gain.at);

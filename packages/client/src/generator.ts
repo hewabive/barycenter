@@ -52,6 +52,7 @@ import {
   turnover,
   type Wreck,
   warmthOf,
+  withinOf,
   wrapped,
   YEAR,
 } from "@barycenter/sim";
@@ -93,6 +94,7 @@ const WEATHER_MOST = 16;
 const LAMPS = 2;
 const HEAVY = 0.03;
 const THIN_SHELL = 1e-3;
+const SPENT_LEAST = 0.01;
 const MATTERS: Record<Matter, string> = {
   iron: "iron",
   rock: "rock",
@@ -286,6 +288,7 @@ function factsOf(body: Body): Fact[] {
   const molten = moltenOf(physics);
   const inside = interiorOf(physics);
   const warmth = warmthOf(physics, parent?.physics ?? null);
+  const depths = family === "star" ? withinOf(physics) : null;
   const stuff = (matter: Matter) =>
     matter === "ice" && family === "fluid" ? "water" : MATTERS[matter];
   const shells = (inside?.layers ?? []).filter(
@@ -370,6 +373,40 @@ function factsOf(body: Body): Fact[] {
       ["Frost line", lengthOf(frostOf(physics.glow))],
       ["Light of the Earth at", lengthOf(ASTRONOMICAL_UNIT * Math.sqrt(physics.glow / SUN_GLOW))],
     );
+    if (depths !== null) {
+      const zones =
+        depths.floor < THIN_SHELL
+          ? ["stirred all the way down"]
+          : [
+              ...(depths.core >= THIN_SHELL
+                ? [`stirred at its centre, ${share(depths.core)} of its mass`]
+                : []),
+              ...(depths.spent >= SPENT_LEAST
+                ? [`spent to ${share(depths.spent)} of its mass`]
+                : []),
+              ...(1 - depths.floor >= THIN_SHELL
+                ? [
+                    `still to ${share(depths.floor)} of its radius`,
+                    `stirred above, ${share(depths.wrap)} of its mass`,
+                  ]
+                : ["still up to its surface"]),
+            ];
+      facts.push(
+        [
+          "Inside",
+          depths.spent >= 1 ? "spent matter that its own weight packs" : zones.join(" · "),
+        ],
+        ...(depths.dense > 0
+          ? [
+              [
+                "At its centre",
+                `${depths.heat > 0 ? `${figure(depths.heat / 1e6)} million K · ` : ""}${figure(depths.dense)} kg/m³`,
+              ] satisfies Fact,
+            ]
+          : []),
+        ["Moment of inertia", `${figure(depths.turning)} of its mass times its radius squared`],
+      );
+    }
   } else {
     const cover = seaCover(physics);
     facts.push(

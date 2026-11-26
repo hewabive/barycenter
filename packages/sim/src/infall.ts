@@ -5,14 +5,12 @@ import {
   type Life,
   lifeOf,
   starDawn,
-  starRadius,
   starStages,
 } from "./physics.ts";
+import { withinOf } from "./stars.ts";
 import { PLUNGE } from "./tides.ts";
 
 const STAR_LOSS = 1e7;
-const ENVELOPE = 0.7;
-const DEEPENING = [1, 3];
 const STEP = 0.05;
 const NODE_STEP = 0.04;
 const NODE_DEPTH = 16;
@@ -47,6 +45,7 @@ interface Node {
   radius: number;
   glow: number;
   deep: number;
+  floor: number;
 }
 
 export interface Drift {
@@ -79,18 +78,13 @@ export interface Pulled {
   fluid: boolean;
 }
 
-function smooth(from: number, to: number, value: number): number {
-  const share = Math.max(0, Math.min(1, (value - from) / (to - from)));
-  return share * share * (3 - 2 * share);
-}
-
 export function trackOf(born: number, course: Course | null = null): Track {
   const life = course?.life ?? ((at: number) => lifeOf(born, at));
   const edges = course?.edges ?? starStages(born);
   const steady = starStages(born)[0];
   const main = Math.min(steady, ...edges.filter((edge) => edge > 0));
   const dawn = Math.min(starDawn(born), main);
-  const first = nodeOf(life, born, dawn);
+  const first = { ...nodeOf(life, (dawn + main) / 2), at: dawn };
   return {
     born,
     dawn,
@@ -103,18 +97,17 @@ export function trackOf(born: number, course: Course | null = null): Track {
   };
 }
 
-function nodeOf(read: Track["life"], born: number, at: number): Node {
-  const life = read(at);
-  const dwarf = starRadius(life.seed ?? born);
-  const deep = ENVELOPE * smooth(DEEPENING[0], DEEPENING[1], life.radius / dwarf);
-  return { at, mass: life.mass, radius: life.radius, glow: life.glow, deep: deep * life.mass };
+function nodeOf(read: Track["life"], at: number): Node {
+  const { mass, radius, glow } = read(at);
+  const within = withinOf({ mass, radius, glow, age: at });
+  return { at, mass, radius, glow, deep: (within?.wrap ?? 0) * mass, floor: within?.floor ?? 1 };
 }
 
 function lateOf(track: Track): Node[] {
   if (track.late !== null) {
     return track.late;
   }
-  const { born, life } = track;
+  const { life } = track;
   const bounds = [track.main, ...track.edges.filter((edge) => edge > track.main)];
   const apart = (left: Node, right: Node) =>
     Math.abs(Math.log(right.radius / left.radius)) > NODE_STEP ||
@@ -123,7 +116,7 @@ function lateOf(track: Track): Node[] {
   const nodes: Node[] = [...track.early];
   const refine = (left: Node, right: Node, depth: number) => {
     if (depth < NODE_DEPTH && apart(left, right)) {
-      const middle = nodeOf(life, born, (left.at + right.at) / 2);
+      const middle = nodeOf(life, (left.at + right.at) / 2);
       refine(left, middle, depth + 1);
       refine(middle, right, depth + 1);
       return;
@@ -136,9 +129,9 @@ function lateOf(track: Track): Node[] {
     if (to <= from) {
       continue;
     }
-    const start = nodeOf(life, born, from);
+    const start = nodeOf(life, from);
     nodes.push(start);
-    refine(start, nodeOf(life, born, to - 1e-9 * (to - from)), 0);
+    refine(start, nodeOf(life, to - 1e-9 * (to - from)), 0);
   }
   track.late = nodes;
   return nodes;
@@ -156,11 +149,12 @@ function starAt(nodes: Node[], index: number, time: number): Node {
     radius: blend(left.radius, right.radius),
     glow: blend(left.glow, right.glow),
     deep: left.deep + (right.deep - left.deep) * share,
+    floor: left.floor + (right.floor - left.floor) * share,
   };
 }
 
 function envelopeOf(star: Node, turn: number): number {
-  const lag = Math.cbrt((star.deep * star.radius ** 2) / (3 * star.glow));
+  const lag = Math.cbrt((star.deep * ((1 - star.floor) * star.radius) ** 2) / (3 * star.glow));
   const pace = Math.min(1, (Math.PI / (turn * lag)) ** 2);
   return (pace * star.deep) / (lag * star.mass);
 }

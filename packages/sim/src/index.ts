@@ -197,6 +197,7 @@ export {
   type Trial,
   trial,
 } from "./stability.ts";
+export { type Within, withinOf } from "./stars.ts";
 export { cloneState, issue, step } from "./step.ts";
 export {
   anomalyOf,

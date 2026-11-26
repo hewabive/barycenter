@@ -133,10 +133,18 @@ test("a small body is one mix and a round one lies in layers", () => {
   );
 });
 
-test("what a body is made of is read back from its physics, and a star has none yet", () => {
+test("what a body is made of is read back from its physics, and a star has no such layers", () => {
   const shares = { ...rocky(0.3), gas: 0 };
   const radius = radiusOf(EARTH_MASS, shares);
-  const world = { mass: EARTH_MASS, radius, ...shares, heat: 288, glow: 0, day: 86164 };
+  const world = {
+    mass: EARTH_MASS,
+    radius,
+    ...shares,
+    heat: 288,
+    glow: 0,
+    day: 86164,
+    age: 1.4e17,
+  };
   const inside = interiorOf(world);
   assert.ok(inside !== null && within(inside.radius, radius, 1e-12));
   assert.ok(within(turningOf(world), 0.33, 0.02));
