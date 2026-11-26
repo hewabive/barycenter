@@ -305,3 +305,20 @@ test("a body too light to clear its orbit lies in a belt and grows slowly far ou
   const ring = at(20)[0].physics.disks.find((disk) => disk.inner < orbit && disk.outer > orbit);
   assert.ok(ring !== undefined && ring.mass > 10 * around.mass, "the leftover is still there");
 });
+
+test("a rocky planet is finished by an impact whose ring of rubble fades within a hundred million years", () => {
+  const ringAt = (age: number) => {
+    const bodies = sketchSystem(447178, { settled: false, star: null, age: age * MYR }).bodies;
+    const planet = bodies.find((body) => body.name === "Elvea");
+    assert.ok(planet !== undefined && planet.parent !== null);
+    const { orbit } = planet.physics;
+    return bodies[planet.parent].physics.disks.find(
+      (disk) => disk.inner > 0.85 * orbit && disk.outer < 1.15 * orbit && disk.gas === 0,
+    );
+  };
+  const fresh = ringAt(15);
+  assert.ok(fresh !== undefined && fresh.depth > 2e-5, `${fresh?.depth}`);
+  const later = ringAt(60);
+  assert.ok(later !== undefined && later.depth < fresh.depth);
+  assert.equal(ringAt(400), undefined);
+});

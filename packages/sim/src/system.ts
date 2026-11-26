@@ -264,6 +264,8 @@ interface Row {
   now: number;
   mass: number;
   dwarf: boolean;
+  whole: number;
+  rocky: boolean;
 }
 
 interface Post {
@@ -492,6 +494,10 @@ const BORN_SHARE = 0.05;
 const YOUTH_SALT = 0x3c6ef35f;
 const PAIR_SALT = 0x1f83d9ab;
 const DWARF_SALT = 0x5be0cd19;
+const FLASH_SHARE = 0.01;
+const FLASH_WIDE = 0.1;
+const FLASH_LEAST = 0.1;
+const FLASH_FAINT = 1e-6;
 const CLEARING = [1.9e-4, 2 * Math.sqrt(3)];
 const PAIR_CLOSE = 40 * ASTRONOMICAL_UNIT;
 const PAIR_QUICK = 2 / 3;
@@ -2774,7 +2780,15 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
           draft.physics = { ...draft.physics, disks: [...disks, ...cradle] };
         };
       }
-      const mine = { draft, orbit, now: orbit, mass: planet.mass, dwarf: rung === brown?.orbit };
+      const mine = {
+        draft,
+        orbit,
+        now: orbit,
+        mass: planet.mass,
+        dwarf: rung === brown?.orbit,
+        whole: done,
+        rocky: lot !== null && !airborne,
+      };
       row.push(mine);
       if (lot !== null) {
         draft.aged = (age) => {
@@ -3448,21 +3462,44 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
         }
         const { swallowed, widened, outer } = ground;
         const kept = post.rows[level].filter(({ draft }) => !draft.gone);
+        const flashes = kept.flatMap(({ draft, orbit, mass, whole, rocky }) => {
+          const late = age >= GROWN_MOST || whole > age;
+          if (!rocky || late || belted.has(draft) || mass < FLASH_LEAST * EARTH_MASS) {
+            return [];
+          }
+          const reach = orbit * widened;
+          const flash = diskOf(
+            reach * (1 - FLASH_WIDE),
+            reach * (1 + FLASH_WIDE),
+            draft.physics.ice,
+            {
+              mass: FLASH_SHARE * mass,
+              stirred: stirredHeight(mass, zone.centre.mass),
+              wear: wearOf(reach, zone.centre.mass, age - whole),
+            },
+          );
+          return flash.depth >= FLASH_FAINT && flash.inner >= swallowed && flash.outer <= outer
+            ? [flash]
+            : [];
+        });
         if (age >= GROWN_MOST) {
           const heaviest = Math.max(
             0,
             ...kept.filter(({ draft }) => !draft.absent).map(({ draft }) => draft.physics.mass),
           );
           const stirred = stirredHeight(heaviest, zone.centre.mass);
-          return post.belts[level]
-            .filter((belt) => belt.inner >= swallowed && belt.outer * widened <= outer)
-            .map((belt) =>
-              diskOf(belt.inner * widened, belt.outer * widened, belt.ice, {
-                mass: belt.mass,
-                stirred,
-                wear: wearOf(Math.sqrt(belt.inner * belt.outer) * widened, zone.centre.mass, age),
-              }),
-            );
+          return [
+            ...post.belts[level]
+              .filter((belt) => belt.inner >= swallowed && belt.outer * widened <= outer)
+              .map((belt) =>
+                diskOf(belt.inner * widened, belt.outer * widened, belt.ice, {
+                  mass: belt.mass,
+                  stirred,
+                  wear: wearOf(Math.sqrt(belt.inner * belt.outer) * widened, zone.centre.mass, age),
+                }),
+              ),
+            ...flashes,
+          ];
         }
         const lit = reachOf(zone.centre.glow);
         const bare = zone.outer <= zone.inner;
@@ -3498,13 +3535,16 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
           airy: zone.airy,
           stations,
         };
-        return (bare ? [] : nebulaOf(cloud))
-          .filter((disk) => disk.outer > swallowed && disk.inner * widened < outer)
-          .map((disk) => ({
-            ...disk,
-            inner: Math.max(disk.inner, swallowed) * widened,
-            outer: Math.min(disk.outer * widened, outer),
-          }));
+        return [
+          ...(bare ? [] : nebulaOf(cloud))
+            .filter((disk) => disk.outer > swallowed && disk.inner * widened < outer)
+            .map((disk) => ({
+              ...disk,
+              inner: Math.max(disk.inner, swallowed) * widened,
+              outer: Math.min(disk.outer * widened, outer),
+            })),
+          ...flashes,
+        ];
       })
       .sort((left, right) => left.inner - right.inner);
   const ends = [
