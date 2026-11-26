@@ -51,6 +51,7 @@ import {
   tornAt,
   turnover,
   type Wreck,
+  warmthOf,
   wrapped,
   YEAR,
 } from "@barycenter/sim";
@@ -180,6 +181,12 @@ const squeeze = (pascals: number) =>
     : pascals >= 1e5
       ? `${figure(pascals / 1e6)} MPa`
       : `${figure(pascals / 1e3)} kPa`;
+const power = (watts: number) =>
+  watts >= 1e11
+    ? `${figure(watts / 1e12)} TW`
+    : watts >= 1e8
+      ? `${figure(watts / 1e9)} GW`
+      : `${figure(watts / 1e6)} MW`;
 const span = (seconds: number) =>
   seconds >= 2 * YEAR
     ? `${figure(seconds / YEAR)} years`
@@ -278,6 +285,7 @@ function factsOf(body: Body): Fact[] {
   const rough = roughOf(physics);
   const molten = moltenOf(physics);
   const inside = interiorOf(physics);
+  const warmth = warmthOf(physics, parent?.physics ?? null);
   const stuff = (matter: Matter) =>
     matter === "ice" && family === "fluid" ? "water" : MATTERS[matter];
   const shells = (inside?.layers ?? []).filter(
@@ -430,6 +438,54 @@ function factsOf(body: Body): Fact[] {
             }`,
       ],
       ["Glow an eye sees", glow >= 1e-6 ? `${figure(glow)} candela on a square meter` : "none"],
+      ...(warmth === null
+        ? []
+        : ([
+            [
+              "Heat from within",
+              `${figure(1000 * warmth.flow)} mW/m² · ${power(warmth.decay)} by decay${
+                warmth.tide > 0.01 * warmth.decay ? ` · ${power(warmth.tide)} by its tide` : ""
+              }`,
+            ],
+            ...(warmth.mantle === null
+              ? []
+              : [
+                  [
+                    "Rock within",
+                    `${figure(warmth.mantle)} K where it turns over · ${
+                      warmth.plates ? "under plates that move" : "under one still lid"
+                    }${warmth.melt > 0 ? ` · ${power(warmth.melt)} comes up as molten rock` : ""}`,
+                  ] satisfies Fact,
+                ]),
+            ...(warmth.core === null
+              ? []
+              : [
+                  [
+                    "Iron core",
+                    `${figure(warmth.core.heat)} K at its top · ${
+                      warmth.core.frozen >= 1
+                        ? `frozen through · giving off ${figure(1000 * warmth.core.flux)} mW/m²`
+                        : `${
+                            warmth.core.frozen <= 0
+                              ? "all molten"
+                              : `solid to ${share(warmth.core.frozen)} of its radius`
+                          } · ${warmth.core.stirring > 0 ? "stirred" : "still"}, giving off ${figure(
+                            1000 * warmth.core.flux,
+                          )} mW/m² where ${figure(1000 * warmth.core.steep)} would pass without stirring`
+                    }`,
+                  ] satisfies Fact,
+                ]),
+            ...(warmth.sea === null
+              ? []
+              : [
+                  [
+                    "Sea under ice",
+                    `${figure(warmth.sea.depth / 1000)} km deep under ${figure(
+                      warmth.sea.roof / 1000,
+                    )} km of ice · ${figure(warmth.sea.heat)} K`,
+                  ] satisfies Fact,
+                ]),
+          ] satisfies Fact[])),
       ["Molten rock", molten > 0 ? `${share(molten)} of the surface` : "none"],
       [
         "Air",

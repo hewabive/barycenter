@@ -62,6 +62,7 @@ export {
   type Turn,
   turnOf,
 } from "./ground.ts";
+export { type Core, decayOf, type Sea, type Warmth, warmthOf } from "./heat.ts";
 export {
   bulgeOf,
   flatOf,

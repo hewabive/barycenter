@@ -12,6 +12,7 @@ import {
   stirredHeight,
   wearOf,
 } from "./disks.ts";
+import { forcedBy } from "./heat.ts";
 import {
   type Drift,
   type Mark,
@@ -85,12 +86,15 @@ import {
   lockOf,
   MOONS_APART,
   PLUNGE,
+  pairedHeat,
+  roundingOf,
   type Sprung,
   syncOf,
   type Tide,
   tideOf,
   tornAt,
   trainOf,
+  yieldOf,
 } from "./tides.ts";
 import {
   type Body,
@@ -354,6 +358,8 @@ const TILTED_SHARE = 0.05;
 const TILTED_SLANT = [0.15, 0.8];
 const CALM_SLANT = 0.08;
 const MOON_STRETCH = 0.02;
+const PAIRED_STEP = 2 ** (2 / 3);
+const PAIRED_NEAR = 0.02;
 const CAUGHT_SHARE = 0.3;
 const CAUGHT_STRETCH = 0.2;
 const CAUGHT_LEAN = [0.96, 2.269];
@@ -1790,6 +1796,34 @@ function paced(drafts: Draft[]): void {
       beat.season = physics.year;
     }
   }
+}
+
+function rounded(bodies: Body[]): Body[] {
+  return bodies.map((body) => {
+    const host = body.parent === null ? null : bodies[body.parent];
+    const { physics } = body;
+    const held = physics.day === physics.year && physics.stretch > 0 && body.shared === null;
+    if (host === null || starborn(host.physics) || starborn(physics) || !held) {
+      return body;
+    }
+    const around = host.physics;
+    const loss = yieldOf({ ...physics, fluid: wrapped(physics) });
+    const left = physics.stretch * Math.exp(-physics.age / roundingOf(physics, around.mass, loss));
+    const next = bodies
+      .filter((other) => other.parent === body.parent && other.physics.orbit > physics.orbit)
+      .reduce<Body | null>(
+        (near, other) => (near === null || other.physics.orbit < near.physics.orbit ? other : near),
+        null,
+      );
+    const paired =
+      next !== null && Math.abs(next.physics.orbit / physics.orbit / PAIRED_STEP - 1) < PAIRED_NEAR;
+    const turner = { ...around, fluid: wrapped(around), turning: turningOf(around) };
+    const forced = paired
+      ? forcedBy(pairedHeat(physics, next.physics, turner), physics, around.mass)
+      : 0;
+    const stretch = Math.max(left, Math.min(forced, MOON_STRETCH));
+    return { ...body, physics: { ...physics, stretch } };
+  });
 }
 
 function laid(world: number, plan: Plan): { home: number | null; bodies: Body[]; anchor: Anchor } {
@@ -3712,7 +3746,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
   for (const body of bodies) {
     body.swallowed.sort((left, right) => left.since - right.since);
   }
-  return { ...ranked(bodies, home), anchor };
+  return { ...ranked(rounded(bodies), home), anchor };
 }
 
 export function sketchSystem(world: number, plan: Plan): Sketch {

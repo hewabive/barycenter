@@ -99,6 +99,38 @@ export function yieldOf(host: Pick<Turner, "mass" | "radius" | "ice" | "fluid">)
   return Math.min(LOVE_MOST, (1.5 * soft) / (1 + soft)) / SOLID_LOSS;
 }
 
+export interface Circling {
+  mass: number;
+  radius: number;
+  orbit: number;
+  year: number;
+}
+
+export function workOf(body: Circling, host: number): number {
+  const turn = (2 * Math.PI) / body.year;
+  return (GRAVITY * host ** 2 * body.radius ** 5 * turn) / body.orbit ** 6;
+}
+
+export function roundingOf(body: Circling, host: number, loss: number): number {
+  const turn = (2 * Math.PI) / body.year;
+  return (
+    ((2 / 21) * (body.mass / host) * (body.orbit / body.radius) ** 5) /
+    (Math.max(loss, 1e-30) * turn)
+  );
+}
+
+export function pairedHeat(inner: Circling, outer: Circling, host: Turner): number {
+  const loss = yieldOf(host);
+  const torque = (moon: Circling) =>
+    (1.5 * loss * GRAVITY * moon.mass ** 2 * host.radius ** 5) / moon.orbit ** 6;
+  const swing = (moon: Circling) => moon.mass * Math.sqrt(GRAVITY * host.mass * moon.orbit);
+  const turn = (moon: Circling) => (2 * Math.PI) / moon.year;
+  const pushed = torque(inner) + torque(outer);
+  const kept =
+    (turn(inner) * swing(inner) + turn(outer) * swing(outer)) / (swing(inner) + swing(outer));
+  return Math.max(0, turn(inner) * torque(inner) + turn(outer) * torque(outer) - pushed * kept);
+}
+
 export function lockOf(moon: Turner, host: number, orbit: number): number {
   const spin = (2 * Math.PI) / moon.day;
   const inertia = moon.turning * moon.mass * moon.radius ** 2;

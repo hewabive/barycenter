@@ -81,6 +81,7 @@ const ROCK_DEEP: Squeeze = {
   stiff: 206 * GIGAPASCAL,
   slope: 4,
 };
+export const ROCK_DEEP_FROM = ROCK_DEEP.from;
 const ICE: Squeeze[] = [
   { law: "murnaghan", from: 0, rest: 934.31, stiff: 10.995 * GIGAPASCAL, slope: 7 },
   {
@@ -309,6 +310,19 @@ function steamed(joint: number, kelvin: number): Phase[] {
   const place = rowAt(WATER_ADIABATS, joint, kelvin);
   const table = adiabat(WATER_ADIABATS, SOLID_UNIT, SOLID_MOST, place);
   return [{ matter: "ice", from: 0, unit: SOLID_UNIT, table }];
+}
+
+export function denseAt(matter: Hard, pressure: number): number {
+  const phases = matters()[matter];
+  return read(
+    phases[
+      Math.max(
+        0,
+        phases.findLastIndex(({ from }) => pressure >= from),
+      )
+    ],
+    pressure,
+  );
 }
 
 interface Shot {
