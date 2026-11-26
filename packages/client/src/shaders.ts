@@ -1540,6 +1540,19 @@ float passing(vec3 spot) {
 }
 `;
 
+const OUTER_SHROUD = [
+  ["lanes", "outerLanes"],
+  ["span", "outerSpan"],
+  ["hull", "outerHull"],
+  ["eye", "outerEye"],
+  ["into", "outerInto"],
+  ["veiled", "outerVeiled"],
+  ["passing", "passingOuter"],
+].reduce(
+  (chunk, [name, renamed]) => chunk.replace(new RegExp(`\\b${name}\\b`, "g"), renamed),
+  SHROUD.replace(BELL, ""),
+);
+
 const BELT_PLACED = `
   vec4 placed = modelViewMatrix * vec4(at, 1.0);
   float size = dense * (1.0 + grain * grain);
@@ -1613,6 +1626,7 @@ varying float vAcross;
 varying float vHigh;
 varying float vClear;
 ${SHROUD}
+${OUTER_SHROUD}
 void main() {
   float high = reach * position.y * position.y;
   vec3 pole = vec3(0.0, position.z, 0.0);
@@ -1624,7 +1638,7 @@ void main() {
   placed.xyz += (lean > 1e-4 ? across / lean : vec3(0.0)) * position.x * ${real(JET_WIDE)} * (girth.x + girth.y * high);
   vAcross = position.x;
   vHigh = position.y * position.y;
-  vClear = passing(spot) * smoothstep(${real(JET_ASIDE[0])}, ${real(JET_ASIDE[1])}, lean);
+  vClear = passing(spot) * passingOuter(spot) * smoothstep(${real(JET_ASIDE[0])}, ${real(JET_ASIDE[1])}, lean);
   gl_Position = projectionMatrix * placed;
 }
 `;

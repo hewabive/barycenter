@@ -535,6 +535,59 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
       return [{ ...haze, about, owner, lamps, swarms, jet, funnels }];
     });
   });
+  const enclosing = (look: Look) =>
+    hazes.find(
+      (haze) =>
+        haze.about !== null && (haze.owner === look || haze.owner.body.id === look.body.parent),
+    );
+  const wrapped = hazes.flatMap((haze) => {
+    const around = haze.about === null ? enclosing(haze.owner) : undefined;
+    if (haze.jet === null || around === undefined) {
+      return [];
+    }
+    haze.jet.veilAlso(around.shroud);
+    return [{ jet: haze.jet, around }];
+  });
+  const strays = looks.flatMap((look) => {
+    const { physics } = look.body;
+    if (!starborn(physics) || hazes.some((haze) => haze.owner === look && haze.about === null)) {
+      return [];
+    }
+    const around = enclosing(look);
+    const fall = around === undefined ? null : fallOf(look.body, system.bodies);
+    if (around === undefined || fall === null) {
+      return [];
+    }
+    const field = fieldOf(physics, null);
+    const hole = fall.edge / physics.radius;
+    const funnels = field === null ? null : createFunnels(look.body, fall, field, hole);
+    if (funnels !== null) {
+      funnels.group.scale.setScalar(look.girth);
+      look.frame.add(funnels.group);
+    }
+    const mate =
+      look.body.parent !== null && starborn(system.bodies[look.body.parent].physics)
+        ? look.body
+        : system.bodies
+            .filter((body) => body.parent === look.body.id && starborn(body.physics))
+            .sort((left, right) => left.orbit - right.orbit)[0];
+    const strength = Math.min(1, Math.log10(Math.max(1, fall.rate / JET_LEAST)));
+    const jet =
+      strength > 0 && mate !== undefined
+        ? createJet(
+            JET_LONG * around.shroud.span.x,
+            JET_GIRTH * look.body.radius,
+            mate.year,
+            strength,
+            around.shroud,
+          )
+        : null;
+    if (jet !== null) {
+      jet.mesh.renderOrder = BELT_ORDER;
+      look.frame.add(jet.mesh);
+    }
+    return [{ look, around, jet, funnels }];
+  });
   for (const belt of belts) {
     world.add(belt.points);
   }
@@ -919,6 +972,19 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
             bubble.set(seat.x, seat.y, seat.z, HAZE_BUBBLE * found.look.girth * near);
           }
         });
+      }
+      for (const { jet, around } of wrapped) {
+        jet.mesh.updateWorldMatrix(true, false);
+        jet.outerInto.copy(around.mesh.matrixWorld).invert().multiply(jet.mesh.matrixWorld);
+      }
+      for (const { look, around, jet, funnels } of strays) {
+        funnels?.turn(shown);
+        if (jet !== null) {
+          jet.mesh.updateWorldMatrix(true, false);
+          jet.into.copy(around.mesh.matrixWorld).invert().multiply(jet.mesh.matrixWorld);
+          jet.turn(shown, around.eye.length());
+        }
+        look.frame.updateMatrixWorld();
       }
     }
     for (const glare of glaring) {

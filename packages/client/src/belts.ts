@@ -77,6 +77,9 @@ export interface Belt {
 
 export interface Jet {
   mesh: Mesh;
+  into: Matrix4;
+  outerInto: Matrix4;
+  veilAlso(shroud: Shroud): void;
   turn(tick: number, distance: number): void;
 }
 
@@ -536,6 +539,12 @@ export function createJet(
     strength: { value: strength },
     flow: { value: 0 },
     top: { value: 1 },
+    outerLanes: { value: null as Texture | null },
+    outerSpan: { value: new Vector2(1, 2) },
+    outerHull: { value: new Vector3(1, 1, 1) },
+    outerEye: { value: new Vector3() },
+    outerInto: { value: new Matrix4() },
+    outerVeiled: { value: 0 },
   };
   cloak(uniforms, shroud);
   const mesh = new Mesh(
@@ -553,6 +562,15 @@ export function createJet(
   mesh.frustumCulled = false;
   return {
     mesh,
+    into: uniforms.into.value,
+    outerInto: uniforms.outerInto.value,
+    veilAlso(outer) {
+      uniforms.outerLanes.value = outer.lanes;
+      uniforms.outerSpan.value = outer.span;
+      uniforms.outerHull.value = outer.hull;
+      uniforms.outerEye.value = outer.eye;
+      uniforms.outerVeiled.value = 1;
+    },
     turn(tick, distance) {
       const gone = tick / (JET_YEARS * year);
       const away = distance / shroud.span.y;
