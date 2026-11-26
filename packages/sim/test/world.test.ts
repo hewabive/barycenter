@@ -1964,7 +1964,13 @@ test("a system grows out of the disk of its young star", () => {
       const left = disks.reduce((sum, disk) => sum + disk.gas, 0);
       assert.ok(left <= gas, `${label}: the gas does not come back`);
       assert.equal(left, years >= 6e7 ? 0 : left, label);
-      if (years === 5e5) {
+      const paired = system.bodies.some(
+        (body) =>
+          body.parent !== null &&
+          starborn(body.physics) &&
+          body.physics.orbit < 40 * ASTRONOMICAL_UNIT,
+      );
+      if (years === 5e5 && !paired) {
         assert.equal(classOf(system.bodies[0].physics), "T Tauri star", label);
         const stars = system.bodies
           .filter((body) => starborn(body.physics))

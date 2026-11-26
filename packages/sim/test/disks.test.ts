@@ -26,8 +26,10 @@ import {
   JUPITER_MASS,
   SUN_GLOW,
   SUN_MASS,
+  starborn,
   YEAR,
 } from "../src/physics.ts";
+import { sketchSystem } from "../src/system.ts";
 
 const AU = ASTRONOMICAL_UNIT;
 const MYR = 1e6 * YEAR;
@@ -256,4 +258,33 @@ test("a young star takes in gas while its disk reaches it, less with every year"
   assert.ok(holed[0].gas === 0 && holed.some((disk) => disk.gas > 0));
   assert.equal(inflowOf(star(7, 3.9, holed)), 0);
   assert.equal(inflowOf(star(7, 1, [])), 0);
+});
+
+test("two close pairs in three lose their disks within a million years, the lighter star first", () => {
+  const gassy = (body: { physics: { disks: { gas: number }[] } }) =>
+    body.physics.disks.some((disk) => disk.gas > 0);
+  let close = 0;
+  let bare = 0;
+  for (let seed = 0; seed < 240; seed++) {
+    for (const age of [0.2, 1]) {
+      const { bodies } = sketchSystem(seed, { settled: false, star: null, age: age * MYR });
+      for (const body of bodies) {
+        const host = body.parent === null ? null : bodies[body.parent];
+        if (host === null || !starborn(body.physics) || !starborn(host.physics)) {
+          continue;
+        }
+        const apart = body.physics.orbit;
+        if (age === 1 && apart < 40 * AU && body.physics.mass >= 0.08 * SUN_MASS) {
+          close += 1;
+          bare += gassy(body) || gassy(host) ? 0 : 1;
+        }
+        const lighter = body.physics.mass < host.physics.mass;
+        if (apart < 100 * AU && lighter && host.physics.disks.length > 0 && gassy(body)) {
+          assert.ok(gassy(host), `seed ${seed} at ${age} Myr: ${body.name} outlives ${host.name}`);
+        }
+      }
+    }
+  }
+  assert.ok(close >= 15, `close pairs ${close}`);
+  assert.ok(bare / close > 0.45 && bare / close < 0.9, `bare ${bare} of ${close}`);
 });

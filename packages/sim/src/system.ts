@@ -244,6 +244,7 @@ interface Zone {
   home: boolean;
   last: boolean;
   sun: Star | null;
+  airy: number;
 }
 
 interface Ground {
@@ -489,6 +490,12 @@ const MOON_CLEAR = 1.45;
 const MOON_HOLD = 0.4;
 const BORN_SHARE = 0.05;
 const YOUTH_SALT = 0x3c6ef35f;
+const PAIR_SALT = 0x1f83d9ab;
+const PAIR_CLOSE = 40 * ASTRONOMICAL_UNIT;
+const PAIR_QUICK = 2 / 3;
+const PAIR_QUICK_YEARS = [3e5, 1e6];
+const PAIR_LIGHTER = 100 * ASTRONOMICAL_UNIT;
+const PAIR_LIGHTER_SHARE = 0.6;
 const GAS_YEARS = [2e6, 6e6, 0.5];
 const GAS_BEARING = 0.01;
 const DISK_REACH = 1.5;
@@ -1977,6 +1984,25 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
   const youth = createRandom(world ^ YOUTH_SALT);
   const airy = YEAR * amid(GAS_YEARS[0], GAS_YEARS[1], youth.next());
   const gasFor = (mass: number) => airy * (mass / SUN_MASS) ** -GAS_YEARS[2];
+  const pairing = createRandom(world ^ PAIR_SALT);
+  const quick = new Map<Star, number>();
+  const quickOf = (mate: Star | null): number => {
+    if (mate === null) {
+      return Number.POSITIVE_INFINITY;
+    }
+    const known = quick.get(mate);
+    if (known !== undefined) {
+      return known;
+    }
+    const [draw, span] = [pairing.next(), pairing.next()];
+    const [least, most] = PAIR_QUICK_YEARS.map(Math.log10);
+    const found =
+      mate.physics.orbit < PAIR_CLOSE && draw < PAIR_QUICK
+        ? YEAR * 10 ** (least + (most - least) * span)
+        : Number.POSITIVE_INFINITY;
+    quick.set(mate, found);
+    return found;
+  };
   const posts = new Map<Star, Post>();
   const grounds = new Map<Zone, Ground>();
   const careers = new Map<Star, Career>();
@@ -2680,7 +2706,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       const haste = youth.next();
       const airborne = lot !== null && lot.gas >= GAS_BEARING;
       const done = airborne
-        ? gasFor(star.mass) * amid(0.5, 1, haste)
+        ? zone.airy * amid(0.5, 1, haste)
         : Math.min(
             GROWN_MOST,
             SOLID_YEARS *
@@ -2805,7 +2831,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
           const tide = bound || turned.by === null ? undefined : turned.by(age);
           draft.physics = tide === undefined ? made : { ...made, day: tide.day };
           draft.held = tide?.held ? turned.lead : null;
-          const stirred = smooth(gasFor(star.mass), GROWN_MOST, age);
+          const stirred = smooth(zone.airy, GROWN_MOST, age);
           draft.share = share;
           draft.tilt = bound ? null : tilt;
           draft.upright = airborne ? 1 - stirred : 0;
@@ -3088,7 +3114,13 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
     return { belts: stayed, row };
   };
 
-  const emit = (star: Star, parent: number | null, hold: number, lent: number): number => {
+  const emit = (
+    star: Star,
+    parent: number | null,
+    hold: number,
+    lent: number,
+    bound: number,
+  ): number => {
     const id = drafts.length;
     const { tilt, slant } = star;
     const physics = { ...star.physics, light: lent };
@@ -3137,6 +3169,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
         home: plan.settled && parent === null && level === homeLevel,
         last: parent === null && span.next === null,
         sun: span.before === null && star.physics.mass >= STAR_LEAST ? star : null,
+        airy: Math.min(bound, gasFor(span.centre.mass), quickOf(span.before), quickOf(span.next)),
       };
       const { belts, row } = lay(zone);
       post.zones.push(zone);
@@ -3147,7 +3180,10 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
         const { stretch, orbit } = span.next.physics;
         const room = HOLD_ROOM * holdOf(1 - share, stretch) * orbit;
         const given = lightAt(span.centre.glow, wideOf(span.next.physics)) + beyond(level + 1);
-        inside = emit(span.next, id, room, given);
+        const lighter =
+          span.next.weight < span.centre.mass && span.next.physics.orbit < PAIR_LIGHTER;
+        const cut = lighter ? PAIR_LIGHTER_SHARE * zone.airy : Number.POSITIVE_INFINITY;
+        inside = emit(span.next, id, room, given, Math.min(quickOf(span.next), cut));
         const close = level === 0 && span.next.physics.year <= KIN_TIED;
         if (plan.settled && close && star.physics.mass >= STAR_LEAST) {
           drafts[id].held = inside;
@@ -3158,7 +3194,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
     drafts[id].physics = { ...drafts[id].physics, disks: belts };
     return id;
   };
-  emit(root, null, open, 0);
+  emit(root, null, open, 0, Number.POSITIVE_INFINITY);
   const spunBy = (star: Star, phase: Phase, age: number, more: Gain[]): number => {
     const career = careers.get(star);
     const own = (career?.turns ?? []).flatMap((turn): Gain[] => {
@@ -3432,7 +3468,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
           centre: zone.centre.mass,
           frost: frostOf(zone.centre.glow),
           age,
-          airy: gasFor(zone.centre.mass),
+          airy: zone.airy,
           stations,
         };
         return (bare ? [] : nebulaOf(cloud))
