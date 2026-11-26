@@ -295,14 +295,19 @@ export function passingOf(
     return 1;
   }
   const climb = toward.y / whole;
-  const most = Math.max(
-    0,
-    Math.abs(climb) > 1e-9 ? Math.min(whole, (Math.sign(climb) * top - from.y) / climb) : whole,
-  );
+  const [first, most] =
+    Math.abs(climb) > 1e-9
+      ? [(top - from.y) / climb, (-top - from.y) / climb]
+          .sort((low, high) => low - high)
+          .map((at) => Math.max(0, Math.min(whole, at)))
+      : [0, whole];
+  if (most <= first) {
+    return 1;
+  }
   let depth = 0;
-  let past = 0;
+  let past = first;
   for (let pace = 1; pace <= PASSING_STEPS; pace++) {
-    const next = most * (pace / PASSING_STEPS) ** 2;
+    const next = first + (most - first) * (pace / PASSING_STEPS) ** 2;
     const share = (0.5 * (past + next)) / whole;
     const reach = Math.hypot(from.x + share * toward.x, from.z + share * toward.z);
     const cell =
@@ -310,12 +315,14 @@ export function passingOf(
       (HAZE_COLUMNS - 1);
     const column = Math.min(HAZE_COLUMNS - 2, Math.floor(cell));
     const part = cell - column;
-    const stand = (tall[column] + (tall[column + 1] - tall[column]) * part) * reach;
+    const stand = Math.max(
+      (tall[column] + (tall[column + 1] - tall[column]) * part) * reach,
+      1e-12,
+    );
     const thick = dense[column] + (dense[column + 1] - dense[column]) * part;
-    const high = (from.y + share * toward.y) / Math.max(stand, 1e-12);
-    depth +=
-      (thick * Math.exp(-0.5 * high * high) * (next - past)) /
-      (Math.sqrt(2 * Math.PI) * Math.max(stand, 1e-12));
+    const low = (from.y + (past / whole) * toward.y) / stand;
+    const high = (from.y + (next / whole) * toward.y) / stand;
+    depth += (thick * spreadOf(low, high) * (next - past)) / stand;
     past = next;
   }
   return Math.exp(-depth);

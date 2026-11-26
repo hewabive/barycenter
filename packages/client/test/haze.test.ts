@@ -214,3 +214,19 @@ test("dust between the eye and a place hides it, and dust behind it does not", (
   const whole = thin.dense[columnAt(thin, 25)];
   assert.ok(Math.abs(through / Math.exp(-0.5 * whole) - 1) < 0.05, `${through} ${whole}`);
 });
+
+test("a thin layer hides what lies far behind it, whatever the slant of the line", () => {
+  const cloud = profileOf([layer(2, 200, { depth: 30, height: 0.03, flare: 0 })]);
+  const shade = shadeOf(cloud, 0.4);
+  for (const slant of [20, 45, 70]) {
+    const angle = (slant * Math.PI) / 180;
+    const eye = { x: 0, y: 700 * Math.sin(angle), z: 700 * Math.cos(angle) };
+    for (let depth = 3; depth <= 600; depth *= 1.13) {
+      const crossing = depth / Math.tan(angle);
+      if (crossing > 10 && crossing < 120) {
+        const through = passingOf(cloud, shade.top, { x: 0, y: -depth, z: 0 }, eye);
+        assert.ok(through < 1e-6, `${slant}° ${depth}: ${through}`);
+      }
+    }
+  }
+});

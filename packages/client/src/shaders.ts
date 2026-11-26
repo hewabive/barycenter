@@ -1065,7 +1065,7 @@ void main() {
 }
 `;
 
-export const SLAB = `
+const BELL = `
 float above(float height) {
   return 0.3989423 * exp(-0.5 * height * height)
     / (0.6565 * height + 0.3435 * sqrt(height * height + 5.3954372));
@@ -1082,7 +1082,10 @@ float spread(float low, float lowTail, float high, float highTail) {
     ? between(low, lowTail, high, highTail) / wide
     : 0.3989423 * exp(-0.5 * middle * middle);
 }
+`;
 
+export const SLAB = `
+${BELL}
 float strip(float before, float beforeLit, float after, float afterLit, float through, float gone) {
   float turn = after - before + through;
   return abs(turn) < 1e-3
@@ -1491,6 +1494,7 @@ void main() {
 export const SHROUD_STEPS = 10;
 
 const SHROUD = `
+${BELL}
 uniform sampler2D lanes;
 uniform vec2 span;
 uniform vec3 hull;
@@ -1506,20 +1510,30 @@ float passing(vec3 spot) {
   vec3 toward = eye - at;
   float whole = length(toward);
   vec3 ray = toward / max(whole, 1e-12);
-  float most = abs(ray.y) > 1e-9 ? min(whole, (sign(ray.y) * hull.y - at.y) / ray.y) : whole;
-  most = max(most, 0.0);
+  float first = 0.0;
+  float most = whole;
+  if (abs(ray.y) > 1e-9) {
+    float one = (hull.y - at.y) / ray.y;
+    float two = (-hull.y - at.y) / ray.y;
+    first = clamp(min(one, two), 0.0, whole);
+    most = clamp(max(one, two), 0.0, whole);
+  }
+  if (most <= first) {
+    return 1.0;
+  }
   float depth = 0.0;
-  float past = 0.0;
+  float past = first;
   for (int pace = 1; pace <= ${SHROUD_STEPS}; pace++) {
     float share = float(pace) / ${real(SHROUD_STEPS)};
-    float next = most * share * share;
+    float next = first + (most - first) * share * share;
     vec3 here = at + 0.5 * (past + next) * ray;
     float reach = length(here.xz);
     float along = clamp(log(max(reach, 1e-12) / span.x) / log(span.y / span.x), 0.0, 1.0);
     vec4 lane = textureLod(lanes, vec2((0.5 + ${real(HAZE_COLUMNS - 1)} * along) / ${real(HAZE_COLUMNS)}, 0.5), 0.0);
-    float stand = exp(lane.g) * reach;
-    float high = here.y / max(stand, 1e-12);
-    depth += exp(lane.r - 0.5 * high * high) * (next - past) / (2.5066283 * max(stand, 1e-12));
+    float stand = max(exp(lane.g) * reach, 1e-12);
+    float low = (at.y + past * ray.y) / stand;
+    float high = (at.y + next * ray.y) / stand;
+    depth += exp(lane.r) * spread(low, above(abs(low)), high, above(abs(high))) * (next - past) / stand;
     past = next;
   }
   return exp(-depth);
