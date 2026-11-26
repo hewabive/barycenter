@@ -11,6 +11,7 @@ import {
   fieldOf,
   heatAt,
   inflowOf,
+  planeOf,
   poleOf,
   poseOf,
   positionOf,
@@ -391,8 +392,8 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
       disk.lasts === 0 ? [{ disk, index, lane: body.disks[index] }] : [],
     );
   const rooted = looks.filter((owner) => strewn(owner).length > 0);
-  const leanOf = (owner: Look) => {
-    const pole = poleOf(owner.body);
+  const leanOf = (owner: Look, hub: number | null) => {
+    const pole = hub === null ? poleOf(owner.body) : planeOf(system.bodies[hub]);
     return new Quaternion().setFromUnitVectors(
       new Vector3(0, 1, 0),
       new Vector3(pole.x, pole.y, pole.z),
@@ -418,9 +419,9 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
       const cleared = disk.gas > 0 ? [] : clearedBy(disk, circling, owner.body.physics.mass);
       const seed = owner.body.seed + index;
       const cloud = createBelt(lane, disk, seed, shine, coarse.matches, cleared);
-      cloud.points.quaternion.copy(leanOf(owner));
-      cloud.points.renderOrder = BELT_ORDER;
       const hub = insideOf(owner, disk, true);
+      cloud.points.quaternion.copy(leanOf(owner, hub));
+      cloud.points.renderOrder = BELT_ORDER;
       return { ...cloud, about: insideOf(owner, disk, false), hub, owner };
     }),
   );
@@ -469,7 +470,7 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
       if (haze === null) {
         return [];
       }
-      haze.mesh.quaternion.copy(leanOf(owner));
+      haze.mesh.quaternion.copy(leanOf(owner, about));
       haze.mesh.layers.set(MIST_LAYER);
       const lamps = about === null ? [owner.body.id] : [owner.body.id, about];
       const swarms = lanes.map(({ planet, inner, outer }) => {
@@ -489,7 +490,7 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
           tintOf(owner.body).multiplyScalar(SWARM_SHINE * light),
           coarse.matches,
         );
-        swarm.points.quaternion.copy(leanOf(owner));
+        swarm.points.quaternion.copy(leanOf(owner, about));
         swarm.points.renderOrder = BELT_ORDER;
         swarm.veil(haze.shroud);
         const wake =

@@ -4081,6 +4081,15 @@ export function poleOf(body: Body): Vector {
   };
 }
 
+export function planeOf(body: Body): Vector {
+  const lean = Math.sin(body.slant);
+  return {
+    x: lean * Math.sin(body.node),
+    y: Math.cos(body.slant),
+    z: lean * Math.cos(body.node),
+  };
+}
+
 export function spinOf(body: Body, tick: number): number {
   return (2 * Math.PI * tick) / body.day;
 }

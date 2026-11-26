@@ -226,6 +226,7 @@ export {
   type Places,
   type Plan,
   placesOf,
+  planeOf,
   poleOf,
   poseOf,
   positionOf,
