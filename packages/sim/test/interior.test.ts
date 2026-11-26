@@ -256,6 +256,17 @@ test("a giant swells under a near star, a light one more, and when it is young",
   assert.ok(bodyOf(JUPITER, shares, 0, 0).radius < far);
 });
 
+test("a young giant lit far beyond its own heat swells smoothly and never shrinks", () => {
+  const shares = cored(0, 0.0165, 0);
+  const lits = [300, 1000, 1500, 2000, 2300, 2600, 3000, 3500];
+  const widths = lits.map((lit) => bodyOf(JUPITER, shares, 1100, lit).radius / 6.9911e7);
+  for (const [index, width] of widths.entries()) {
+    assert.ok(width > 1.4 && width < 25, `${lits[index]} K ${width}`);
+  }
+  const old = bodyOf(JUPITER, shares, 160, 3500).radius / 6.9911e7;
+  assert.ok(old > 1.3 && old < 2.2, `an old giant at 3500 K ${old}`);
+});
+
 test("gas that lies deep makes a body one of gas, and thin air leaves it its ground", () => {
   const rock = { iron: 0.3, rock: 0.7, ice: 0 };
   const ground = solidOf(5 * EARTH_MASS, rock).radius;

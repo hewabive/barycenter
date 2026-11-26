@@ -704,7 +704,7 @@ function framed(
   const falling = fed > 0 ? (gravityOf(mass, cold) * fed) / (Math.PI * cold) : 0;
   const glow = fed > 0 ? 4 * Math.PI * site.distance ** 2 * (light + falling) : lit;
   const inner = innerHeat(mass, site.star.age, lot.vigor);
-  const shone = balanceHeat(glow, site.distance, gasAlbedo(mass));
+  const shone = balanceHeat(lit, site.distance, gasAlbedo(mass));
   const baked =
     lot.beyond &&
     worst > ICE_LOST &&

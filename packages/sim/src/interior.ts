@@ -138,6 +138,10 @@ const LEAN_FLUID = 0.6;
 const CUTS = 6;
 const SETTLES = 6;
 const SETTLED = 3e-3;
+const HELD = 1e-3;
+const RUNG = 1.15;
+const RUNGS = 40;
+const HALVINGS = 16;
 const KEPT = 512;
 const POROUS_MOST = 0.4;
 const POROUS_SPAN = [18.5, 20.5];
@@ -533,6 +537,8 @@ export function solidOf(mass: number, shares: Solids): Interior {
 
 type Shares = Solids & Pick<Physics, "gas">;
 
+type Fluid = Interior & { joint: number; held: boolean };
+
 export function wrapped(physics: Pick<Physics, "mass"> & Shares): boolean {
   if (physics.gas >= 1 || !(physics.gas > 0)) {
     return physics.gas >= 1;
@@ -549,7 +555,7 @@ function fluidAt(
   gravity: number,
   joint: number,
   first: number,
-): Interior & { joint: number } {
+): Fluid {
   const hard = mass * (1 - shares.gas);
   const whole = shares.iron + shares.rock + shares.ice;
   const air = gaseous(own, lit, gravity);
@@ -567,7 +573,55 @@ function fluidAt(
     skin: air.skin,
     layers: found.layers,
     joint: under.length > 0 && lowest ? lowest.pressure : joint,
+    held: Math.abs(Math.log(found.mass / mass)) < HELD,
   };
+}
+
+function balanced(
+  mass: number,
+  shares: Shares,
+  own: number,
+  lit: number,
+  joint: number,
+  from: number,
+): Fluid {
+  const at = (radius: number) =>
+    fluidAt(
+      mass,
+      shares,
+      own,
+      lit,
+      (GRAVITY * mass) / radius ** 2,
+      joint,
+      (GRAVITY * mass ** 2) / radius ** 4,
+    );
+  const wider = (radius: number, found: Fluid) => found.held && found.radius > radius;
+  const halved = (inside: number, held: Fluid, outside: number, past: Fluid): Fluid => {
+    for (let cut = 0; cut < HALVINGS; cut++) {
+      const middle = Math.sqrt(inside * outside);
+      const found = at(middle);
+      if (wider(middle, found)) {
+        [inside, held] = [middle, found];
+      } else {
+        [outside, past] = [middle, found];
+      }
+    }
+    return held.held ? held : past;
+  };
+  let before = from;
+  let found = at(before);
+  const up = wider(before, found);
+  let next = before;
+  let reached = found;
+  for (let rung = 0; rung < RUNGS && wider(next, reached) === up; rung++) {
+    [before, found] = [next, reached];
+    next = up ? next * RUNG : next / RUNG;
+    reached = at(next);
+  }
+  if (wider(next, reached) === up) {
+    return reached.held ? reached : found;
+  }
+  return up ? halved(before, found, next, reached) : halved(next, reached, before, found);
 }
 
 function stirredBy(lit: number, mass: number): number {
@@ -604,18 +658,20 @@ export function bodyOf(mass: number, shares: Shares, inner = 0, lit = 0): Interi
       Math.max(weight, 2 * SKY),
       (GRAVITY * mass ** 2) / wide ** 4,
     );
-    for (let turn = 0; turn < SETTLES; turn++) {
+    let settled = false;
+    for (let turn = 0; turn < SETTLES && !settled; turn++) {
       const pull = (GRAVITY * mass) / found.radius ** 2;
       const next = fluidAt(mass, shares, own, lit, pull, found.joint, found.centre);
-      const settled =
+      settled =
+        next.held &&
         Math.abs(next.radius / found.radius - 1) < SETTLED &&
         Math.abs(Math.log(next.joint / found.joint)) < JOINED;
       found = next;
-      if (settled) {
-        break;
-      }
     }
-    const { joint: _, ...interior } = found;
+    if (!settled) {
+      found = balanced(mass, shares, own, lit, found.joint, wide);
+    }
+    const { joint: _, held: __, ...interior } = found;
     return interior;
   });
 }

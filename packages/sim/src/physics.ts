@@ -163,6 +163,7 @@ const XUV_FADING = 0.5;
 const XUV_SHARE = 0.1;
 const CRITICAL = 647;
 const STEAM_LEFT = 200;
+const SHELTER = EARTH_AIR;
 const THERMOSTAT = 278;
 const THERMOSTAT_STEPS = 14;
 const BRIGHT_AIR = 0.3;
@@ -863,7 +864,7 @@ export function climateOf(given: Volatiles): Climate {
   const whole = (parts: number[]) => parts.reduce((sum, part) => sum + part, 0);
   const carbon = given.stock[GASES.indexOf("carbon dioxide")];
   const water = GASES.indexOf("water");
-  const sheltered = given.stock[GASES.indexOf("hydrogen")] > 0;
+  const sheltered = given.stock[GASES.indexOf("hydrogen")] >= SHELTER;
   const settle = (weathered: number, steam: number, pooled: boolean) => {
     let heat = balanceHeat(given.glow, given.distance, BRIGHT_AIR);
     let partials = given.stock;

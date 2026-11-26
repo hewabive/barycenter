@@ -571,6 +571,12 @@ test("the air of a body follows from what it keeps and how warm it is", () => {
   const inner = wrapped(1.4, 300);
   assert.ok(inner.heat > 1000, `hydrogen at 1.4 AU ${inner.heat}`);
   assert.ok(share(inner, "water") > 0.1);
+  const trace = climateOf({
+    ...sun,
+    distance: 1.4 * ASTRONOMICAL_UNIT,
+    stock: stocked({ hydrogen: 0.01 * bar, nitrogen: bar, water: 1e4 * bar }),
+  });
+  assert.ok(trace.air < 10 * bar, `a trace of hydrogen keeps ${trace.air / bar} bar`);
 
   const far = climateOf({
     ...sun,
