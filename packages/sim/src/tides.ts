@@ -8,9 +8,6 @@ const SOLID_LOSS = 100;
 const LOVE_MOST = 0.4;
 const ROCK_STIFF = 5e10;
 const ICE_STIFF = 4e9;
-const TURNING_SOLID = 0.33;
-const TURNING_FLUID = 0.25;
-const TURNING_EVEN = 0.4;
 const POWER = 6.5;
 const SCAN = 48;
 const HALVINGS = 40;
@@ -33,6 +30,7 @@ export interface Turner {
   day: number;
   ice: number;
   fluid: boolean;
+  turning: number;
 }
 
 export interface Reach {
@@ -103,13 +101,16 @@ export function yieldOf(host: Pick<Turner, "mass" | "radius" | "ice" | "fluid">)
 
 export function lockOf(moon: Turner, host: number, orbit: number): number {
   const spin = (2 * Math.PI) / moon.day;
-  const inertia = TURNING_EVEN * moon.mass * moon.radius ** 2;
+  const inertia = moon.turning * moon.mass * moon.radius ** 2;
   return (
     (spin * orbit ** 6 * inertia) / (3 * GRAVITY * host ** 2 * moon.radius ** 5 * yieldOf(moon))
   );
 }
 
-export function pullOf(host: Turner, moon: number): number {
+export function pullOf(
+  host: Pick<Turner, "mass" | "radius" | "ice" | "fluid">,
+  moon: number,
+): number {
   const drawn = host.radius ** 5 * Math.sqrt(GRAVITY * (host.mass + moon));
   return ((39 / 2) * yieldOf(host) * moon * drawn) / host.mass;
 }
@@ -125,7 +126,7 @@ export function tideOf(
 ): Tide {
   const whole = host.mass + moon.mass;
   const pull = pullOf(host, moon.mass);
-  const inertia = (host.fluid ? TURNING_FLUID : TURNING_SOLID) * host.mass * host.radius ** 2;
+  const inertia = host.turning * host.mass * host.radius ** 2;
   const swing = (orbit: number) =>
     ((moon.mass * host.mass) / whole) * Math.sqrt(GRAVITY * whole * orbit);
   const fastest = SPIN_MOST * Math.sqrt((GRAVITY * host.mass) / host.radius ** 3);

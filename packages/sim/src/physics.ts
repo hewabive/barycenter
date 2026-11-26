@@ -25,33 +25,16 @@ export const LIGHT_SPEED = 2.998e8;
 const FROST_LINE = 2.7 * ASTRONOMICAL_UNIT;
 const RADIATION = 5.67e-8;
 const HOLD_LEAST = 0.02;
-const LOVE_STAR = 0.03;
-const LOVE_FLUID = 0.4;
-const LOVE_SOLID = 0.93;
-const SPIN_MOST = 0.3;
+export const SPIN_MOST = 0.3;
 export const BOLTZMANN = 1.381e-23;
 export const DALTON = 1.661e-27;
 export const GAS_WEIGHT = 2.34;
-const EARTH_DENSITY = 5514;
-const IRON_DENSITY = 7900;
-const ROCK_DENSITY = 3400;
-const ICE_DENSITY = 1000;
-const SQUEEZE_MASS = 0.45;
-const SQUEEZE_POWER = 0.078;
-const GAS_RADIUS = 11.4;
-const GAS_PEAK = 318;
 const GAS_FROM = 3;
 const GAS_FULL = 300;
 const GAS_MOST = 0.95;
 const DEEP_AIR = 1e8;
-const PUFF_FROM = 1000;
-const PUFF_SPAN = 1000;
-const PUFF_MOST = 1.4;
-const PUFF_GAIN = 0.5;
-const POROUS_MOST = 0.4;
-const POROUS_SPAN = [18.5, 20.5];
-const ROUND_ROCK = 3e5;
-const ROUND_ICE = 2e5;
+export const ROUND_ROCK = 3e5;
+export const ROUND_ICE = 2e5;
 const SPAN_FIT = [1315, 2498.6, 160.75, 0.035266, 0.34263];
 const SPAN_HOOK = [19.118, 4.9038, 0.047358, 1.3631, 0.8074];
 const SPAN_SHARE = 0.95;
@@ -253,10 +236,9 @@ export interface Volatiles {
   frozen: boolean;
   ceiling?: number;
 }
-const FLATTENING = 0.7;
 const ROCHE = 2.44;
 
-function smooth(from: number, to: number, value: number): number {
+export function smooth(from: number, to: number, value: number): number {
   const share = Math.max(0, Math.min(1, (value - from) / (to - from)));
   return share * share * (3 - 2 * share);
 }
@@ -763,36 +745,6 @@ export function gasShare(mass: number): number {
   return GAS_MOST * smooth(Math.log(GAS_FROM), Math.log(GAS_FULL), Math.log(earths)) ** 2;
 }
 
-function solidRadius(mass: number, iron: number, rock: number, ice: number): number {
-  const whole = iron + rock + ice;
-  if (mass <= 0 || whole <= 0) {
-    return 0;
-  }
-  const packed = whole / (iron / IRON_DENSITY + rock / ROCK_DENSITY + ice / ICE_DENSITY);
-  const holes = POROUS_MOST * (1 - smooth(POROUS_SPAN[0], POROUS_SPAN[1], Math.log10(mass)));
-  const loose = packed * (1 - holes);
-  const earths = mass / EARTH_MASS;
-  const squeezed = (1 + earths / SQUEEZE_MASS) ** -SQUEEZE_POWER;
-  return EARTH_RADIUS * Math.cbrt((earths * EARTH_DENSITY) / loose) * squeezed;
-}
-
-function gasRadius(mass: number, warmth: number): number {
-  const share = mass / EARTH_MASS / GAS_PEAK;
-  const light = Math.max(0.3, Math.min(1.5, share ** -0.3));
-  const excess = Math.max(0, Math.min(PUFF_MOST, (warmth - PUFF_FROM) / PUFF_SPAN));
-  const cold = EARTH_RADIUS * GAS_RADIUS * share ** (share < 1 ? 0.15 : -0.04);
-  return cold * (1 + PUFF_GAIN * light * excess);
-}
-
-export function radiusOf(
-  mass: number,
-  shares: { iron: number; rock: number; ice: number; gas: number },
-  warmth = 0,
-): number {
-  const core = solidRadius(mass * (1 - shares.gas), shares.iron, shares.rock, shares.ice);
-  return Math.cbrt(core ** 3 + shares.gas * gasRadius(mass, warmth) ** 3);
-}
-
 export function wrapped(physics: Pick<Physics, "mass" | "radius" | "gas">): boolean {
   return physics.gas >= 1 || columnOf(physics.mass, physics.radius) * physics.gas >= DEEP_AIR;
 }
@@ -807,15 +759,6 @@ export function yearOf(orbit: number, around: number): number {
 
 export function hillOf(orbit: number, mass: number, around: number): number {
   return orbit * Math.cbrt(mass / (3 * around));
-}
-
-export function bulgeOf(
-  physics: Pick<Physics, "mass" | "radius" | "gas" | "iron" | "rock" | "ice" | "day">,
-): number {
-  const spin =
-    (((2 * Math.PI) / physics.day) ** 2 * physics.radius ** 3) / (GRAVITY * physics.mass);
-  const love = starborn(physics) ? LOVE_STAR : wrapped(physics) ? LOVE_FLUID : LOVE_SOLID;
-  return (love / 3) * Math.min(SPIN_MOST, spin) * physics.radius ** 2;
 }
 
 export function laplaceOf(
@@ -1042,12 +985,6 @@ export function moltenOf(physics: Physics): number {
   const lit = noon <= ROCK_MELT ? 0 : 0.5 * (1 - (ROCK_MELT / noon) ** 4);
   const whole = smooth(ROCK_MELT - 100, ROCK_MELT + 100, physics.heat);
   return lit + (whole - lit) * even;
-}
-
-export function flatOf(physics: Physics): number {
-  const turn = (2 * Math.PI) / physics.day;
-  const share = (turn ** 2 * physics.radius ** 3) / (GRAVITY * physics.mass);
-  return Math.min(0.2, FLATTENING * share);
 }
 
 export function columnOf(mass: number, radius: number): number {

@@ -1,5 +1,6 @@
 import { railsOf } from "./flight.ts";
-import { bulgeOf, GRAVITY } from "./physics.ts";
+import { bulgeOf } from "./interior.ts";
+import { GRAVITY } from "./physics.ts";
 import { poleOf } from "./system.ts";
 import type { Survey, Vector } from "./types.ts";
 

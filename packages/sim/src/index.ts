@@ -62,6 +62,17 @@ export {
   type Turn,
   turnOf,
 } from "./ground.ts";
+export {
+  bulgeOf,
+  flatOf,
+  type Interior,
+  interiorOf,
+  type Layer,
+  type Matter,
+  radiusOf,
+  solidOf,
+  turningOf,
+} from "./interior.ts";
 export type { Duty, Muster, Route } from "./muster.ts";
 export {
   assemble,
@@ -83,7 +94,6 @@ export {
   BROWN_LEAST,
   BURST_LEAST,
   balanceHeat,
-  bulgeOf,
   type Climate,
   classOf,
   clearOf,
@@ -100,7 +110,6 @@ export {
   EARTH_RADIUS,
   EARTH_SEEN,
   escapeOf,
-  flatOf,
   frostOf,
   GIGAYEAR,
   GRAVITY,
@@ -121,7 +130,6 @@ export {
   moltenOf,
   nestOf,
   ROCK_MELT,
-  radiusOf,
   rocheOf,
   roughOf,
   type Shown,

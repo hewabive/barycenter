@@ -57,6 +57,7 @@ import {
   surveySystem,
   swayOf,
   swingOf,
+  turningOf,
   turnover,
   type Vector,
   weightOf,
@@ -359,7 +360,7 @@ test("the physics of every body holds together", () => {
       assert.ok(physics.mass < around.mass, label);
       const host = system.bodies[body.parent].parent;
       if (host !== null) {
-        const spun = { ...physics, fluid: wrapped(physics) };
+        const spun = { ...physics, fluid: wrapped(physics), turning: turningOf(physics) };
         const free = lockOf(spun, around.mass, physics.orbit) > 0.5 * physics.age;
         assert.ok(physics.day === physics.year || around.mass >= STAR_LEAST || free, label);
         if (body.parent !== system.home) {

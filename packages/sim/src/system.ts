@@ -21,12 +21,12 @@ import {
   type Track,
   trackOf,
 } from "./infall.ts";
+import { bulgeOf, radiusOf, turningOf } from "./interior.ts";
 import { lobeOf, loneOf, type Pairing, type Phase, pairOf, type Turn } from "./pairs.ts";
 import {
   ASTRONOMICAL_UNIT,
   BROWN_LEAST,
   balanceHeat,
-  bulgeOf,
   type Climate,
   clearOf,
   climateOf,
@@ -54,7 +54,6 @@ import {
   lifeOf,
   lightAt,
   nestOf,
-  radiusOf,
   rocheOf,
   SKY_LIGHT,
   STAR_LEAST,
@@ -1015,7 +1014,8 @@ function moonsOf(
     const site = siteAt(orbit, stretch);
     const drawn = lotOf(mass, site, random, false);
     const loose = shaped(drawn, site);
-    const free = lockOf({ ...loose, fluid: wrapped(loose) }, host.mass, orbit) > age;
+    const spun = { ...loose, fluid: wrapped(loose), turning: turningOf(loose) };
+    const free = lockOf(spun, host.mass, orbit) > age;
     const lot = free ? drawn : { ...drawn, free: null };
     const physics = free ? loose : { ...loose, day: loose.year };
     const moons = moonsOf(
@@ -2025,6 +2025,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       day: spin,
       ice: host.ice,
       fluid: wrapped(host),
+      turning: turningOf(host),
     };
     const dense = densityOf(host.mass, host.radius);
     const courses = riders.map((moon) => {
@@ -2840,6 +2841,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
           day: spin,
           ice: planet.ice,
           fluid: wrapped(planet),
+          turning: turningOf(planet),
         };
         let last: { age: number; feeds: Feed[]; moon: Sprung | null } | null = null;
         const cycles = (age: number) => {

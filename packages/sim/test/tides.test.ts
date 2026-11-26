@@ -25,14 +25,29 @@ import {
 const MYR = 1e6 * YEAR;
 const NEVER = Number.POSITIVE_INFINITY;
 
-const mars: Turner = { mass: 6.417e23, radius: 3.39e6, day: 88643, ice: 0, fluid: false };
-const earth: Turner = { mass: EARTH_MASS, radius: EARTH_RADIUS, day: 86164, ice: 0, fluid: false };
+const mars: Turner = {
+  mass: 6.417e23,
+  radius: 3.39e6,
+  day: 88643,
+  ice: 0,
+  fluid: false,
+  turning: 0.364,
+};
+const earth: Turner = {
+  mass: EARTH_MASS,
+  radius: EARTH_RADIUS,
+  day: 86164,
+  ice: 0,
+  fluid: false,
+  turning: 0.331,
+};
 const jupiter: Turner = {
   mass: JUPITER_MASS,
   radius: 6.99e7,
   day: 9.93 * HOUR,
   ice: 0,
   fluid: true,
+  turning: 0.25,
 };
 
 const reachOf = (host: Turner, grain: number): Reach => ({
@@ -75,7 +90,7 @@ test("a heavy moon was nearer once, and its planet turned faster", () => {
   assert.ok(once.orbit < moon.orbit && once.orbit > 40 * earth.radius, `${once.orbit}`);
   assert.ok(once.day < earth.day && once.day > 10 * HOUR, `${once.day / HOUR}`);
   const turning = (tide: { orbit: number; day: number }) =>
-    (0.33 * earth.mass * earth.radius ** 2 * 2 * Math.PI) / tide.day +
+    (earth.turning * earth.mass * earth.radius ** 2 * 2 * Math.PI) / tide.day +
     ((moon.mass * earth.mass) / (earth.mass + moon.mass)) *
       Math.sqrt(GRAVITY * (earth.mass + moon.mass) * tide.orbit);
   assert.ok(Math.abs(turning(once) / turning(today) - 1) < 1e-9);
@@ -84,7 +99,14 @@ test("a heavy moon was nearer once, and its planet turned faster", () => {
 });
 
 test("a moon as heavy as its planet can carry comes to hold the planet's face", () => {
-  const pluto: Turner = { mass: 1.303e22, radius: 1.188e6, day: 6 * HOUR, ice: 0.3, fluid: false };
+  const pluto: Turner = {
+    mass: 1.303e22,
+    radius: 1.188e6,
+    day: 6 * HOUR,
+    ice: 0.3,
+    fluid: false,
+    turning: 0.3,
+  };
   const charon = { mass: 1.586e21, orbit: 8 * pluto.radius };
   const reach = reachOf(pluto, 1700);
   const late = tideOf(pluto, charon, reach, 0, NEVER, 4 * GIGAYEAR, true);
@@ -126,7 +148,14 @@ test("a dense moon reaches a light planet whole", () => {
 });
 
 test("a large rocky body gives way to a tide more than a small one or a giant", () => {
-  const moon: Turner = { mass: 7.35e22, radius: 1.737e6, day: 2.36e6, ice: 0, fluid: false };
+  const moon: Turner = {
+    mass: 7.35e22,
+    radius: 1.737e6,
+    day: 2.36e6,
+    ice: 0,
+    fluid: false,
+    turning: 0.393,
+  };
   const icy: Turner = { ...moon, ice: 1 };
   assert.ok(yieldOf(mars) > 1e-3 && yieldOf(mars) < 2.5e-3, `${yieldOf(mars)}`);
   assert.ok(yieldOf(moon) > 2e-4 && yieldOf(moon) < 8e-4, `${yieldOf(moon)}`);

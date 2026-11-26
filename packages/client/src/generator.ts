@@ -22,6 +22,7 @@ import {
   HOUR,
   heatAt,
   hillOf,
+  interiorOf,
   JUPITER_MASS,
   type Lamp,
   LUMENS,
@@ -89,6 +90,7 @@ const WEATHER_SPAN = 72;
 const WEATHER_MOST = 16;
 const LAMPS = 2;
 const HEAVY = 0.03;
+const THIN_SHELL = 1e-3;
 const ROCK_GRAIN = 3000;
 const ICE_GRAIN = 900;
 const AGE_LEAST = 1e-4;
@@ -163,6 +165,12 @@ const figure = (value: number, digits = 3): string => {
 };
 const share = (value: number) =>
   value >= 0.001 || value === 0 ? `${figure(100 * value)}%` : figure(value);
+const squeeze = (pascals: number) =>
+  pascals >= 1e8
+    ? `${figure(pascals / 1e9)} GPa`
+    : pascals >= 1e5
+      ? `${figure(pascals / 1e6)} MPa`
+      : `${figure(pascals / 1e3)} kPa`;
 const span = (seconds: number) =>
   seconds >= 2 * YEAR
     ? `${figure(seconds / YEAR)} years`
@@ -260,6 +268,11 @@ function factsOf(body: Body): Fact[] {
   const moons = system.bodies.filter((other) => other.parent === body.id).length;
   const rough = roughOf(physics);
   const molten = moltenOf(physics);
+  const inside = interiorOf(physics);
+  const shells = (inside?.layers ?? []).filter(
+    ({ radius }, index, layers) =>
+      radius - (layers[index - 1]?.radius ?? 0) >= THIN_SHELL * physics.radius,
+  );
   const glow = (LUMENS * seenGlow(physics.heat)) / Math.PI;
   const warmer = physics.light > 0 ? 1 - lightAt(sun.physics.glow, reach) / physics.light : 0;
   const sway = swayOf(system, body.id);
@@ -345,6 +358,28 @@ function factsOf(body: Body): Fact[] {
         "Made of",
         `iron ${share(physics.iron)} · rock ${share(physics.rock)} · ice ${share(physics.ice)} · gas ${share(physics.gas)}`,
       ],
+      ...(inside === null
+        ? []
+        : ([
+            [
+              "Inside",
+              shells.length === 1 && shells[0].matter === "blend"
+                ? "one mix all the way down, too small to have parted into layers"
+                : shells
+                    .map(({ matter, radius }) => `${matter} to ${figure(radius / 1000)} km`)
+                    .join(" · "),
+            ],
+            [
+              "Pressure inside",
+              [
+                `${squeeze(inside.centre)} at the centre`,
+                ...shells
+                  .slice(1)
+                  .map(({ matter, pressure }) => `${squeeze(pressure)} under the ${matter}`),
+              ].join(" · "),
+            ],
+            ["Moment of inertia", `${figure(inside.turning)} of its mass times its radius squared`],
+          ] satisfies Fact[])),
       ["Temperature", `${figure(physics.heat)} K · ${figure(physics.heat - 273.15)} °C`],
       [
         "Over its year",
