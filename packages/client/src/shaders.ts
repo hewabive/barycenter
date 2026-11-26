@@ -1771,7 +1771,8 @@ void main() {
     vec3 at = eye + (from + (float(step) + shift) * pace) * ray;
     float far = max(length(at), inner);
     float lean = abs(at.y) / max(length(at), 1e-6 * inner);
-    float wall = exp(-pow((lean - open) / ${real(COCOON_WALL)}, 2.0));
+    float edge = (lean - open) / ${real(COCOON_WALL)};
+    float wall = exp(-edge * edge);
     float hollow = smoothstep(open - ${real(COCOON_WALL)}, open + ${real(COCOON_WALL)}, lean);
     float dense = pow(far / inner, -1.5) * (1.0 - hollow * ${real(COCOON_HOLLOW)}) * smoothstep(reach, 0.6 * reach, far);
     float lit = max(wall, hollow) + ${real(COCOON_SHADE)} * (1.0 - hollow);
