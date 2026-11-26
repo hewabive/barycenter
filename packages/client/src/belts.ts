@@ -77,7 +77,7 @@ export interface Belt {
 
 export interface Jet {
   mesh: Mesh;
-  turn(tick: number, away: number): void;
+  turn(tick: number, distance: number): void;
 }
 
 export interface Swarm extends Belt {
@@ -139,6 +139,7 @@ const ARC_SEED = 7.31e-9;
 const JET_STEPS = 48;
 const JET_OPEN = 0.029;
 const JET_FAR = [1.2, 2.5];
+const JET_FOOT = 0.5;
 const JET_YEARS = 36;
 const SWARM_LEAST = 120;
 const SWARM_MOST = 700;
@@ -534,7 +535,7 @@ export function createJet(
     girth: { value: new Vector2(girth, JET_OPEN) },
     strength: { value: strength },
     flow: { value: 0 },
-    shown: { value: 0 },
+    top: { value: 1 },
   };
   cloak(uniforms, shroud);
   const mesh = new Mesh(
@@ -552,12 +553,14 @@ export function createJet(
   mesh.frustumCulled = false;
   return {
     mesh,
-    turn(tick, away) {
+    turn(tick, distance) {
       const gone = tick / (JET_YEARS * year);
+      const away = distance / shroud.span.y;
       const far = Math.max(0, Math.min(1, (away - JET_FAR[0]) / (JET_FAR[1] - JET_FAR[0])));
+      const grown = far * far * (3 - 2 * far);
+      const foot = Math.min(1, (JET_FOOT * distance) / reach);
       uniforms.flow.value = gone - Math.floor(gone);
-      uniforms.shown.value = far * far * (3 - 2 * far);
-      mesh.visible = far > 0;
+      uniforms.top.value = foot + (1 - foot) * grown;
     },
   };
 }

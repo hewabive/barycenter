@@ -876,7 +876,7 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
       for (const haze of hazes) {
         haze.turn(shown, (2 * slope) / mist.grid.y);
         haze.mesh.worldToLocal(haze.eye.copy(camera.position));
-        haze.jet?.turn(shown, haze.eye.length() / haze.shroud.span.y);
+        haze.jet?.turn(shown, haze.eye.length());
         const parent = haze.owner.body.parent;
         const around = hazes.find((other) => other.owner.body.id === parent);
         if (around !== undefined) {

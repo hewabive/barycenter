@@ -124,7 +124,7 @@ test("a planet in a lane of a disk has a swarm, and a heavy one holds two camps 
   assert.ok(Math.abs(count - 0.5 * read(heavy).length) <= 1, `${count}`);
 });
 
-test("a jet shows from outside its disk only, and its knots come round", () => {
+test("a jet shows its foot from near, grows whole outside its disk, and its knots come round", () => {
   const disk = belt({ inner: AU, outer: 9 * AU, depth: 50, gas: EARTH_MASS, height: 0.03 });
   const haze = createHaze(
     [{ lane: { inner: 30, outer: 70, year: 400 }, disk, thinned: 0 }],
@@ -136,11 +136,15 @@ test("a jet shows from outside its disk only, and its knots come round", () => {
   const jet = createJet(210, 1.2, 400, 0.6, haze.shroud);
   const uniforms = (jet.mesh.material as ShaderMaterial).uniforms;
   assert.ok(uniforms.lanes.value === haze.shroud.lanes && uniforms.veiled.value === 1);
-  jet.turn(0, 1);
-  assert.ok(!jet.mesh.visible && uniforms.shown.value === 0);
-  jet.turn(0, 1.85);
-  assert.ok(jet.mesh.visible && Math.abs(uniforms.shown.value - 0.5) < 1e-9);
-  jet.turn(36 * 400 * 2.25, 3);
-  assert.ok(uniforms.shown.value === 1 && Math.abs(uniforms.flow.value - 0.25) < 1e-9);
+  const span = haze.shroud.span.y;
+  jet.turn(0, 0.2 * span);
+  assert.ok(jet.mesh.visible && Math.abs(uniforms.top.value - (0.1 * span) / 210) < 1e-9);
+  jet.turn(0, span);
+  assert.ok(Math.abs(uniforms.top.value - (0.5 * span) / 210) < 1e-9);
+  jet.turn(0, 1.85 * span);
+  const foot = (0.925 * span) / 210;
+  assert.ok(Math.abs(uniforms.top.value - (foot + 0.5 * (1 - foot))) < 1e-9);
+  jet.turn(36 * 400 * 2.25, 3 * span);
+  assert.ok(uniforms.top.value === 1 && Math.abs(uniforms.flow.value - 0.25) < 1e-9);
   assert.equal(jet.mesh.geometry.getAttribute("position").count, 2 * 2 * 49);
 });

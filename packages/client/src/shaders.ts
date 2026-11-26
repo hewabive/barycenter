@@ -1609,7 +1609,6 @@ void main() {
 export const JET_VERTEX = `
 uniform float reach;
 uniform vec2 girth;
-uniform float shown;
 varying float vAcross;
 varying float vHigh;
 varying float vClear;
@@ -1625,7 +1624,7 @@ void main() {
   placed.xyz += (lean > 1e-4 ? across / lean : vec3(0.0)) * position.x * ${real(JET_WIDE)} * (girth.x + girth.y * high);
   vAcross = position.x;
   vHigh = position.y * position.y;
-  vClear = passing(spot) * shown * smoothstep(${real(JET_ASIDE[0])}, ${real(JET_ASIDE[1])}, lean);
+  vClear = passing(spot) * smoothstep(${real(JET_ASIDE[0])}, ${real(JET_ASIDE[1])}, lean);
   gl_Position = projectionMatrix * placed;
 }
 `;
@@ -1633,6 +1632,7 @@ void main() {
 export const JET_FRAGMENT = `
 uniform float strength;
 uniform float flow;
+uniform float top;
 varying float vAcross;
 varying float vHigh;
 varying float vClear;
@@ -1643,7 +1643,7 @@ void main() {
   float first = 0.5 + 0.5 * sin(6.2831853 * ${real(JET_KNOTS[0])} * (vHigh - flow));
   float second = 0.5 + 0.5 * sin(6.2831853 * ${real(JET_KNOTS[1])} * (vHigh - 0.875 * flow) + 1.7);
   float knots = 0.3 + 0.7 * first * first * (0.4 + 0.6 * second);
-  float ends = smoothstep(0.0, 0.01, vHigh) * (1.0 - smoothstep(0.55, 1.0, vHigh));
+  float ends = smoothstep(0.0, 0.01, vHigh) * (1.0 - smoothstep(0.55 * top, top, vHigh));
   gl_FragColor = vec4(${HYDROGEN} * ${real(JET_GLOW)} * strength * core * knots * ends * vClear, 1.0);
   #include <colorspace_fragment>
 }
