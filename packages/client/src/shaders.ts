@@ -1724,6 +1724,65 @@ void main() {
 }
 `;
 
+const COCOON_STEPS = 16;
+const COCOON_WALL = 0.08;
+const COCOON_HOLLOW = 0.97;
+const COCOON_SHADE = 0.04;
+const COCOON_DEPTH = 0.35;
+const COCOON_VEIL = 0.55;
+
+export const COCOON_VERTEX = `
+varying vec3 vRay;
+
+void main() {
+  vec4 placed = modelViewMatrix * vec4(position, 1.0);
+  vRay = placed.xyz * mat3(modelViewMatrix);
+  gl_Position = projectionMatrix * placed;
+}
+`;
+
+export const COCOON_FRAGMENT = `
+uniform vec3 eye;
+uniform vec3 shape;
+uniform vec3 tint;
+uniform float strength;
+varying vec3 vRay;
+
+void main() {
+  vec3 ray = normalize(vRay);
+  float reach = shape.x;
+  float inner = shape.y;
+  float open = shape.z;
+  float along = dot(eye, ray);
+  float hit = along * along - (dot(eye, eye) - reach * reach);
+  if (hit <= 0.0) {
+    discard;
+  }
+  float from = max(0.0, -along - sqrt(hit));
+  float to = -along + sqrt(hit);
+  if (to <= from) {
+    discard;
+  }
+  float pace = (to - from) / ${real(COCOON_STEPS)};
+  float shift = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+  vec3 seen = vec3(0.0);
+  float clear = 1.0;
+  for (int step = 0; step < ${COCOON_STEPS}; step++) {
+    vec3 at = eye + (from + (float(step) + shift) * pace) * ray;
+    float far = max(length(at), inner);
+    float lean = abs(at.y) / max(length(at), 1e-6 * inner);
+    float wall = exp(-pow((lean - open) / ${real(COCOON_WALL)}, 2.0));
+    float hollow = smoothstep(open - ${real(COCOON_WALL)}, open + ${real(COCOON_WALL)}, lean);
+    float dense = pow(far / inner, -1.5) * (1.0 - hollow * ${real(COCOON_HOLLOW)}) * smoothstep(reach, 0.6 * reach, far);
+    float lit = max(wall, hollow) + ${real(COCOON_SHADE)} * (1.0 - hollow);
+    float through = dense * pace / inner * ${real(COCOON_DEPTH)} * strength;
+    seen += clear * through * lit * (inner / far) * (inner / far) * tint;
+    clear *= exp(-through);
+  }
+  gl_FragColor = vec4(sqrt(seen), (1.0 - clear) * ${real(COCOON_VEIL)});
+}
+`;
+
 export const BLOCKER_ROOM = 2;
 const BLOCKER_SOFT = [0.8, 1.25];
 const BLOCKER_LEAST = 1e-4;

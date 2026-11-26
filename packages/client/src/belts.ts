@@ -27,6 +27,7 @@ import {
   RedFormat,
   RGBAFormat,
   ShaderMaterial,
+  SphereGeometry,
   type Texture,
   Vector2,
   Vector3,
@@ -50,6 +51,8 @@ import {
   BELT_VERTEX,
   BLOCKER_ROOM,
   BUBBLE_ROOM,
+  COCOON_FRAGMENT,
+  COCOON_VERTEX,
   CROSSING_FRAGMENT,
   CROSSING_VERTEX,
   HAZE_FRAGMENT,
@@ -84,6 +87,11 @@ export interface Jet {
   outerInto: Matrix4;
   veilAlso(shroud: Shroud): void;
   turn(tick: number, distance: number): void;
+}
+
+export interface Cocoon {
+  mesh: Mesh;
+  eye: Vector3;
 }
 
 export interface Crossing {
@@ -668,4 +676,34 @@ export function createCrossing(
       uniforms.pulse.value = 1 + CROSSING_PULSE * Math.cos(2 * Math.PI * turns - Math.PI);
     },
   };
+}
+
+export function createCocoon(
+  reach: number,
+  inner: number,
+  open: number,
+  strength: number,
+  tint: Color,
+): Cocoon {
+  const eye = new Vector3();
+  const mesh = new Mesh(
+    new SphereGeometry(reach, 32, 16),
+    new ShaderMaterial({
+      vertexShader: COCOON_VERTEX,
+      fragmentShader: COCOON_FRAGMENT,
+      uniforms: {
+        eye: { value: eye },
+        shape: { value: new Vector3(reach, inner, open) },
+        tint: { value: tint },
+        strength: { value: strength },
+      },
+      transparent: true,
+      premultipliedAlpha: true,
+      depthTest: false,
+      depthWrite: false,
+      side: BackSide,
+    }),
+  );
+  mesh.frustumCulled = false;
+  return { mesh, eye };
 }

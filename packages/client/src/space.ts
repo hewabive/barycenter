@@ -53,6 +53,7 @@ import {
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import {
   createBelt,
+  createCocoon,
   createCrossing,
   createHaze,
   createJet,
@@ -203,6 +204,10 @@ const SHADOW_CUTS = 18;
 const CAVITY_STRETCH = 0.2;
 const CAVITY_TURNS = 1000;
 const CAVITY_SEED = 0.618034;
+const COCOON_YEARS = [1e5 * YEAR, 6e5 * YEAR];
+const COCOON_OPEN = [(15 * Math.PI) / 180, (50 * Math.PI) / 180];
+const COCOON_REACH = 3;
+const COCOON_SHINE = 0.35;
 const CROSSING_LANDING = 1.2;
 const CROSSING_REACH = 0.5;
 const CROSSING_SHINE = 0.25;
@@ -686,12 +691,42 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
       }
     }
   }
+  const cradle = (() => {
+    const root = looks.find((look) => look.body.parent === null);
+    const own = hazes
+      .filter((haze) => haze.owner === root)
+      .sort((left, right) => right.shroud.span.y - left.shroud.span.y)[0];
+    const age = root?.body.physics.age ?? Number.POSITIVE_INFINITY;
+    const young = 1 - ramp(Math.max(age, COCOON_YEARS[0]), COCOON_YEARS[0], COCOON_YEARS[1]);
+    if (root === undefined || own === undefined || young <= 0) {
+      return null;
+    }
+    const grown = 1 - young;
+    const open = Math.sin(COCOON_OPEN[0] + (COCOON_OPEN[1] - COCOON_OPEN[0]) * grown);
+    const inner = own.shroud.span.y;
+    const cocoon = createCocoon(
+      COCOON_REACH * inner,
+      inner,
+      1 - open,
+      young,
+      tintOf(root.body).multiplyScalar(COCOON_SHINE),
+    );
+    cocoon.mesh.quaternion.copy(own.mesh.quaternion);
+    cocoon.mesh.renderOrder = HAZE_ORDER - 0.1;
+    cocoon.mesh.layers.set(MIST_LAYER);
+    world.add(cocoon.mesh);
+    return { cocoon, own, reach: COCOON_REACH * inner };
+  })();
   const mist = hazes.length > 0 ? createMist() : null;
   if (mist !== null) {
     mist.mesh.renderOrder = HAZE_ORDER;
     scene.add(mist.mesh);
   }
-  const veiled = Math.max(0, ...hazes.map((haze) => span(haze.owner.body.id) + haze.reach));
+  const veiled = Math.max(
+    0,
+    ...hazes.map((haze) => span(haze.owner.body.id) + haze.reach),
+    cradle === null ? 0 : span(cradle.own.owner.body.id) + cradle.reach,
+  );
   renderer.domElement.addEventListener("webglcontextrestored", () => {
     for (const look of looks) {
       look.restore();
@@ -1058,6 +1093,11 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
             bubble.set(seat.x, seat.y, seat.z, HAZE_BUBBLE * found.look.girth * near);
           }
         });
+      }
+      if (cradle !== null) {
+        cradle.cocoon.mesh.position.copy(cradle.own.mesh.position);
+        cradle.cocoon.mesh.updateMatrixWorld();
+        cradle.cocoon.mesh.worldToLocal(cradle.cocoon.eye.copy(camera.position));
       }
       for (const { ring, members, start, year } of ringed) {
         const apse = start + (2 * Math.PI * shown) / (CAVITY_TURNS * year);
