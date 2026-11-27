@@ -24,12 +24,37 @@ export interface Layer {
   pressure: number;
 }
 
+export type Form =
+  | "alloy"
+  | "upper"
+  | "transition"
+  | "lower"
+  | "Ih"
+  | "II"
+  | "VI"
+  | "VII"
+  | "X"
+  | "blend"
+  | "still"
+  | "stirred"
+  | "metal"
+  | "water";
+
+export interface Stratum {
+  matter: Matter;
+  form: Form;
+  radius: number;
+  pressure: number;
+  heat: number | null;
+}
+
 export interface Interior {
   radius: number;
   centre: number;
   turning: number;
   skin: number;
   layers: Layer[];
+  strata: Stratum[];
 }
 
 type Law = "birch" | "murnaghan" | "vinet";
@@ -44,6 +69,7 @@ interface Squeeze {
 
 interface Phase {
   matter: Matter;
+  form: Form;
   from: number;
   unit: number;
   table: Float64Array;
@@ -59,6 +85,8 @@ type Curve = (pressure: number) => number;
 
 const GIGAPASCAL = 1e9;
 const IRON: Squeeze[] = [{ law: "birch", from: 0, rest: 7050, stiff: 201 * GIGAPASCAL, slope: 4 }];
+const ROCK_FORMS: Form[] = ["upper", "upper", "transition", "lower"];
+const ICE_FORMS: Form[] = ["Ih", "II", "VI", "VII", "X"];
 const ROCK_SHALLOW = [
   [
     [0, 3381],
@@ -150,7 +178,14 @@ const TURNING_EVEN = 0.4;
 const LOVE_FLUID = 0.4;
 const FLAT_MOST = 0.2;
 const GAS_GUESS = 7e7;
-const EMPTY: Interior = { radius: 0, centre: 0, turning: TURNING_EVEN, skin: 0, layers: [] };
+const EMPTY: Interior = {
+  radius: 0,
+  centre: 0,
+  turning: TURNING_EVEN,
+  skin: 0,
+  layers: [],
+  strata: [],
+};
 
 function pressed({ law, stiff, slope }: Squeeze, ratio: number): number {
   if (law === "vinet") {
@@ -201,8 +236,8 @@ function read({ table, unit }: Phase, pressure: number): number {
   return table[index] + (table[index + 1] - table[index]) * (place - index);
 }
 
-function solid(matter: Matter, from: number, curve: Curve): Phase {
-  return { matter, from, unit: SOLID_UNIT, table: tabled(SOLID_UNIT, SOLID_MOST, curve) };
+function solid(matter: Matter, form: Form, from: number, curve: Curve): Phase {
+  return { matter, form, from, unit: SOLID_UNIT, table: tabled(SOLID_UNIT, SOLID_MOST, curve) };
 }
 
 type Hard = "iron" | "rock" | "ice";
@@ -211,12 +246,16 @@ let stored: Record<Hard, Phase[]> | null = null;
 
 function matters(): Record<Hard, Phase[]> {
   stored ??= {
-    iron: IRON.map((squeeze) => solid("iron", squeeze.from, squeezed(squeeze))),
+    iron: IRON.map((squeeze) => solid("iron", "alloy", squeeze.from, squeezed(squeeze))),
     rock: [
-      ...ROCK_SHALLOW.map((nodes) => solid("rock", nodes[0][0] * GIGAPASCAL, traced(nodes))),
-      solid("rock", ROCK_DEEP.from, squeezed(ROCK_DEEP)),
+      ...ROCK_SHALLOW.map((nodes, index) =>
+        solid("rock", ROCK_FORMS[index], nodes[0][0] * GIGAPASCAL, traced(nodes)),
+      ),
+      solid("rock", ROCK_FORMS[ROCK_SHALLOW.length], ROCK_DEEP.from, squeezed(ROCK_DEEP)),
     ],
-    ice: ICE.map((squeeze) => solid("ice", squeeze.from, squeezed(squeeze))),
+    ice: ICE.map((squeeze, index) =>
+      solid("ice", ICE_FORMS[index], squeeze.from, squeezed(squeeze)),
+    ),
   };
   return stored;
 }
@@ -288,8 +327,8 @@ function gaseous(own: number, lit: number, gravity: number): Air {
   const place = rowAt(HYDROGEN_ADIABATS, foot, shine(foot));
   const deep = adiabat(HYDROGEN_ADIABATS, GAS_UNIT, GAS_MOST, place);
   const phases: Phase[] = [
-    { matter: "gas", from: foot > SKY ? foot : 0, unit: GAS_UNIT, table: deep },
-    { matter: "metal", from: METAL_FROM, unit: GAS_UNIT, table: deep },
+    { matter: "gas", form: "stirred", from: foot > SKY ? foot : 0, unit: GAS_UNIT, table: deep },
+    { matter: "metal", form: "metal", from: METAL_FROM, unit: GAS_UNIT, table: deep },
   ];
   const heat = (pascals: number) =>
     pascals < foot ? shine(pascals) : warmAt(HYDROGEN_ADIABATS, place, pascals);
@@ -304,16 +343,24 @@ function gaseous(own: number, lit: number, gravity: number): Air {
     (pascals) => (dense * (pascals / foot) * footing) / shine(Math.min(pascals, foot)),
   );
   return {
-    phases: [{ matter: "gas", from: 0, unit: GAS_UNIT, table: thin }, ...phases],
+    phases: [{ matter: "gas", form: "still", from: 0, unit: GAS_UNIT, table: thin }, ...phases],
     skin: shine(SKY),
     heat,
   };
 }
 
-function steamed(joint: number, kelvin: number): Phase[] {
+interface Steam {
+  phases: Phase[];
+  heat: (pascals: number) => number;
+}
+
+function steamed(joint: number, kelvin: number): Steam {
   const place = rowAt(WATER_ADIABATS, joint, kelvin);
   const table = adiabat(WATER_ADIABATS, SOLID_UNIT, SOLID_MOST, place);
-  return [{ matter: "ice", from: 0, unit: SOLID_UNIT, table }];
+  return {
+    phases: [{ matter: "ice", form: "water", from: 0, unit: SOLID_UNIT, table }],
+    heat: (pascals) => warmAt(WATER_ADIABATS, place, pascals),
+  };
 }
 
 export function denseAt(matter: Hard, pressure: number): number {
@@ -334,6 +381,7 @@ interface Shot {
   radius: number;
   turning: number;
   layers: Layer[];
+  strata: Stratum[];
 }
 
 function shot(centre: number, parts: Part[], top: number): Shot {
@@ -356,6 +404,8 @@ function shot(centre: number, parts: Part[], top: number): Shot {
   let below = 0;
   let [farRadius, farMass, farTurning, farDense] = [0, 0, 0, 0];
   const layers: Layer[] = [];
+  const strata: Stratum[] = [];
+  let bottom = centre;
   const pace = (reach - depth) / STEPS;
   const advance = (span: number) => {
     const half = depth + span / 2;
@@ -391,6 +441,10 @@ function shot(centre: number, parts: Part[], top: number): Shot {
     floor = centre - depth * depth;
     below = mass;
   };
+  const formed = () => {
+    strata.push({ matter: now.matter, form: now.form, radius, pressure: bottom, heat: null });
+    bottom = centre - depth * depth;
+  };
   while (depth < reach * (1 - 1e-12)) {
     const pressure = centre - depth * depth;
     const edge = now.from > top ? Math.sqrt(centre - now.from) : reach;
@@ -421,6 +475,7 @@ function shot(centre: number, parts: Part[], top: number): Shot {
     [radius, mass, turning, dense] = [farRadius, farMass, farTurning, farDense];
     if (crossed) {
       laid();
+      formed();
       seat += 1;
       part = parts[seat];
       phase = phaseAt(part, floor);
@@ -431,13 +486,17 @@ function shot(centre: number, parts: Part[], top: number): Shot {
       if (next.matter !== now.matter) {
         laid();
       }
+      if (next.matter !== now.matter || next.form !== now.form) {
+        formed();
+      }
       phase -= 1;
       now = next;
       dense = read(now, centre - depth * depth);
     }
   }
   layers.push({ matter: now.matter, radius, mass: mass - below, pressure: floor });
-  return { mass, radius, turning: turning / (mass * radius ** 2), layers };
+  strata.push({ matter: now.matter, form: now.form, radius, pressure: bottom, heat: null });
+  return { mass, radius, turning: turning / (mass * radius ** 2), layers, strata };
 }
 
 function solved(
@@ -516,7 +575,7 @@ export function solidOf(mass: number, shares: Solids): Interior {
     const parts: Part[] =
       loose >= round || order.length === 1
         ? stacked(mass, order, true)
-        : [{ bound: Number.POSITIVE_INFINITY, phases: [solid("blend", 0, mixed)] }];
+        : [{ bound: Number.POSITIVE_INFINITY, phases: [solid("blend", "blend", 0, mixed)] }];
     const tight = Math.cbrt((3 * mass) / (4 * Math.PI * packed));
     const first = (4 * Math.PI * GRAVITY * packed ** 2 * tight ** 2) / 3;
     const found = solved(mass, parts, first, 0, LEAN_SOLID);
@@ -530,6 +589,11 @@ export function solidOf(mass: number, shares: Solids): Interior {
         ...layer,
         radius: layer.radius * swell,
         pressure: layer.pressure / swell ** 4,
+      })),
+      strata: found.strata.map((stratum) => ({
+        ...stratum,
+        radius: stratum.radius * swell,
+        pressure: stratum.pressure / swell ** 4,
       })),
     };
   });
@@ -559,9 +623,9 @@ function fluidAt(
   const hard = mass * (1 - shares.gas);
   const whole = shares.iron + shares.rock + shares.ice;
   const air = gaseous(own, lit, gravity);
-  const wet = shares.ice > 0 ? steamed(joint, air.heat(joint)) : [];
+  const wet = shares.ice > 0 ? steamed(joint, air.heat(joint)) : null;
   const under = (hard > 0 && whole > 0 ? stacked(hard, ordered(shares), false) : []).map((part) =>
-    part.phases[0].matter === "ice" ? { ...part, phases: wet } : part,
+    part.phases[0].matter === "ice" && wet !== null ? { ...part, phases: wet.phases } : part,
   );
   const top = { bound: Number.POSITIVE_INFINITY, phases: air.phases };
   const found = solved(mass, [...under, top], first, SKY, LEAN_FLUID);
@@ -572,6 +636,15 @@ function fluidAt(
     turning: found.turning,
     skin: air.skin,
     layers: found.layers,
+    strata: found.strata.map((stratum) => ({
+      ...stratum,
+      heat:
+        stratum.matter === "gas" || stratum.matter === "metal"
+          ? air.heat(stratum.pressure)
+          : stratum.matter === "ice" && wet !== null
+            ? wet.heat(stratum.pressure)
+            : null,
+    })),
     joint: under.length > 0 && lowest ? lowest.pressure : joint,
     held: Math.abs(Math.log(found.mass / mass)) < HELD,
   };
@@ -701,6 +774,11 @@ export function interiorOf(physics: Made): Interior | null {
       ...layer,
       radius: layer.radius * scale,
       pressure: layer.pressure / scale ** 4,
+    })),
+    strata: found.strata.map((stratum) => ({
+      ...stratum,
+      radius: stratum.radius * scale,
+      pressure: stratum.pressure / scale ** 4,
     })),
   };
 }

@@ -24,6 +24,7 @@ export interface Warmth {
   melt: number;
   plates: boolean;
   mantle: number | null;
+  lid: number;
   core: Core | null;
   sea: Sea | null;
 }
@@ -144,6 +145,7 @@ interface Stone {
 
 interface Cooked {
   mantle: number;
+  lid: number;
   lost: number;
   melt: number;
   core: Core | null;
@@ -219,8 +221,9 @@ function cooked(stone: Stone, cold: number, age: number, moving: boolean, tide: 
   let lost = 0;
   let melt = 0;
   let passed = 0;
+  let drop = 0;
   for (let step = 0; step < STEPS_MOST && time < age; step++) {
-    const drop = Math.max(rock - cold, 1e-3);
+    drop = Math.max(rock - cold, 1e-3);
     const stir = ((ROCK_SWELL * pull) / (ROCK_SPREAD * thick(rock))) ** (1 / 3);
     const still = (ROCK_CONDUCT * drop) / deep;
     const free = Math.max(still, (ROCK_CONDUCT * stir * drop ** (4 / 3)) / ROCK_CRIT ** (1 / 3));
@@ -265,6 +268,7 @@ function cooked(stone: Stone, cold: number, age: number, moving: boolean, tide: 
         sunk * IRON_LIGHTER * state.frozen ** 3 * growth;
   return {
     mantle: rock,
+    lid: lost > 0 ? Math.min(deep, (ROCK_CONDUCT * drop * face) / lost) : deep,
     lost: lost + melt,
     melt,
     core: cored ? { heat: state.top, flux, steep, frozen: state.frozen, stirring } : null,
@@ -277,6 +281,14 @@ function stiffAt(pressure: number): number {
     (denseAt("iron", pressure) * 2 * nudge) /
     (denseAt("iron", pressure + nudge) - denseAt("iron", pressure - nudge))
   );
+}
+
+export function rockHeatAt(mantle: number, pressure: number): number {
+  return mantle * (denseAt("rock", pressure) / denseAt("rock", 0)) ** ROCK_GRIP;
+}
+
+export function ironHeatAt(top: number, joint: number, pressure: number): number {
+  return top * (denseAt("iron", pressure) / denseAt("iron", joint)) ** IRON_GRIP;
 }
 
 export function warmthOf(physics: Physics, host: Physics | null): Warmth | null {
@@ -319,6 +331,7 @@ export function warmthOf(physics: Physics, host: Physics | null): Warmth | null 
     melt: stone?.melt ?? 0,
     plates: plates && stone !== null,
     mantle: stone?.mantle ?? null,
+    lid: stone?.lid ?? 0,
     core: stone?.core ?? null,
     sea,
   };

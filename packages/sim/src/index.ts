@@ -77,12 +77,14 @@ export {
 export { type Core, decayOf, type Sea, type Warmth, warmthOf } from "./heat.ts";
 export {
   bulgeOf,
+  type Form,
   flatOf,
   type Interior,
   interiorOf,
   type Layer,
   type Matter,
   radiusOf,
+  type Stratum,
   solidOf,
   turningOf,
   wrapped,
@@ -198,6 +200,14 @@ export {
 export { type ForceReport, forceReportFor } from "./report.ts";
 export { innerPoint, type Lobe, lobeShape, streamOf } from "./roche.ts";
 export { createRover, drive, ROVER, type Rover, type Wheel } from "./rover.ts";
+export {
+  type Fire,
+  type Fuel,
+  type Section,
+  type Stuff,
+  sectionOf,
+  type Zone,
+} from "./section.ts";
 export { circumcenter, hullFaces } from "./sphere.ts";
 export {
   CAUSES,
@@ -209,7 +219,7 @@ export {
   type Trial,
   trial,
 } from "./stability.ts";
-export { type Within, withinOf } from "./stars.ts";
+export { type Stage, type Within, withinOf } from "./stars.ts";
 export { cloneState, issue, step } from "./step.ts";
 export {
   anomalyOf,

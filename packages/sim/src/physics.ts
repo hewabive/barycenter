@@ -327,15 +327,16 @@ export type Ending = "dwarf" | "pulsar" | "hole" | "core";
 
 type Left = Pick<Life, "mass" | "radius" | "glow">;
 
-export function dwarfOf(mass: number, spent: number): Left {
+export function emberRadius(mass: number): number {
   const left = Math.min(mass / SUN_MASS, 0.999 * EMBER_RADIUS[1]);
   const squeezed = Math.sqrt(1 - (left / EMBER_RADIUS[1]) ** (4 / 3));
+  return SUN_RADIUS * EMBER_RADIUS[0] * squeezed * left ** (-1 / 3);
+}
+
+export function dwarfOf(mass: number, spent: number): Left {
+  const left = Math.min(mass / SUN_MASS, 0.999 * EMBER_RADIUS[1]);
   const cooled = (EMBER_COOLING[0] / (spent + EMBER_COOLING[2])) ** EMBER_COOLING[1];
-  return {
-    mass,
-    radius: SUN_RADIUS * EMBER_RADIUS[0] * squeezed * left ** (-1 / 3),
-    glow: SUN_GLOW * left * cooled,
-  };
+  return { mass, radius: emberRadius(mass), glow: SUN_GLOW * left * cooled };
 }
 
 export function dwarfSpent(mass: number, glow: number): number {

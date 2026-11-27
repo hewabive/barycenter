@@ -12,7 +12,10 @@ import {
 import { STAR_TRACKS } from "./tracks.ts";
 import type { Physics } from "./types.ts";
 
+export type Stage = "young" | "prime" | "climb" | "helium" | "last" | "ember" | "pulsar";
+
 export interface Within {
+  stage: Stage;
   core: number;
   wrap: number;
   floor: number;
@@ -87,6 +90,7 @@ function nearest(
 function emberOf(suns: number): Within {
   const [turning, love, dense] = along(embers, suns / fine);
   return {
+    stage: "ember",
     core: 0,
     wrap: 0,
     floor: 1,
@@ -102,6 +106,7 @@ function pulsarOf(suns: number, radius: number): Within {
   const [plain, slope, steep] = PULSAR_TURNING;
   const tight = suns / (radius / 1000);
   return {
+    stage: "pulsar",
     core: 0,
     wrap: 0,
     floor: 1,
@@ -159,7 +164,9 @@ export function withinOf(star: Star): Within | null {
     read(heavy),
     share,
   );
+  const stages: Stage[] = ["climb", "helium", "last"];
   return {
+    stage: young ? "young" : late ? stages[favored] : "prime",
     core: core * fine,
     wrap: wrap * fine,
     floor: floor * fine,
