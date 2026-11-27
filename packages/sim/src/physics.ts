@@ -157,7 +157,9 @@ const TRACE_AIR = 1;
 export const DAMP_LEAST = 1e-5;
 const HUMIDITY: Partial<Record<Gas, number>> = { water: 0.6, methane: 0.45 };
 const COLD_TRAP = 0.75;
-const CLIMATE_ROUNDS = 40;
+const CLIMATE_ROUNDS = 400;
+const CLIMATE_EXACT = 1e-8;
+const CLIMATE_LEAP = 2;
 const XUV_GLOW = 10 ** -3.5;
 const XUV_SATURATED = 1e8 * YEAR;
 const XUV_FADING = 0.5;
@@ -238,6 +240,7 @@ export interface Volatiles {
   pool: number;
   frozen: boolean;
   ceiling?: number;
+  hint?: number;
 }
 const ROCHE = 2.44;
 
@@ -868,12 +871,9 @@ export function climateOf(given: Volatiles): Climate {
   const water = GASES.indexOf("water");
   const sheltered = given.stock[GASES.indexOf("hydrogen")] >= SHELTER;
   const settle = (weathered: number, steam: number, pooled: boolean) => {
-    let heat = balanceHeat(given.glow, given.distance, BRIGHT_AIR);
-    let partials = given.stock;
-    let air = whole(partials);
-    for (let round = 0; round < CLIMATE_ROUNDS; round++) {
-      const trap = COLD_TRAP + (1 - COLD_TRAP) * smooth(3, 5, Math.log10(Math.max(air, 1)));
-      partials = GASES.map((gas, index) => {
+    const roundAt = (heat: number, before: number) => {
+      const trap = COLD_TRAP + (1 - COLD_TRAP) * smooth(3, 5, Math.log10(Math.max(before, 1)));
+      const partials = GASES.map((gas, index) => {
         const coldest = gas === "water" && pooled ? heat : trap * heat;
         const vapor = (HUMIDITY[gas] ?? 1) * vaporOf(gas, coldest);
         const most =
@@ -884,7 +884,7 @@ export function climateOf(given: Volatiles): Climate {
               : vapor;
         return Math.min(given.stock[index], most);
       });
-      air = whole(partials);
+      const air = whole(partials);
       const deck = smooth(5.5, 6.5, Math.log10(Math.max(air, 1)));
       const albedo =
         air > TRIPLE_AIR
@@ -895,7 +895,31 @@ export function climateOf(given: Volatiles): Climate {
       const bare = balanceHeat(given.glow, given.distance, albedo);
       const kept = 1 - STUFFY_MOST * smooth(STUFFY_HEAT[0], STUFFY_HEAT[1], bare);
       const next = Math.min(given.ceiling ?? bare * 10, bare * (1 + (warmed(partials) - 1) * kept));
-      heat += 0.5 * (next - heat);
+      return { air, partials, next };
+    };
+    let heat = given.hint ?? balanceHeat(given.glow, given.distance, BRIGHT_AIR);
+    let air = whole(given.stock);
+    let partials = given.stock;
+    let trail: number[] = [];
+    for (let round = 0; round < CLIMATE_ROUNDS; round++) {
+      const found = roundAt(heat, air);
+      const moved = found.next - heat;
+      const settled =
+        Math.abs(moved) <= CLIMATE_EXACT * heat &&
+        Math.abs(found.air - air) <= CLIMATE_EXACT * Math.max(found.air, 1);
+      ({ air, partials } = found);
+      if (settled) {
+        break;
+      }
+      heat += 0.5 * moved;
+      trail.push(heat);
+      if (trail.length === 3) {
+        const [first, second, third] = trail;
+        const bend = third - 2 * second + first;
+        const leap = bend === 0 ? 0 : -((third - second) ** 2) / bend;
+        heat = Math.abs(leap) <= CLIMATE_LEAP * Math.abs(third - second) ? third + leap : third;
+        trail = [];
+      }
     }
     const sea =
       given.stock[water] - partials[water] >= given.pool &&
