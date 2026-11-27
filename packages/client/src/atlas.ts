@@ -111,6 +111,8 @@ const bodyOf = (physics: Physics, own: number): Body => ({
   passages: [],
   shell: null,
   slanted: null,
+  midplane: null,
+  skewed: null,
 });
 
 const rows: Body[][] = masses.map((mass) =>

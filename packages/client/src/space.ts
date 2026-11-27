@@ -11,6 +11,7 @@ import {
   fieldOf,
   heatAt,
   inflowOf,
+  midplaneOf,
   planeOf,
   poleOf,
   poseOf,
@@ -420,7 +421,7 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
     );
   const rooted = looks.filter((owner) => strewn(owner).length > 0);
   const leanOf = (owner: Look, hub: number | null) => {
-    const pole = hub === null ? poleOf(owner.body) : planeOf(system.bodies[hub]);
+    const pole = hub === null ? midplaneOf(owner.body) : planeOf(system.bodies[hub]);
     return new Quaternion().setFromUnitVectors(
       new Vector3(0, 1, 0),
       new Vector3(pole.x, pole.y, pole.z),

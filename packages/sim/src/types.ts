@@ -120,9 +120,26 @@ export interface Body {
   passages: Passage[];
   shell: Shell | null;
   slanted: Slanted | null;
+  midplane: Plane | null;
+  skewed: Skewed | null;
 }
 
-export type Bend = "disk" | "neighbors" | "inside" | "scattering";
+export interface Plane {
+  slant: number;
+  node: number;
+}
+
+export type Bend = "disk" | "neighbors" | "near" | "inside" | "scattering";
+
+export type Skew = "birth" | "companion" | "locked";
+
+export interface Skewed {
+  by: Skew;
+  of: string | null;
+  lean: number;
+  born: number;
+  period: number | null;
+}
 
 export interface Slanted {
   by: Bend;

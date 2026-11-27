@@ -28,6 +28,7 @@ import {
   LUMENS,
   lampsAt,
   lampsOf,
+  midplaneOf,
   moltenOf,
   nestOf,
   type Physics,
@@ -1226,7 +1227,7 @@ test("bodies balance about shared centres, and stars stand in nested groups that
           );
       for (const lead of new Set(planets.map(inside))) {
         const zone = planets.filter((body) => inside(body) === lead);
-        const base = lead !== null ? planeOf(lead) : poleOf(host);
+        const base = lead !== null ? planeOf(lead) : midplaneOf(host);
         const spin = zone.reduce(
           (sum, body) => {
             const { mass, orbit, stretch } = body.physics;
@@ -1264,6 +1265,54 @@ test("bodies balance about shared centres, and stars stand in nested groups that
   assert.ok(around > 30, `planets around a pair ${around}`);
   assert.ok(double > 5, `double planets ${double}`);
   assert.ok(swayed > 0, `stars swayed by a brown dwarf ${swayed}`);
+});
+
+test("a star leans against its disk as it was born, and its companion turns it further", () => {
+  const leans = { cool: [] as number[], hot: [] as number[] };
+  let turned = 0;
+  let locked = 0;
+  for (let seed = 1; seed <= 160; seed++) {
+    const system = sketchSystem(seed, { settled: seed % 3 === 0, star: null });
+    for (const body of system.bodies) {
+      const { skewed, midplane } = body;
+      if (!starborn(body.physics) || skewed === null || midplane === null) {
+        continue;
+      }
+      const label = `seed ${seed}, ${body.name}`;
+      const disk = midplaneOf(body);
+      const lean = angleBetween(poleOf(body), disk);
+      assert.ok(Math.abs(lean - skewed.lean) < 1e-3, `${label}: the axis leans as told`);
+      if (skewed.by === "locked") {
+        locked += 1;
+        assert.ok(lean < 1e-3 && skewed.of !== null, `${label}: upright on a locked orbit`);
+        continue;
+      }
+      if (skewed.by === "companion") {
+        turned += 1;
+        assert.ok(skewed.of !== null && skewed.period !== null && skewed.period > 0, label);
+        continue;
+      }
+      assert.ok(Math.abs(skewed.lean - skewed.born) < 0.1, `${label}: as it was born`);
+      const sun = body.physics.mass / SUN_MASS;
+      if (sun < 1) {
+        leans.cool.push(skewed.born);
+      } else if (sun > 1.4) {
+        leans.hot.push(skewed.born);
+      }
+    }
+  }
+  const share = (list: number[], least: number) =>
+    list.filter((lean) => lean >= least).length / list.length;
+  const middle = (list: number[]) => [...list].sort((a, b) => a - b)[Math.floor(list.length / 2)];
+  assert.ok(
+    leans.cool.length > 80 && leans.hot.length > 12,
+    `${leans.cool.length} ${leans.hot.length}`,
+  );
+  const tenth = (10 * Math.PI) / 180;
+  assert.ok(Math.abs(share(leans.cool, tenth) - 0.36) < 0.08, `cool ${share(leans.cool, tenth)}`);
+  assert.ok(middle(leans.cool) < tenth, "most cool stars stand nearly upright on their disks");
+  assert.ok(middle(leans.hot) > Math.PI / 3, `hot ${middle(leans.hot)}`);
+  assert.ok(turned > 10 && locked > 2, `turned ${turned}, locked ${locked}`);
 });
 
 test("bodies that share an orbit keep apart and trade places", () => {

@@ -109,8 +109,10 @@ import {
   type Lane,
   type Passage,
   type Physics,
+  type Plane,
   type Relief,
   type Sketch,
+  type Skewed,
   type StarSystem,
   type Survey,
   type Vector,
@@ -382,6 +384,13 @@ const PLANE_BUDGET = 2;
 const DEFICIT_STEPS = 60;
 const BLOCK_SPREAD = 0.206;
 const SCATTERED_SLANT = [0.087, 1.08];
+const NEAR_REACH = 12;
+const NEAR_SPREAD = [0.382, -1.28];
+const SPIN_HOT = [1.1 * SUN_MASS, 1.3 * SUN_MASS];
+const SPIN_ALIGNED = 2 / 3;
+const SPIN_SPREAD = 0.07;
+const SPIN_TAIL = [0.175, 1.05, 3];
+const SPIN_TURNED = 0.1;
 const MOON_STRETCH = 0.02;
 const PAIRED_STEP = 2 ** (2 / 3);
 const PAIRED_NEAR = 0.02;
@@ -1532,7 +1541,10 @@ function turnedBy(vector: Vector, from: Vector, to: Vector): Vector {
   if (Math.sin(angle) < 1e-12) {
     return vector;
   }
-  const axis = normalize(cross(from, to));
+  return spunAbout(vector, normalize(cross(from, to)), angle);
+}
+
+function spunAbout(vector: Vector, axis: Vector, angle: number): Vector {
   const across = cross(axis, vector);
   const along = dot(axis, vector) * (1 - Math.cos(angle));
   return {
@@ -1540,6 +1552,10 @@ function turnedBy(vector: Vector, from: Vector, to: Vector): Vector {
     y: vector.y * Math.cos(angle) + across.y * Math.sin(angle) + axis.y * along,
     z: vector.z * Math.cos(angle) + across.z * Math.sin(angle) + axis.z * along,
   };
+}
+
+function momentOf({ mass, orbit, stretch }: Physics): number {
+  return mass * Math.sqrt(orbit * (1 - stretch ** 2));
 }
 
 function touching(inner: Physics, outer: Physics): number {
@@ -3836,6 +3852,19 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       }
     }
   }
+  const draws = drafts.map((draft, at) => {
+    const marked = draft.sprung ? sprout : draft.apart ? rare : marks;
+    const spun = draft.sprung ? sprout : draft.apart ? rare : turns;
+    const drawn = Math.floor(marked.next() * 0x7fffffff);
+    const named = draft.sprung ? "" : name(marked);
+    const placed =
+      draft.parent === null || draft.shared !== null ? 0 : trim(2 * Math.PI * marked.next());
+    const node = 2 * Math.PI * spun.next();
+    const apse = 2 * Math.PI * spun.next();
+    const swing = 2 * Math.PI * spun.next();
+    const beside = draft.shared === null ? null : trim(2 * Math.PI * rare.next());
+    return { own: at === seat.home ? homeSeed : drawn, named, placed, node, apse, swing, beside };
+  });
   let count = 0;
   const seats = drafts.map((draft) => (draft.gone || draft.absent ? -1 : count++));
   const moved = (id: number | null) => (id === null ? null : seats[id]);
@@ -3871,19 +3900,29 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       block.slant = grown * BLOCK_SPREAD * Math.sqrt(-2 * Math.log(1 - tilts.next()));
       block.node = 2 * Math.PI * tilts.next();
     }
+    const reach =
+      zone.sun === null || zone.scattered
+        ? Number.POSITIVE_INFINITY
+        : kept[0].physics.orbit / drafts[zone.around].physics.radius;
+    const near = reach < NEAR_REACH;
     const poles = kept.map(({ physics, pitch }, at) => {
       const turn = 2 * Math.PI * tilts.next();
       const scatter = zone.scattered
         ? Math.sqrt(-2 * Math.log(1 - tilts.next())) * Math.cos(2 * Math.PI * tilts.next())
         : 0;
+      const shared = Math.acos(
+        Math.max(
+          -1,
+          1 - ((1 - Math.sqrt(pitch ?? 0)) * budget) / (heft * Math.sqrt(physics.orbit)),
+        ),
+      );
+      const close =
+        near && at === 0
+          ? NEAR_SPREAD[0] * reach ** NEAR_SPREAD[1] * Math.sqrt(-2 * Math.log(1 - tilts.next()))
+          : 0;
       const lean = zone.scattered
         ? SCATTERED_SLANT[0] * Math.exp(SCATTERED_SLANT[1] * scatter)
-        : Math.acos(
-            Math.max(
-              -1,
-              1 - ((1 - Math.sqrt(pitch ?? 0)) * budget) / (heft * Math.sqrt(physics.orbit)),
-            ),
-          );
+        : Math.max(shared, close);
       const inside = block !== null && at < giant ? block : { slant: 0, node: 0 };
       const own = tipped(inside, grown * lean, turn);
       return poleAt(own.slant, own.node);
@@ -3891,8 +3930,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
     const spin = normalize(
       poles.reduce(
         (sum, pole, at) => {
-          const { mass, orbit, stretch } = kept[at].physics;
-          const moment = mass * Math.sqrt(orbit * (1 - stretch ** 2));
+          const moment = momentOf(kept[at].physics);
           return {
             x: sum.x + moment * pole.x,
             y: sum.y + moment * pole.y,
@@ -3907,9 +3945,11 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       const pole = turnedBy(poles[at], spin, up);
       const by: Bend = zone.scattered
         ? "scattering"
-        : block !== null && at < giant
-          ? "inside"
-          : "neighbors";
+        : near && at === 0
+          ? "near"
+          : block !== null && at < giant
+            ? "inside"
+            : "neighbors";
       bents.set(id, {
         lean: Math.acos(Math.max(-1, Math.min(1, pole.y))),
         turn: Math.atan2(-pole.z, pole.x),
@@ -3933,10 +3973,104 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       );
     }
   }
+  const orbitOf = (at: number): Plane => ({
+    slant: drafts[at].slant ?? 0,
+    node: drafts[at].parent === null ? 0 : draws[at].node,
+  });
+  const kept = (draft: Draft) => !draft.gone && !draft.absent;
+  const midplanes = new Map<number, Plane>();
+  const spins = new Map<number, Vector>();
+  const skews = new Map<number, Omit<Skewed, "of"> & { of: number | null }>();
+  for (const [star, post] of posts) {
+    const at = post.id;
+    const draft = drafts[at];
+    const midplane =
+      draft.tilt === null ? orbitOf(at) : { slant: draft.tilt, node: draws[at].swing };
+    midplanes.set(at, midplane);
+    const disk = poleAt(midplane.slant, midplane.node);
+    const regime = tilts.next();
+    const size = tilts.next();
+    const turn = 2 * Math.PI * tilts.next();
+    const mate =
+      draft.held ??
+      (draft.parent !== null && draft.physics.day === draft.physics.year ? draft.parent : null);
+    if (mate !== null) {
+      spins.set(at, disk);
+      skews.set(at, { by: "locked", of: mate, lean: 0, born: 0, period: null });
+      continue;
+    }
+    const hot = smooth(SPIN_HOT[0], SPIN_HOT[1], star.physics.mass);
+    const cool = hot < 1 ? (regime - hot) / (1 - hot) : 0;
+    const born =
+      regime < hot
+        ? Math.acos(1 - 2 * size)
+        : cool < SPIN_ALIGNED
+          ? SPIN_SPREAD * Math.sqrt(-2 * Math.log(1 - size))
+          : SPIN_TAIL[0] + (SPIN_TAIL[1] - SPIN_TAIL[0]) * size ** SPIN_TAIL[2];
+    const natal = tipped(midplane, born, turn);
+    const first = star.kin[0] === undefined ? undefined : posts.get(star.kin[0])?.id;
+    const reachOf = ({ orbit, stretch }: Physics) => orbit * Math.sqrt(1 - stretch ** 2);
+    const pullers = [
+      ...(first === undefined || !kept(drafts[first])
+        ? []
+        : [
+            {
+              id: first,
+              mass: drafts[first].physics.mass,
+              reach: reachOf(drafts[first].physics),
+              plane: orbitOf(first),
+            },
+          ]),
+      ...(draft.parent === null
+        ? []
+        : [
+            {
+              id: draft.parent,
+              mass: drafts[draft.parent].physics.mass,
+              reach: reachOf(draft.physics),
+              plane: orbitOf(at),
+            },
+          ]),
+    ].sort((left, right) => right.mass / right.reach ** 3 - left.mass / left.reach ** 3);
+    const puller = pullers[0];
+    const planets = (post.rows[0] ?? [])
+      .map((row) => row.draft)
+      .filter((planet) => kept(planet) && planet.shared === null && planet.pitch !== null);
+    const since = age - (post.zones[0]?.airy ?? age);
+    const axis = puller === undefined ? disk : poleAt(puller.plane.slant, puller.plane.node);
+    const weight = planets.reduce((sum, planet) => sum + momentOf(planet.physics), 0);
+    const rate =
+      puller === undefined || weight === 0
+        ? 0
+        : planets.reduce((sum, { physics }) => {
+            const motion = (2 * Math.PI) / yearOf(physics.orbit, draft.physics.mass);
+            const share = (physics.orbit / puller.reach) ** 3;
+            return (
+              sum +
+              momentOf(physics) *
+                0.75 *
+                motion *
+                (puller.mass / draft.physics.mass) *
+                share *
+                dot(axis, disk)
+            );
+          }, 0) / weight;
+    const swept = since > 0 ? -rate * since : 0;
+    const spin = spunAbout(poleAt(natal.slant, natal.node), axis, swept);
+    const turned = Math.abs(swept) > SPIN_TURNED && angleBetween(axis, disk) > 0.0175;
+    spins.set(at, spin);
+    skews.set(at, {
+      by: turned ? "companion" : "birth",
+      of: turned && puller !== undefined ? puller.id : null,
+      lean: angleBetween(spin, disk),
+      born,
+      period: turned ? (2 * Math.PI) / Math.abs(rate) : null,
+    });
+  }
 
   const bodies: Body[] = [];
   const lies: Pick<Body, "phase" | "slant" | "node" | "apse" | "tilt" | "swing">[] = [];
-  const names: string[] = [];
+  const names = draws.map(({ named }) => named);
   const drawnOf = ({ sinking }: Draft): Body["drawn"] => {
     if (sinking === null) {
       return null;
@@ -3964,18 +4098,9 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
     };
   };
   for (const [at, draft] of drafts.entries()) {
-    const marked = draft.sprung ? sprout : draft.apart ? rare : marks;
-    const spun = draft.sprung ? sprout : draft.apart ? rare : turns;
-    const drawn = Math.floor(marked.next() * 0x7fffffff);
-    const own = at === seat.home ? homeSeed : drawn;
-    const named = draft.sprung ? "" : name(marked);
-    names.push(named);
+    const { own, named, placed, node, apse, swing, beside } = draws[at];
     const lead = draft.shared === null ? null : lies[draft.shared.with];
-    const placed = draft.parent === null || lead !== null ? 0 : trim(2 * Math.PI * marked.next());
     const around = draft.parent === null ? null : lies[draft.parent];
-    const node = 2 * Math.PI * spun.next();
-    const apse = 2 * Math.PI * spun.next();
-    const swing = 2 * Math.PI * spun.next();
     const level = draft.slant === null && around !== null;
     const kin = draft.freed === null ? null : lies[draft.freed.from];
     const flat = lead ?? kin ?? (draft.plane === null ? null : lies[draft.plane]);
@@ -3990,7 +4115,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
         : bent.base === "system"
           ? { slant: 0, node: 0 }
           : bent.base === "equator"
-            ? { slant: around.tilt, node: around.swing }
+            ? (midplanes.get(draft.parent ?? -1) ?? { slant: around.tilt, node: around.swing })
             : lies[bent.base];
     const plane =
       bent !== undefined && base !== null
@@ -4004,26 +4129,27 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
               : { slant: draft.slant ?? 0, node: around === null ? 0 : node };
     const slant = plane.slant;
     const turned = plane.node;
-    const beside = draft.shared === null ? null : trim(2 * Math.PI * rare.next());
     const axis = (tilt: number, about: number): Vector => ({
       x: Math.sin(tilt) * Math.sin(about),
       y: Math.cos(tilt),
       z: Math.sin(tilt) * Math.cos(about),
     });
-    const natal = draft.tilt === null ? axis(slant, turned) : axis(draft.tilt, swing);
+    const spin = spins.get(at);
+    const natal = spin ?? (draft.tilt === null ? axis(slant, turned) : axis(draft.tilt, swing));
     const pole = draft.upright > 0 ? slerp(natal, axis(slant, turned), draft.upright) : natal;
     const leaning = Math.acos(Math.max(-1, Math.min(1, pole.y)));
     const about = (Math.atan2(pole.x, pole.z) + 2 * Math.PI) % (2 * Math.PI);
+    const free = draft.upright > 0 || spin !== undefined;
     const lie = {
       phase: lead === null ? placed : lead.phase,
       slant: trim(slant),
       node: trim(turned),
       apse: (lead ?? kin)?.apse ?? (around === null ? 0 : trim(apse)),
-      tilt: trim(draft.upright > 0 ? leaning : (draft.tilt ?? slant)),
+      tilt: trim(free ? leaning : (draft.tilt ?? slant)),
       swing:
-        around === null
+        around === null && spin === undefined
           ? 0
-          : trim(draft.upright > 0 ? about : draft.tilt === null ? turned : swing),
+          : trim(free ? about : draft.tilt === null ? turned : swing),
     };
     lies.push(lie);
     if (draft.gone || draft.absent) {
@@ -4081,6 +4207,8 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       passages: [],
       shell: null,
       slanted: null,
+      midplane: null,
+      skewed: null,
     });
   }
 
@@ -4106,6 +4234,20 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
     }
     if (called !== null && seats[at] >= 0) {
       bodies[seats[at]] = { ...bodies[seats[at]], name: called };
+    }
+  }
+  for (const [at, midplane] of midplanes) {
+    const skew = skews.get(at);
+    if (seats[at] >= 0 && skew !== undefined) {
+      const skewed = {
+        by: skew.by,
+        of: skew.of === null ? null : names[skew.of],
+        lean: trim(skew.lean),
+        born: trim(skew.born),
+        period: skew.period === null ? null : trim(skew.period),
+      };
+      const plane = { slant: trim(midplane.slant), node: trim(midplane.node) };
+      bodies[seats[at]] = { ...bodies[seats[at]], midplane: plane, skewed };
     }
   }
   for (const [at, { by, of, lean }] of bents) {
@@ -4521,6 +4663,10 @@ export function poleOf(body: Body): Vector {
     y: Math.cos(body.tilt),
     z: lean * Math.cos(body.swing),
   };
+}
+
+export function midplaneOf(body: Body): Vector {
+  return body.midplane === null ? poleOf(body) : poleAt(body.midplane.slant, body.midplane.node);
 }
 
 export function planeOf(body: Body): Vector {

@@ -37,6 +37,7 @@ import {
   rocheOf,
   roughOf,
   type Shown,
+  type Skewed,
   type Slanted,
   SUN_GLOW,
   SUN_MASS,
@@ -258,10 +259,21 @@ const slantedOf = ({ by, of, lean }: Slanted) => {
   const why =
     by === "neighbors"
       ? "stirred by its neighbors within the room their orbits leave"
-      : by === "inside"
-        ? `tilted together with the other planets inside ${of}, whose orbit keeps the plane`
-        : "thrown out of it when the giants of its zone scattered one another";
+      : by === "near"
+        ? "so near its star that it leans more, as the nearest planets do"
+        : by === "inside"
+          ? `tilted together with the other planets inside ${of}, whose orbit keeps the plane`
+          : "thrown out of it when the giants of its zone scattered one another";
   return `${degrees(lean)} to the plane its planets share · ${why}`;
+};
+const skewedOf = ({ by, of, lean, born, period }: Skewed) => {
+  if (by === "locked") {
+    return `upright on its orbit with ${of}, held by their tides`;
+  }
+  const leaning = `${degrees(lean)} to the plane of its disk${lean > Math.PI / 2 ? ", turning backward" : ""}`;
+  return by === "birth"
+    ? `${leaning} · so it was born`
+    : `${leaning} · ${degrees(born)} at birth, since its planets turn about the orbit of ${of} once every ${span(period ?? 0)}`;
 };
 const lengthOf = (meters: number) =>
   meters >= 0.01 * ASTRONOMICAL_UNIT
@@ -713,6 +725,7 @@ function factsOf(body: Body): Fact[] {
             ] satisfies Fact,
           ]),
       ["Tilt", `${degrees(body.tilt)} to the plane of the system`],
+      ...(body.skewed === null ? [] : [["Axis", skewedOf(body.skewed)] satisfies Fact]),
       ["Holds moons within", `${lengthOf(hill)} · ${figure(hill / physics.radius)} radii`],
     );
   } else {
@@ -725,6 +738,9 @@ function factsOf(body: Body): Fact[] {
         ? span(physics.day)
         : `${span(physics.day)}, the year of ${holder.name}, one face to it`,
     ]);
+    if (body.skewed !== null) {
+      facts.push(["Axis", skewedOf(body.skewed)]);
+    }
   }
   const mate =
     system.bodies
