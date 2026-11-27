@@ -1,4 +1,12 @@
 export type { Battle, Siege } from "./battle.ts";
+export {
+  FLAWS,
+  type Flaw,
+  type Found,
+  flawsOf,
+  flawsOfBody,
+  groundedOf,
+} from "./consistency.ts";
 export { defaultConstants } from "./constants.ts";
 export {
   type Cleared,
