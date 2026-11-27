@@ -20,12 +20,14 @@ import {
   type Sketch,
   SUN_GLOW,
   SUN_MASS,
+  sectionOf,
   seenGlow,
   shownLight,
   spinOf,
   starborn,
   swayOf,
   thinningOf,
+  wrapped as wrappedIn,
   YEAR,
 } from "@barycenter/sim";
 import {
@@ -61,6 +63,7 @@ import {
   createSwarm,
 } from "./belts.ts";
 import { createLooks, type Look, type Paint } from "./bodies.ts";
+import { type Cutaway, createNotes, type Note, notesOf, roomFor } from "./cutaway.ts";
 import { el } from "./dom.ts";
 import { createGush, createHusk, stanceOf } from "./flows.ts";
 import { createFunnels } from "./funnels.ts";
@@ -116,6 +119,7 @@ export interface Space {
   bare(id: number, next: boolean): void;
   onClearance(listener: () => number): void;
   sharpen(id: number | null): void;
+  cut(on: boolean): void;
   plumb(up: Vector3 | null, share: number): void;
   view(): View;
   resume(view: View): void;
@@ -810,6 +814,46 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
   const girthOf = (id: number) => lookOf(id)?.body.radius ?? probes[id - looks.length].radius;
 
   let sharp: Look | null = null;
+  let cutting = false;
+  let opened: { look: Look; cutaway: Cutaway | null; notes: Note[] } | null = null;
+  const notes = createNotes(labels);
+  const framed = (id: number) => {
+    const { clientWidth: width, clientHeight: height } = stage;
+    const half = Math.tan((camera.fov * Math.PI) / 360);
+    return (girthOf(id) * height) / (2 * roomFor(width, height) * half);
+  };
+  const reopen = () => {
+    const look = cutting ? lookOf(shift.to) : null;
+    if (opened?.look === look) {
+      return;
+    }
+    opened?.look.cut(null);
+    opened = null;
+    if (look === null) {
+      notes.hide();
+      stale = true;
+      return;
+    }
+    const { physics, parent } = look.body;
+    const section = sectionOf(physics, parent === null ? null : system.bodies[parent].physics);
+    const cutaway = look.cut(section);
+    opened = {
+      look,
+      cutaway,
+      notes:
+        section === null
+          ? [
+              {
+                reach: 0,
+                title: "No section",
+                detail: ["what it holds lies behind its horizon"],
+                tint: "#666666",
+              },
+            ]
+          : notesOf(section, !starborn(physics) && wrappedIn(physics), look.tone, look.halo > 0),
+    };
+    stale = true;
+  };
   const attend = (id: number, reach?: number) => {
     const look = lookOf(id);
     if (id !== shift.to) {
@@ -821,6 +865,7 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
       shift.to = id;
       shift.share = 0;
       look?.refine(fine);
+      reopen();
       for (const listener of focusListeners) {
         listener(id);
       }
@@ -832,7 +877,11 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
           ? HOME_VIEW
           : PORTRAIT * look.girth;
     const wanted =
-      reach === undefined ? usual : Math.min(outmost, Math.max(APPROACH * girthOf(id), reach));
+      reach === undefined
+        ? cutting
+          ? Math.max(usual, framed(id))
+          : usual
+        : Math.min(outmost, Math.max(APPROACH * girthOf(id), reach));
     const turned = look !== null && id !== system.home && look.body.parent !== null;
     glide = {
       from: camera.position.length(),
@@ -1255,6 +1304,8 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
     });
     eye.copy(camera.position);
     first.frame.worldToLocal(eye);
+    opened?.cutaway?.aim(camera.position);
+    opened?.cutaway?.turn(weather ?? shown);
   };
 
   const projected = new Vector3();
@@ -1306,6 +1357,16 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
       listener();
     }
     looks.forEach(caption);
+    if (opened !== null) {
+      notes.show(
+        opened.notes,
+        opened.cutaway,
+        camera,
+        places[opened.look.body.id],
+        opened.look.body.radius,
+        { width: stage.clientWidth, height: stage.clientHeight },
+      );
+    }
     if (mist !== null) {
       const backdrop = scene.background;
       const veil = renderer.getClearAlpha();
@@ -1524,6 +1585,14 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
       sharp?.refine(fine);
       stale = true;
     },
+    cut(on) {
+      cutting = on;
+      reopen();
+      const distance = camera.position.length();
+      if (on && shift.share >= 1 && distance < framed(shift.to)) {
+        glide = { from: distance, to: framed(shift.to), share: 0, toward: null, start: null };
+      }
+    },
     plumb(up, share) {
       if (up !== null) {
         plumbed.up.copy(up).normalize();
@@ -1553,6 +1622,7 @@ export function createSpace(stage: HTMLElement, system: Sketch, real = false): S
       lookOf(view.focus)?.refine(fine);
       shift.from = view.focus;
       shift.to = view.focus;
+      reopen();
       shift.share = 1;
       glide = null;
       camera.position.copy(view.camera);

@@ -5,6 +5,7 @@ export interface Shot {
   camera: Point | null;
   tick: number;
   weather: number | null;
+  cut: boolean;
 }
 
 const lasting = (value: number | null): value is number =>
@@ -28,6 +29,7 @@ export function shotOf(search: string): Shot {
     camera: pointOf(query.get("camera")),
     tick: numberOf("tick") ?? 0,
     weather: numberOf("weather"),
+    cut: query.get("cut") === "1",
   };
 }
 
@@ -39,6 +41,7 @@ export function shotQuery(shot: Shot): string {
     shot.camera === null ? null : `camera=${shot.camera.map(written).join(",")}`,
     `tick=${written(shot.tick)}`,
     lasting(shot.weather) ? `weather=${written(shot.weather)}` : null,
+    shot.cut ? "cut=1" : null,
   ]
     .filter((part) => part !== null)
     .join("&");

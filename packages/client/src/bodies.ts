@@ -4,6 +4,7 @@ import {
   type Lamp,
   lampsOf,
   pitsOf,
+  type Section,
   type Sketch,
   seaCover,
   seenGlow,
@@ -48,6 +49,7 @@ import {
   WebGLCubeRenderTarget,
   type WebGLRenderer,
 } from "three";
+import { type Cutaway, createCutaway } from "./cutaway.ts";
 import { type Mate, mateOf, molded } from "./flows.ts";
 import {
   emberOf,
@@ -126,6 +128,7 @@ export interface Look {
   refine(size: number): void;
   recede(far: boolean): void;
   restore(): void;
+  cut(section: Section | null): Cutaway | null;
   dispose(): void;
 }
 
@@ -186,6 +189,7 @@ const SHINE_PALE = 0.6;
 const DIM_PALE = 0.25;
 const SPECK_EMBER = 0.6;
 const RING_GLEAM = 0.25;
+const RING_FADE = 0.3;
 const WARM_STEP = 0.5;
 const GLARE_STEP = 0.02;
 const DISC_STEPS = 16;
@@ -730,7 +734,9 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       steep: { value: steep },
       traits: { value: new Vector3(flame.grain, flame.chill, flame.poles) },
       coarse: { value: flame.coarse },
+      cut: { value: new Vector3(0, 1, 0) },
     };
+    let opened: Cutaway | null = null;
     const frame = new Group();
     const globe = new Mesh(
       mold?.geometry ?? ball,
@@ -828,7 +834,23 @@ export function createStudio(renderer: WebGLRenderer): Studio {
         prominences.turn(tick);
         drift.value = tick * PROMINENCE_DRIFT;
       },
+      cut(section) {
+        opened?.dispose();
+        opened =
+          section === null
+            ? null
+            : createCutaway(globe, uniforms.cut, section, {
+                lump: new Vector4(0, 1, 1, 1),
+                seed: body.seed,
+                tone: tint,
+                star: true,
+              });
+        flare.material.visible = opened === null;
+        plumes.material.visible = opened === null;
+        return opened;
+      },
       dispose() {
+        opened?.dispose();
         release();
         mold?.geometry.dispose();
         globe.material.dispose();
@@ -881,6 +903,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
         settle();
       },
       restore() {},
+      cut: () => null,
       dispose() {
         shadow.material.dispose();
         blank.dispose();
@@ -976,6 +999,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       ember: { value: embers },
       lump: { value: lump },
       seed: { value: body.seed },
+      cut: { value: new Vector3(0, 1, 0) },
       ...(skin === null
         ? {}
         : {
@@ -1105,6 +1129,9 @@ export function createStudio(renderer: WebGLRenderer): Studio {
       parts.push(shell);
     }
 
+    const ringFade = { value: 1 };
+    const hidden = parts.slice(1);
+    let opened: Cutaway | null = null;
     if (grit !== null) {
       const ring = new Mesh(
         new RingGeometry(reach.x * 0.98, reach.y * 1.02, 128, 1).rotateX(-Math.PI / 2),
@@ -1122,6 +1149,7 @@ export function createStudio(renderer: WebGLRenderer): Studio {
             shine: { value: beam },
             inner: { value: gleam },
             squash: uniforms.squash,
+            fade: ringFade,
           },
         }),
       );
@@ -1217,7 +1245,25 @@ export function createStudio(renderer: WebGLRenderer): Studio {
             .divideScalar(span);
         });
       },
+      cut(section) {
+        opened?.dispose();
+        opened =
+          section === null
+            ? null
+            : createCutaway(globe, uniforms.cut, section, {
+                lump,
+                seed: body.seed,
+                tone,
+                star: false,
+              });
+        for (const part of hidden) {
+          part.material.visible = opened === null;
+        }
+        ringFade.value = opened === null ? 1 : RING_FADE;
+        return opened;
+      },
       dispose() {
+        opened?.dispose();
         release();
         grit?.dispose();
         bands?.dispose();

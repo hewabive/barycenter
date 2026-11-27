@@ -183,6 +183,11 @@ const RING_GAIN = 3;
 const RING_DUST = [0.1, 0.6];
 const LUMP_SCALE = 0.9;
 const LUMP_SPAN = 0.06;
+const CELL_SIZE = 1.6;
+const CELL_DEPTH = 0.3;
+const GRAIN_DEPTH = 0.07;
+const STRATA_DEPTH = 0.03;
+const SEAM_SHADE = 0.5;
 const LAVA_FLOOR = -0.4;
 const LAVA_SPAN = 2;
 const CRUST_GLOW = 0.04;
@@ -513,18 +518,124 @@ void main() {
 }
 `;
 
-export const LUMP_VERTEX = `
-${FIELD}
+const OUTLINE = `
 uniform vec4 lump;
-varying vec3 vAt;
-varying vec3 vPlace;
-varying vec3 vLean;
 
 float outline(vec3 at) {
   vec3 squeezed = at / lump.yzw;
   return inversesqrt(dot(squeezed, squeezed))
     * (1.0 + lump.x * layered(at * ${real(LUMP_SCALE)} + 3.7, seed + 211u, 3));
 }
+`;
+
+const WEDGE = `
+uniform vec3 cut;
+
+bool opened(vec3 at) {
+  return cut.z > 0.5 && dot(at.xz, cut.xy) > 0.70710678 * length(at.xz);
+}
+`;
+
+export const ZONE_ROOM = 16;
+export const FIRE_ROOM = 4;
+export const CUT_REACH = 1.6;
+
+export const CUT_VERTEX = `
+uniform vec3 cut;
+uniform float side;
+uniform float reach;
+varying vec2 vFace;
+varying vec3 vAt;
+
+void main() {
+  vec2 face = position.xy * reach;
+  vFace = face;
+  float turn = side * 0.70710678;
+  vec2 way = vec2(cut.x * 0.70710678 - cut.y * turn, cut.x * turn + cut.y * 0.70710678);
+  vAt = vec3(way.x * face.x, face.y, way.y * face.x);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(vAt, 1.0);
+}
+`;
+
+export const CUT_FRAGMENT = `
+${FIELD}
+${OUTLINE}
+uniform vec4 zones[${ZONE_ROOM}];
+uniform vec3 deeps[${ZONE_ROOM}];
+uniform vec3 highs[${ZONE_ROOM}];
+uniform int count;
+uniform vec4 fires[${FIRE_ROOM}];
+uniform vec3 flames[${FIRE_ROOM}];
+uniform int burning;
+uniform float clock;
+varying vec2 vFace;
+varying vec3 vAt;
+
+void main() {
+  float edge = lump.x > 0.0 && length(vAt) > 1e-6 ? outline(normalize(vAt)) : 1.0;
+  float reach = length(vFace) / edge;
+  if (reach > 1.0) {
+    discard;
+  }
+  float wide = max(fwidth(reach), 1e-6);
+  int found = count - 1;
+  for (int index = 0; index < ${ZONE_ROOM}; index++) {
+    if (index >= count) {
+      break;
+    }
+    if (reach <= zones[index].y) {
+      found = index;
+      break;
+    }
+  }
+  vec4 zone = zones[found];
+  float span = max(zone.y - zone.x, 1e-6);
+  float along = clamp((reach - zone.x) / span, 0.0, 1.0);
+  vec3 color = mix(deeps[found], highs[found], along);
+  float pattern = 1.0;
+  if (zone.z > 0.5) {
+    float angle = atan(vFace.y, max(vFace.x, 1e-6));
+    float middle = 0.5 * (zone.x + zone.y);
+    vec3 cell = vec3(reach / span * ${real(CELL_SIZE)}, angle * middle / span * ${real(CELL_SIZE)}, clock);
+    float rolls = 0.7 * noise(cell, 17u) + 0.3 * noise(cell * vec3(2.3, 2.3, 1.7), 29u);
+    pattern = 1.0 + ${real(CELL_DEPTH)} * rolls * sin(3.1415927 * along);
+  } else if (zone.w > 0.5) {
+    pattern = 1.0 + ${real(GRAIN_DEPTH)} * noise(vec3(vFace * 140.0, 0.5), 41u)
+      + ${real(GRAIN_DEPTH / 2)} * noise(vec3(vFace * 37.0, 1.5), 43u);
+  } else {
+    pattern = 1.0 + ${real(STRATA_DEPTH)} * sin(6.2831853 * along * max(3.0, floor(span * 40.0)));
+  }
+  color *= pattern;
+  for (int index = 0; index < ${FIRE_ROOM}; index++) {
+    if (index >= burning) {
+      break;
+    }
+    vec4 fire = fires[index];
+    float soft = max(0.25 * (fire.y - fire.x), 2.0 * wide);
+    float lit = (fire.x > 0.0 ? smoothstep(fire.x - soft, fire.x + soft, reach) : 1.0)
+      * (1.0 - smoothstep(fire.y - soft, fire.y + soft, reach));
+    float flicker = 0.8 + 0.2 * noise(vec3(vFace * 9.0 / max(fire.y, 1e-3), 2.0 * clock), 53u);
+    color += flames[index] * lit * flicker;
+  }
+  float seam = 1e9;
+  for (int index = 0; index < ${ZONE_ROOM}; index++) {
+    if (index >= count) {
+      break;
+    }
+    seam = min(seam, abs(reach - zones[index].y));
+  }
+  color *= 1.0 - ${real(SEAM_SHADE)} * (1.0 - smoothstep(0.5, 1.5, seam / wide));
+  gl_FragColor = vec4(min(color, vec3(1.0)), 1.0);
+  #include <colorspace_fragment>
+}
+`;
+
+export const LUMP_VERTEX = `
+${FIELD}
+${OUTLINE}
+varying vec3 vAt;
+varying vec3 vPlace;
+varying vec3 vLean;
 
 void main() {
   vAt = position;
@@ -809,8 +920,12 @@ varying vec3 vAt;
 varying vec3 vPlace;
 varying vec3 vLean;
 ${GRIT}
+${WEDGE}
 void main() {
   vec3 at = normalize(vAt);
+  if (opened(at)) {
+    discard;
+  }
   vec3 lean = normalize(vLean);
   mat3 pose = mat3(modelMatrix);
   vec3 bulge = vec3(1.0, squash, 1.0);
@@ -880,9 +995,12 @@ uniform int crowd;
 varying vec3 vAt;
 varying vec3 vPlace;
 varying vec3 vOut;
-
+${WEDGE}
 void main() {
   vec3 at = normalize(vAt);
+  if (opened(at)) {
+    discard;
+  }
   vec4 wide = textureCube(relief, at);
 
   float least = 1e9;
@@ -1120,6 +1238,7 @@ uniform vec3 sunny;
 uniform vec3 shine;
 uniform vec3 inner;
 uniform float squash;
+uniform float fade;
 uniform mat4 modelMatrix;
 varying vec3 vSpot;
 varying vec3 vPlace;
@@ -1151,7 +1270,7 @@ void main() {
   float veil = 1.0 - gone;
   vec3 lamp = shine * (0.02 * veil + lit * glow)
     + inner * pow(middle / near, 3.0) * (0.35 + 0.65 * dense) * veil;
-  gl_FragColor = vec4(dust.rgb * dust.rgb * lamp, veil);
+  gl_FragColor = fade * vec4(dust.rgb * dust.rgb * lamp, veil);
   #include <colorspace_fragment>
 }
 `;

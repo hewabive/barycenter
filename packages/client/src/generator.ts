@@ -809,6 +809,8 @@ function factsOf(body: Body): Fact[] {
 
 const stage = required<HTMLElement>("#stage");
 let space = createSpace(stage, system, choice.real);
+let cutting = arrival.cut;
+space.cut(cutting);
 
 let tick = 0;
 let pace = 0;
@@ -981,6 +983,12 @@ const marked = <Item extends HTMLElement>(item: Item, name: string): Item => {
   return item;
 };
 const scale = button("", "", () => go(read(), !choice.real));
+const cutter = button("Cut", "Show the body in focus cut open, with what lies inside it", () => {
+  cutting = !cutting;
+  space.cut(cutting);
+  cutter.classList.toggle("active", cutting);
+});
+cutter.classList.toggle("active", cutting);
 const fly = el("a", { class: "away", title: "Fly a ship through this system" }, "Fly");
 const linked = () => {
   const view = space.view();
@@ -989,6 +997,7 @@ const linked = () => {
     camera: [view.camera.x, view.camera.y, view.camera.z],
     tick,
     weather: choice.real ? weather : null,
+    cut: cutting,
   };
   return `${location.origin}${location.pathname}${address(choice)}&${shotQuery(shot)}`;
 };
@@ -1086,6 +1095,7 @@ topbar.append(
       "home",
     ),
     scale,
+    cutter,
     el("a", { class: "away", href: "atlas.html" }, "Atlas"),
     fly,
     copyLink,
@@ -1251,6 +1261,7 @@ const build = () => {
   system = make(next);
   space.dispose();
   space = createSpace(stage, system, next.real);
+  space.cut(cutting);
   stage.classList.remove("making");
   const kept = held === null ? null : survivor(before[held.focus], before);
   if (held !== null && kept !== null) {
