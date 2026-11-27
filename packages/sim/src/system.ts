@@ -51,8 +51,10 @@ import {
   HOUR,
   hillOf,
   holdOf,
+  holdsSteam,
   innerHeat,
   type Life,
+  LOOSE_GRIP,
   laplaceOf,
   lifeOf,
   lightAt,
@@ -69,6 +71,7 @@ import {
   starHeat,
   starLife,
   starSpan,
+  starStages,
   starTurn,
   stocked,
   strippedShare,
@@ -112,6 +115,7 @@ import {
   type Vector,
 } from "./types.ts";
 import { slerp } from "./vector.ts";
+import { BARE_ICE, type Course, grownShare, pastOf, type Shine, steadyCourse } from "./water.ts";
 
 export interface Past {
   star: Pick<Physics, "mass" | "glow">;
@@ -130,6 +134,7 @@ export interface Site {
   stretch: number;
   tied: boolean;
   past: Past | null;
+  course?: Course | undefined;
 }
 
 export interface Lamp {
@@ -245,6 +250,8 @@ interface Zone {
   last: boolean;
   sun: Star | null;
   airy: number;
+  shine: (time: number) => Shine;
+  marks: number[];
 }
 
 interface Ground {
@@ -280,6 +287,7 @@ interface Setting {
   distance: number;
   lent: number;
   past: Past | null;
+  course?: Course | undefined;
 }
 
 interface Lot {
@@ -467,9 +475,9 @@ const PARCH_HEAT = 400;
 const ICE_HEAT = 160;
 const ICY_SHARE = 0.1;
 const ICE_LOST = 200;
-const DRIED = 1e-4;
 const HELIUM_SHARE = 0.14;
-const LOOSE_GRIP = 0.8;
+const steamAt = GASES.indexOf("water");
+const WIDTH_LOST = 1e-3;
 const RING_SHARE_FLUID = 0.45;
 const RING_SHARE_SOLID = 0.05;
 const RING_HEAT = 1200;
@@ -581,7 +589,7 @@ function drifted(drift: Drift, from: Sinking): boolean {
 }
 
 function starAt(mass: number, age: number, vigor: number, luck: number): Physics {
-  const shares = { iron: 0, rock: 0, ice: 0, gas: 1 };
+  const shares = { iron: 0, rock: 0, ice: 0, gas: 1, lost: 0 };
   const rest = { life: 0, vigor, age, orbit: 0, stretch: 0, year: 0, disks: [] };
   if (mass < STAR_LEAST) {
     const inner = innerHeat(mass, age, vigor);
@@ -606,6 +614,54 @@ function starAt(mass: number, age: number, vigor: number, luck: number): Physics
   return shining(life, age, vigor, starTurn(mass, age, life, luck));
 }
 
+function shineOf(stars: Star[]): (time: number) => Shine {
+  const kept = new Map<number, Shine>();
+  return (time) => {
+    const known = kept.get(time);
+    if (known !== undefined) {
+      return known;
+    }
+    const found = stars.reduce(
+      (sum, star) => {
+        const born = star.physics.mass;
+        if (born < STAR_LEAST) {
+          const then = innerHeat(born, time, star.vigor);
+          const now = innerHeat(born, star.physics.age, star.vigor);
+          return { glow: sum.glow + star.physics.glow * (then / now) ** 4, mass: sum.mass + born };
+        }
+        const life = lifeOf(born, time);
+        return { glow: sum.glow + life.glow, mass: sum.mass + life.mass };
+      },
+      { glow: 0, mass: 0 },
+    );
+    kept.set(time, found);
+    return found;
+  };
+}
+
+function starsOf(star: Star): Star[] {
+  return [star, ...star.kin.flatMap(starsOf)];
+}
+
+const MARKS = [0.5, 0.9, 0.99, 1];
+
+function marksOf(stars: Star[]): number[] {
+  return stars.flatMap((star) => {
+    const born = star.physics.mass;
+    if (born < STAR_LEAST) {
+      return [];
+    }
+    const ends = starStages(born);
+    return [
+      starDawn(born),
+      ...ends.flatMap((end, index) => {
+        const start = ends[index - 1] ?? 0;
+        return MARKS.map((share) => start + (end - start) * share);
+      }),
+    ];
+  });
+}
+
 function shining(life: Life, age: number, vigor: number, day: number): Physics {
   const heat = starHeat(life.glow, life.radius);
   return {
@@ -615,6 +671,7 @@ function shining(life: Life, age: number, vigor: number, day: number): Physics {
     rock: 0,
     ice: 0,
     gas: 1,
+    lost: 0,
     heat,
     coldest: heat,
     hottest: heat,
@@ -732,11 +789,7 @@ function framed(
   const glow = fed > 0 ? 4 * Math.PI * site.distance ** 2 * (light + falling) : lit;
   const inner = innerHeat(mass, site.star.age, lot.vigor);
   const shone = balanceHeat(lit, site.distance, gasAlbedo(mass));
-  const baked =
-    lot.beyond &&
-    worst > ICE_LOST &&
-    gripOf(mass, radiusOf(mass, soaked, inner, shone), worst, "water") < LOOSE_GRIP;
-  const { iron, rock, ice } = baked ? sharesOf(gas, lot.damp * DRIED, lot.metal) : soaked;
+  const { iron, rock, ice } = soaked;
   const radius = radiusOf(mass, { iron, rock, ice, gas }, inner, shone);
   const fluid = wrapped({ mass, iron, rock, ice, gas });
   const grip = (kind: Gas) => gripOf(mass, radius, worst, kind);
@@ -800,6 +853,19 @@ function lotOf(mass: number, site: Site, random: Random, locked: boolean): Lot {
 }
 
 const hottest = new WeakMap<Physics, number>();
+const unspent = new WeakMap<Physics, Physics>();
+
+function bornOf(physics: Physics): Physics {
+  return unspent.get(physics) ?? physics;
+}
+
+function bornAs(next: Physics, from: Physics): Physics {
+  const whole = unspent.get(from);
+  if (whole !== undefined) {
+    unspent.set(next, { ...whole, day: next.day, year: next.year });
+  }
+  return next;
+}
 
 function worn(physics: Physics, lot: Lot, share: number, age: number, torn: Feed[]): Physics {
   const [rim] = lot.rim;
@@ -834,41 +900,90 @@ function worn(physics: Physics, lot: Lot, share: number, age: number, torn: Feed
 }
 
 function shaped(lot: Lot, site: Site, share = 1, fed = 0): Physics {
-  const mass = lot.mass * share;
-  const part = share === 1 || lot.gas === 0 ? 1 : Math.min(1, gasShare(mass) / gasShare(lot.mass));
-  const gas = lot.gas * part;
-  const { light, glow, bare, worst, inner, iron, rock, ice, radius, fluid, grip } = framed(
-    { ...lot, mass, gas },
-    site,
-    fed,
-  );
+  const born = lot.mass * share;
+  const part = share === 1 || lot.gas === 0 ? 1 : Math.min(1, gasShare(born) / gasShare(lot.mass));
+  const drawn = lot.gas * part;
+  const framing = framed({ ...lot, mass: born, gas: drawn }, site, fed);
+  const { light, glow, bare, worst, inner, fluid, grip } = framing;
   const grown = smooth(MOON_FROM, 1, share);
-  const earths = mass / EARTH_MASS;
-  const held = grip("nitrogen");
-  const kept = lot.luck !== null && held > 1 && lot.luck < held - 0.6;
-  const outgassed = EARTH_AIR * earths * lot.vent;
+  const keeps = (held: number) => lot.luck !== null && held > 1 && lot.luck < held - 0.6;
+  const kept = keeps(grip("nitrogen"));
+  const course = site.course ?? steadyCourse(site.star.glow, site.star.mass);
+  const past = fluid
+    ? null
+    : pastOf(
+        {
+          glow: site.star.glow,
+          whole: born / Math.max(grownShare(course, site.star.age), 1e-6),
+          mass: born,
+          radius: framing.radius,
+          ice: framing.ice,
+          age: site.star.age,
+          distance: site.distance,
+          lent: site.lent,
+        },
+        course,
+        (mass, radius, heat) => keeps(gripOf(mass, radius, heat, "nitrogen")),
+      );
+  const water = framing.ice * born;
   const parts = Object.values(lot.blend).reduce((sum, part) => sum + part, 0);
-  const column = columnOf(mass, radius);
-  const stock = stocked({
-    ...Object.fromEntries(
-      Object.entries(lot.blend).map(([kind, part]) => [kind, (outgassed * part) / parts]),
-    ),
-    water: column * ice,
-    hydrogen: column * gas * (1 - HELIUM_SHARE),
-    helium: column * gas * HELIUM_SHARE,
-  }).map((amount, index) => (grip(GASES[index]) < LOOSE_GRIP ? 0 : amount));
-  const frozen = ice > ICY_SHARE && bare < 1.3 * ICE_HEAT;
-  const climate: Climate = fluid
-    ? envelopeOf(mass, glow, site.distance, inner)
-    : climateOf({
-        glow,
-        distance: site.distance,
-        stock: kept ? stock : stock.map(() => 0),
-        weathered: lot.weathered,
-        pool: column * DAMP_LEAST,
-        frozen,
-        ceiling: Math.max(site.star.heat, site.around.heat),
+  const keptFrom = (lost: number) => {
+    const mass = born - lost;
+    const after = (share: number) => (share * born) / mass;
+    const iron = after(framing.iron);
+    const rock = after(framing.rock);
+    const gas = after(drawn);
+    const ice = water - lost > WIDTH_LOST * 1e-9 * born ? (water - lost) / mass : 0;
+    const outgassed = (EARTH_AIR * mass * lot.vent) / EARTH_MASS;
+    const frozen = ice > ICY_SHARE && bare < 1.3 * ICE_HEAT;
+    const airOf = (radius: number): Climate => {
+      const column = columnOf(mass, radius);
+      const stock = stocked({
+        ...Object.fromEntries(
+          Object.entries(lot.blend).map(([kind, part]) => [kind, (outgassed * part) / parts]),
+        ),
+        water: column * ice,
+        hydrogen: column * gas * (1 - HELIUM_SHARE),
+        helium: column * gas * HELIUM_SHARE,
+      }).map((amount, index) => (grip(GASES[index]) < LOOSE_GRIP ? 0 : amount));
+      return fluid
+        ? envelopeOf(mass, glow, site.distance, inner)
+        : climateOf({
+            glow,
+            distance: site.distance,
+            stock: kept ? stock : stock.map((amount, index) => (index === steamAt ? amount : 0)),
+            weathered: lot.weathered,
+            pool: column * DAMP_LEAST,
+            frozen,
+            ceiling: Math.max(site.star.heat, site.around.heat),
+          });
+    };
+    const wide =
+      lost > WIDTH_LOST * born ? radiusOf(mass, { iron, rock, ice, gas }) : framing.radius;
+    let climate = airOf(wide);
+    const steam = fluid ? 0 : (climate.gases[GASES.indexOf("water")] ?? 0) * climate.air;
+    const aloft = steam / columnOf(mass, wide);
+    let radius = wide;
+    if (aloft > WIDTH_LOST) {
+      const below = mass * (1 - aloft);
+      radius = radiusOf(below, {
+        iron: (iron * mass) / below,
+        rock: (rock * mass) / below,
+        ice: Math.max(0, ice - aloft) * (mass / below),
+        gas: (gas * mass) / below,
       });
+      climate = airOf(radius);
+    }
+    return { mass, iron, rock, ice, gas, radius, climate };
+  };
+  const first = keptFrom(Math.min(water, past?.lost ?? 0));
+  const bared =
+    past !== null &&
+    first.ice > 0 &&
+    first.climate.air === 0 &&
+    first.climate.heat > BARE_ICE &&
+    !holdsSteam(first.mass, first.radius, first.climate.heat);
+  const { mass, iron, rock, ice, gas, radius, climate } = bared ? keptFrom(water) : first;
   const year = yearOf(site.orbit, site.around.mass + mass);
   const physics: Physics = {
     mass,
@@ -877,6 +992,7 @@ function shaped(lot: Lot, site: Site, share = 1, fed = 0): Physics {
     rock,
     ice,
     gas,
+    lost: born - mass,
     heat: climate.heat,
     coldest: climate.heat,
     hottest: climate.heat,
@@ -899,6 +1015,17 @@ function shaped(lot: Lot, site: Site, share = 1, fed = 0): Physics {
       ),
   };
   hottest.set(physics, worst);
+  if (mass < born) {
+    unspent.set(physics, {
+      ...physics,
+      mass: born,
+      radius: framing.radius,
+      iron: framing.iron,
+      rock: framing.rock,
+      ice: framing.ice,
+      gas: drawn,
+    });
+  }
   return physics;
 }
 
@@ -938,6 +1065,7 @@ function settled(star: Physics, orbit: number, stretch: number, random: Random):
     mass,
     radius,
     ...shares,
+    lost: 0,
     heat: climate.heat,
     coldest: climate.heat,
     hottest: climate.heat,
@@ -1020,13 +1148,24 @@ function moonsOf(
   random: Random,
   turns: Random,
   rare: Random,
+  course?: Course | undefined,
 ): Kin[] {
   const fluid = wrapped(host);
   const earths = host.mass / EARTH_MASS;
   const settledHere = host.life > 0;
   const siteAt = (orbit: number, stretch: number): Site => {
     const warmed = lent + lightAt(glowOf(host.radius, host.heat), orbit);
-    return { star, distance, around: host, orbit, lent: warmed, stretch, tied: false, past: null };
+    return {
+      star,
+      distance,
+      around: host,
+      orbit,
+      lent: warmed,
+      stretch,
+      tied: false,
+      past: null,
+      course,
+    };
   };
   let girth = bulgeOf(host);
   const seats: Seat[] = [];
@@ -1035,7 +1174,7 @@ function moonsOf(
   const unsteady = (orbit: number) =>
     lying && orbit > STEEP_BAND[0] * levelOf() && orbit < STEEP_BAND[1] * levelOf();
   const settle = (moon: Kin, stretch = moon.physics.stretch) => {
-    const { mass, orbit } = moon.physics;
+    const { mass, orbit } = bornOf(moon.physics);
     girth += (0.5 * mass * orbit ** 2) / host.mass;
     seats.push({ orbit, far: orbit * (1 + stretch), mass });
   };
@@ -1052,9 +1191,9 @@ function moonsOf(
     const spun = { ...loose, fluid: wrapped(loose), turning: turningOf(loose) };
     const free = lockOf(spun, host.mass, orbit) > age;
     const lot = free ? drawn : { ...drawn, free: null };
-    const physics = free ? loose : { ...loose, day: loose.year };
+    const physics = free ? loose : bornAs({ ...loose, day: loose.year }, loose);
     const moons = moonsOf(
-      physics,
+      bornOf(physics),
       host,
       star,
       distance,
@@ -1065,6 +1204,7 @@ function moonsOf(
       random,
       turns,
       rare,
+      course,
     );
     return {
       physics,
@@ -1613,6 +1753,7 @@ function trimmed(physics: Physics): Physics {
   return {
     mass: trim(physics.mass),
     radius: trim(physics.radius),
+    lost: trim(physics.lost),
     iron: trim(physics.iron),
     rock: trim(physics.rock),
     ice: trim(physics.ice),
@@ -2348,7 +2489,8 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       return;
     }
     const { orbit: born, stretch: oval } = moon.site;
-    const share = Math.cbrt(drafts[host].physics.mass / (3 * sun.physics.mass));
+    const { physics: held } = drafts[host];
+    const share = Math.cbrt((held.mass + held.lost) / (3 * sun.physics.mass));
     const { mass, radius } = moon.physics;
     const pulled = { mass, radius, fluid: wrapped(moon.physics) };
     const farAt = (age: number) => {
@@ -2685,7 +2827,31 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
         past: null,
       };
       const lot = settledHere ? null : lotOf(mass, site, random, false);
-      const planet = lot === null ? settled(star, orbit, stretch, random) : shaped(lot, site);
+      const haste = youth.next();
+      const airborne = lot !== null && lot.gas >= GAS_BEARING;
+      const doneFor = (heft: number) =>
+        airborne
+          ? zone.airy * amid(0.5, 1, haste)
+          : Math.min(
+              GROWN_MOST,
+              Math.max(
+                SOLID_YEARS *
+                  YEAR *
+                  (heft / EARTH_MASS) *
+                  Math.sqrt(yearOf(orbit, star.mass + heft) / YEAR),
+                ICY_YEARS[0] *
+                  YEAR *
+                  (orbit / (ICY_YEARS[1] * ASTRONOMICAL_UNIT)) ** 3 *
+                  ((ICY_YEARS[2] * SUN_MASS) / star.mass) ** 1.5,
+              ) * amid(0.5, 2, haste),
+            );
+      const course: Course | undefined =
+        lot === null
+          ? undefined
+          : { shine: zone.shine, marks: zone.marks, done: doneFor(lot.mass), airborne };
+      const made =
+        lot === null ? settled(star, orbit, stretch, random) : shaped(lot, { ...site, course });
+      const planet = bornOf(made);
       const pulled = { mass: planet.mass, radius: planet.radius, fluid: wrapped(planet) };
       const sinking =
         lot === null || zone.sun === null
@@ -2695,7 +2861,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       const steep = !settledHere && random.next() < 0.1;
       const tilt = steep ? between(random, 0.5, 1.75) : MAX_TILT * random.next();
       const draft: Draft = {
-        physics: planet,
+        physics: made,
         parent: zone.around,
         tilt: tied ? null : tilt,
         slant: zone.plane === "equator" ? null : zone.plane === "system" ? slant : 0,
@@ -2725,21 +2891,8 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
         lead: number;
         torn: (age: number) => Feed[];
       } = { by: null, lead: 0, torn: () => [] };
-      const haste = youth.next();
-      const airborne = lot !== null && lot.gas >= GAS_BEARING;
-      const done = airborne
-        ? zone.airy * amid(0.5, 1, haste)
-        : Math.min(
-            GROWN_MOST,
-            Math.max(
-              SOLID_YEARS * YEAR * (planet.mass / EARTH_MASS) * Math.sqrt(planet.year / YEAR),
-              ICY_YEARS[0] *
-                YEAR *
-                (planet.orbit / (ICY_YEARS[1] * ASTRONOMICAL_UNIT)) ** 3 *
-                ((ICY_YEARS[2] * SUN_MASS) / star.mass) ** 1.5,
-            ) * amid(0.5, 2, haste),
-          );
-      let here = site;
+      const done = course?.done ?? doneFor(planet.mass);
+      let here: Site = { ...site, course };
       let fed = 0;
       const place = row.length;
       if (lot !== null && airborne) {
@@ -2857,7 +3010,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
           const { peak, young } = ground;
           const nearest = Math.min(distance, now * spread);
           const past = same ? null : { star, distance: nearest, peak, lent: zone.lent, young };
-          const setting = { star: ground.centre, distance: far, lent: ground.lent, past };
+          const setting = { star: ground.centre, distance: far, lent: ground.lent, past, course };
           here = { ...setting, around: ground.centre, orbit: reach, stretch: round, tied: bound };
           const made = worn(shaped(lot, here, share, fed), lot, share, age, turned.torn(age));
           const tide = bound || turned.by === null ? undefined : turned.by(age);
@@ -2878,7 +3031,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       }
       const lying = !tied && tilt > STEEP_TILT && tilt < Math.PI - STEEP_TILT;
       const moons = moonsOf(
-        planet,
+        bornOf(planet),
         star,
         star,
         distance,
@@ -2889,6 +3042,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
         random,
         turns,
         rare,
+        course,
       );
       const reach = MOON_REST * hillOf(orbit * (1 - stretch), planet.mass, star.mass);
       const bound = settledHere ? Number.POSITIVE_INFINITY : tiedFrom(orbit, heavy);
@@ -3209,6 +3363,8 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
         last: parent === null && span.next === null,
         sun: span.before === null && star.physics.mass >= STAR_LEAST ? star : null,
         airy: Math.min(bound, gasFor(span.centre.mass), quickOf(span.before), quickOf(span.next)),
+        shine: shineOf([star, ...star.kin.slice(0, level).flatMap(starsOf)]),
+        marks: marksOf([star, ...star.kin.slice(0, level).flatMap(starsOf)]),
       };
       const { belts, row } = lay(zone);
       post.zones.push(zone);

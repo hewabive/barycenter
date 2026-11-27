@@ -150,6 +150,7 @@ const ROCK_CREEP = 1e-6;
 const STUFFY_HEAT = [600, 2000];
 const STUFFY_MOST = 0.8;
 const ESCAPE_MARGIN = 6;
+export const LOOSE_GRIP = 0.8;
 const EXOBASE = 1000;
 const MELTING = 273;
 const TRIPLE_AIR = 1000;
@@ -160,13 +161,15 @@ const COLD_TRAP = 0.75;
 const CLIMATE_ROUNDS = 400;
 const CLIMATE_EXACT = 1e-8;
 const CLIMATE_LEAP = 2;
-const XUV_GLOW = 10 ** -3.5;
-const XUV_SATURATED = 1e8 * YEAR;
+export const XUV_GLOW = 10 ** -3.5;
+export const XUV_SATURATED = 1e8 * YEAR;
 const XUV_FADING = 0.5;
-const XUV_SHARE = 0.1;
+export const XUV_SHARE = 0.1;
+export const RUNAWAY = 4 * 375;
 const CRITICAL = 647;
-const STEAM_LEFT = 200;
-const SHELTER = EARTH_AIR;
+const STEAMY_AIR = 300;
+const STEAMED_HEAT = 1500;
+const STEAMED_AIR = [3e5, 3e6];
 const THERMOSTAT = 278;
 const THERMOSTAT_STEPS = 14;
 const BRIGHT_AIR = 0.3;
@@ -836,11 +839,16 @@ export function gripOf(mass: number, radius: number, heat: number, gas: Gas): nu
   return escapeOf(mass, radius) / (ESCAPE_MARGIN * thermal);
 }
 
+export function holdsSteam(mass: number, radius: number, heat: number): boolean {
+  const thermal = Math.sqrt((3 * BOLTZMANN * heat) / (WEIGHTS.water * DALTON));
+  return escapeOf(mass, radius) >= LOOSE_GRIP * ESCAPE_MARGIN * thermal;
+}
+
 export function stocked(parts: Partial<Record<Gas, number>>): number[] {
   return GASES.map((gas) => parts[gas] ?? 0);
 }
 
-export function shareOf(physics: Physics, gas: Gas): number {
+export function shareOf(physics: Pick<Physics, "gases">, gas: Gas): number {
   return physics.gases[GASES.indexOf(gas)] ?? 0;
 }
 
@@ -849,12 +857,6 @@ export function vaporOf(gas: Gas, heat: number): number {
   return curve === null
     ? Number.POSITIVE_INFINITY
     : EARTH_AIR * Math.exp(-curve[1] * (1 / heat - 1 / curve[0]));
-}
-
-function boilingAt(air: number): number {
-  const [boiling, latent] = VAPORS.water ?? [0, 1];
-  const found = 1 / (1 / boiling - Math.log(air / EARTH_AIR) / latent);
-  return found > 0 ? Math.min(CRITICAL, found) : CRITICAL;
 }
 
 function warmed(partials: number[]): number {
@@ -869,8 +871,8 @@ export function climateOf(given: Volatiles): Climate {
   const whole = (parts: number[]) => parts.reduce((sum, part) => sum + part, 0);
   const carbon = given.stock[GASES.indexOf("carbon dioxide")];
   const water = GASES.indexOf("water");
-  const sheltered = given.stock[GASES.indexOf("hydrogen")] >= SHELTER;
-  const settle = (weathered: number, steam: number, pooled: boolean) => {
+  const runaway = lightAt(given.glow, given.distance) >= RUNAWAY;
+  const settle = (weathered: number, steam: number, pooled: boolean, boiled = false) => {
     const roundAt = (heat: number, before: number) => {
       const trap = COLD_TRAP + (1 - COLD_TRAP) * smooth(3, 5, Math.log10(Math.max(before, 1)));
       const partials = GASES.map((gas, index) => {
@@ -878,7 +880,9 @@ export function climateOf(given: Volatiles): Climate {
         const vapor = (HUMIDITY[gas] ?? 1) * vaporOf(gas, coldest);
         const most =
           gas === "water"
-            ? Math.min(steam, vapor)
+            ? boiled
+              ? Number.POSITIVE_INFINITY
+              : Math.min(steam, vapor)
             : gas === "carbon dioxide"
               ? Math.min(weathered, vapor)
               : vapor;
@@ -922,15 +926,31 @@ export function climateOf(given: Volatiles): Climate {
       }
     }
     const sea =
+      !boiled &&
       given.stock[water] - partials[water] >= given.pool &&
       air >= TRIPLE_AIR &&
       heat >= MELTING &&
-      heat <= boilingAt(air);
-    return { air, heat, sea, gases: partials.map((part) => part / Math.max(air, 1e-12)) };
+      heat < CRITICAL;
+    const smothered =
+      boiled && runaway
+        ? smooth(
+            Math.log10(STEAMED_AIR[0]),
+            Math.log10(STEAMED_AIR[1]),
+            Math.log10(Math.max(partials[water], 1)),
+          )
+        : 0;
+    const floor = Math.min(given.ceiling ?? STEAMED_HEAT, Math.max(heat, STEAMED_HEAT));
+    const ground = heat + (floor - heat) * smothered;
+    return {
+      air,
+      heat: ground,
+      sea,
+      gases: partials.map((part) => part / Math.max(air, 1e-12)),
+    };
   };
   const wet = (weathered: number) => settle(weathered, Number.POSITIVE_INFINITY, true);
-  const dry = () =>
-    settle(Number.POSITIVE_INFINITY, sheltered ? Number.POSITIVE_INFINITY : STEAM_LEFT, false);
+  const dry = () => settle(Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, false);
+  const boiled = () => settle(Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, false, true);
   const regulated = () => {
     if (given.stock[water] < given.pool || wet(carbon).heat < THERMOSTAT) {
       return dry();
@@ -948,8 +968,9 @@ export function climateOf(given: Volatiles): Climate {
     const kept = wet(Math.exp(high));
     return kept.sea ? kept : dry();
   };
-  const mild = wet(given.weathered);
-  const found = mild.sea ? mild : mild.heat < MELTING ? regulated() : dry();
+  const mild = runaway ? null : wet(given.weathered);
+  const found =
+    mild === null ? boiled() : mild.sea ? mild : mild.heat < MELTING ? regulated() : dry();
   return found.air < TRACE_AIR
     ? {
         air: 0,
@@ -1028,6 +1049,13 @@ export function columnOf(mass: number, radius: number): number {
   return (gravityOf(mass, radius) * mass) / (4 * Math.PI * radius ** 2);
 }
 
+export function aloftOf(
+  physics: Pick<Physics, "mass" | "radius" | "ice"> & Partial<Pick<Physics, "air" | "gases">>,
+): number {
+  const steam = (physics.gases?.[GASES.indexOf("water")] ?? 0) * (physics.air ?? 0);
+  return steam > 0 ? Math.min(physics.ice, steam / columnOf(physics.mass, physics.radius)) : 0;
+}
+
 export function strippedShare(
   mass: number,
   radius: number,
@@ -1039,7 +1067,12 @@ export function strippedShare(
   return (XUV_SHARE * Math.PI * radius ** 3 * dose) / (GRAVITY * mass ** 2);
 }
 
-export function seaCover(physics: Physics): number {
+export function seaCover(
+  physics: Pick<
+    Physics,
+    "mass" | "radius" | "iron" | "rock" | "ice" | "gas" | "heat" | "air" | "gases"
+  >,
+): number {
   if (physics.air < TRIPLE_AIR || wrapped(physics)) {
     return 0;
   }
@@ -1048,7 +1081,7 @@ export function seaCover(physics: Physics): number {
   if (liquid < DAMP_LEAST) {
     return 0;
   }
-  if (physics.heat < MELTING || physics.heat > boilingAt(physics.air)) {
+  if (physics.heat < MELTING || physics.heat >= CRITICAL) {
     return 0;
   }
   return Math.max(0.1, Math.min(0.97, 0.3 + 0.3 * Math.log10(liquid / DAMP_LEAST)));
@@ -1150,6 +1183,9 @@ export function classOf(physics: Physics): string {
   if (cover > 0) {
     return physics.life > 0 ? "living world" : cover > 0.9 ? "ocean world" : "sea world";
   }
+  if (physics.air > STEAMY_AIR && shareOf(physics, "water") >= 0.5 && physics.heat >= MELTING) {
+    return `steam ${size}`;
+  }
   if (physics.air > 10 * EARTH_AIR) {
     return "veiled world";
   }
@@ -1158,9 +1194,6 @@ export function classOf(physics: Physics): string {
   }
   if (physics.ice >= 0.1 && physics.heat < MELTING) {
     return `ice ${size}`;
-  }
-  if (physics.ice >= 0.1 && physics.air > 300) {
-    return `steam ${size}`;
   }
   if (physics.air > 300) {
     return `desert ${size}`;

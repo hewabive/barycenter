@@ -105,7 +105,9 @@ function report(verdicts: Verdict[], settled: boolean): void {
   if (values.list) {
     for (const verdict of mine) {
       for (const each of verdict.seen) {
-        print(`seed ${verdict.seed}: ${each.name}, ${each.flaws.join("; ")}`);
+        print(
+          `seed ${verdict.seed}${settled ? " home" : ""}: ${each.name}, ${each.flaws.join("; ")}`,
+        );
       }
     }
   }

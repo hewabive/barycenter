@@ -1,12 +1,12 @@
 import { warmthOf } from "./heat.ts";
 import { wrapped } from "./interior.ts";
-import { classOf, columnOf, moltenOf, seaCover, shareOf, starborn } from "./physics.ts";
+import { classOf, columnOf, holdsSteam, moltenOf, seaCover, shareOf, starborn } from "./physics.ts";
 import { sectionOf } from "./section.ts";
 import type { Physics, Sketch } from "./types.ts";
 
 export const FLAWS = [
   "ice at a ground above melting",
-  "bare ice above 200 K",
+  "bare ice above 200 K on a body too light to hold steam",
   "a solid lid on molten ground",
   "ice on molten ground",
   "a sea world with no sea in section",
@@ -25,9 +25,9 @@ export interface Found {
 
 const MELTING = 273.16;
 const BARE_ICE = 200;
-const BARE_AIR = 1000;
 const MOLTEN = 0.5;
 const STEAMY = 0.5;
+const ROUNDED = 3e-4;
 
 export function groundedOf(physics: Physics): boolean {
   return !starborn(physics) && !wrapped(physics);
@@ -50,8 +50,9 @@ export function flawsOfBody(physics: Physics, host: Physics | null): Flaw[] {
   if (top?.stuff === "ice" && physics.heat > MELTING) {
     flaws.push("ice at a ground above melting");
   }
-  if (top?.stuff === "ice" && physics.heat > BARE_ICE && physics.air < BARE_AIR) {
-    flaws.push("bare ice above 200 K");
+  const light = !holdsSteam(physics.mass, physics.radius, physics.heat);
+  if (iced && physics.air === 0 && physics.heat > BARE_ICE && light) {
+    flaws.push("bare ice above 200 K on a body too light to hold steam");
   }
   if (molten && ground !== undefined && ground === top && ground.solid && !ground.stirred) {
     flaws.push("a solid lid on molten ground");
@@ -71,7 +72,7 @@ export function flawsOfBody(physics: Physics, host: Physics | null): Flaw[] {
   if (kind.startsWith("steam") && water < STEAMY * physics.air) {
     flaws.push("a steam world with little steam");
   }
-  if (water > physics.ice * columnOf(physics.mass, physics.radius) * (1 + 1e-6)) {
+  if (water > physics.ice * columnOf(physics.mass, physics.radius) * (1 + ROUNDED)) {
     flaws.push("more water in the air than in the body");
   }
   return flaws;

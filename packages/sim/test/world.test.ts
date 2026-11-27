@@ -1293,7 +1293,8 @@ test("bodies that share an orbit keep apart and trade places", () => {
       assert.ok(Math.abs(Math.min(...gaps) / shared.lane + 1) < 0.02, label);
       if (chasing) {
         assert.ok(wrapped(host.physics), label);
-        assert.ok(lead.physics.mass < 6 * body.physics.mass, `${label}: of like mass`);
+        const laid = (physics: Physics) => physics.mass + physics.lost;
+        assert.ok(laid(lead.physics) < 6 * laid(body.physics), `${label}: of like mass`);
         const rim = Math.max(0, ...host.physics.disks.map((disk) => disk.outer));
         const near = Math.max(4 * host.physics.radius, 1.5 * rim);
         assert.ok(body.physics.orbit > rim && body.physics.orbit < near, label);
@@ -1321,6 +1322,7 @@ test("a world on a long oval is hot at its nearest and cold at its farthest", ()
     const state = { heat, coldest: heat, hottest: heat, glow: 0, light: 1361, air, gases: [1] };
     const rest = { life: 0, vigor: 0.5, age: GIGAYEAR };
     return {
+      lost: 0,
       mass: EARTH_MASS,
       radius: radiusOf(EARTH_MASS, shares),
       ...shares,
@@ -1450,6 +1452,7 @@ test("small bodies are loose and not round, and rock melts where it is hot", () 
     const dark = { glow: 0, light: 0, stretch: 0 };
     const rest = { gases: [], life: 0, vigor: 0.5, age: GIGAYEAR, orbit: 1, year: 1, ...dark };
     return {
+      lost: 0,
       mass,
       radius: radiusOf(mass, shares),
       ...shares,
@@ -1481,7 +1484,9 @@ test("small bodies are loose and not round, and rock melts where it is hot", () 
   assert.equal(moltenOf(body(EARTH_MASS, 0, 1600, 100 * EARTH_AIR)), 1);
   assert.equal(classOf(body(EARTH_MASS, 0, 1500)), "lava world");
   assert.equal(classOf(body(EARTH_MASS, 0.4, 150)), "ice world");
-  assert.equal(classOf(body(EARTH_MASS, 0.4, 600, 9 * EARTH_AIR)), "steam world");
+  const steamy = body(EARTH_MASS, 0.4, 700, 9 * EARTH_AIR);
+  assert.equal(classOf({ ...steamy, gases: stocked({ water: 1 }) }), "steam world");
+  assert.equal(classOf({ ...steamy, gases: stocked({ "carbon dioxide": 1 }) }), "desert world");
   assert.equal(classOf(body(EARTH_MASS, 0.4, 600)), "barren world");
 });
 
@@ -1828,7 +1833,11 @@ test("a system is the same at every age, less what its star and its tides took",
         assert.equal(body.seed, once.seed, label);
         assert.equal(starborn(body.physics), starborn(once.physics), label);
         if (!starborn(body.physics) && !moon) {
-          assert.equal(body.physics.mass, once.physics.mass, `${label}, ${body.name}`);
+          const { mass, iron } = body.physics;
+          const lost = once.physics.mass - mass;
+          assert.ok(lost >= -1e-9 * mass, `${label}, ${body.name} grew`);
+          assert.ok(lost <= once.physics.ice * once.physics.mass * (1 + 1e-4) + 1e-4 * mass, label);
+          assert.ok(Math.abs((iron * mass) / (once.physics.iron * once.physics.mass) - 1) < 1e-4);
         }
       }
       if (!lone) {
@@ -1933,16 +1942,18 @@ test("a system grows out of the disk of its young star", () => {
   for (let seed = 1; seed <= 24; seed++) {
     const grown = at(seed, 4.5e9);
     const whole = new Map(grown.bodies.map((body) => [body.name, body]));
-    let before = new Map<string, number>();
+    let before = new Map<string, Physics>();
     let tided = new Set<string>();
     let gas = Number.POSITIVE_INFINITY;
     for (const years of ages) {
       const system = at(seed, years);
       const label = `seed ${seed} at ${years} years`;
-      const masses = new Map(system.bodies.map((body) => [body.name, body.physics.mass]));
-      for (const [name, mass] of before) {
-        const now = tided.has(name) ? mass : (masses.get(name) ?? 0);
-        assert.ok(now >= mass, `${label}, ${name} has not shrunk or gone`);
+      const masses = new Map(system.bodies.map((body) => [body.name, body.physics]));
+      for (const [name, then] of before) {
+        const now = tided.has(name) ? then : masses.get(name);
+        const dry = (physics: Physics) => physics.mass * (1 - physics.ice);
+        const kept = now !== undefined && (now.mass >= then.mass || dry(now) >= dry(then) * 0.9999);
+        assert.ok(kept, `${label}, ${name} has not shrunk but by its water, nor gone`);
       }
       tided = new Set(
         system.bodies
@@ -1956,7 +1967,10 @@ test("a system grows out of the disk of its young star", () => {
           `${label}, ${body.name} is of the grown system`,
         );
         const full = tided.has(body.name) ? body : (end ?? body);
-        assert.ok(body.physics.mass <= full.physics.mass, `${label}, ${body.name}`);
+        assert.ok(
+          body.physics.mass <= full.physics.mass + full.physics.lost,
+          `${label}, ${body.name}`,
+        );
         assert.equal(body.seed, (end ?? body).seed, label);
         if (body.parent !== null && !starborn(body.physics)) {
           const host = system.bodies[body.parent].physics;
@@ -2010,7 +2024,9 @@ test("a system grows out of the disk of its young star", () => {
           if (tided.has(body.name)) {
             continue;
           }
-          assert.equal(body.physics.mass, end.physics.mass, `${label}, ${body.name}`);
+          const laid = (physics: Physics) => physics.mass + physics.lost;
+          const grownTo = laid(body.physics) / laid(end.physics);
+          assert.ok(Math.abs(grownTo - 1) < 1e-4, `${label}, ${body.name}`);
           if (body.parent !== null && !starborn(body.physics)) {
             continue;
           }

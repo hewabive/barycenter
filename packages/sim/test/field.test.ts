@@ -30,6 +30,7 @@ const near = (value: number, wanted: number, share: number) =>
   Math.abs(value / wanted - 1) <= share;
 
 const blank = {
+  lost: 0,
   coldest: 0,
   hottest: 0,
   light: 0,

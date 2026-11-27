@@ -12,6 +12,7 @@ const between = (value: number, least: number, most: number) => value >= least &
 function made(mass: number, iron: number, ice: number, heat: number, gas = 0): Physics {
   const shares = { iron, rock: 1 - iron - ice - gas, ice, gas };
   return {
+    lost: 0,
     mass,
     radius: radiusOf(mass, shares),
     ...shares,

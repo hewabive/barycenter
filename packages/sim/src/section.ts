@@ -6,6 +6,7 @@ import {
   emberRadius,
   GRAVITY,
   LIGHT_SPEED,
+  moltenOf,
   STAR_LEAST,
   SUN_MASS,
   seaCover,
@@ -59,6 +60,7 @@ interface Polytrope {
 }
 
 const UNDER_ICE = 270;
+const MOLTEN = 0.5;
 const POLY_MOST = 4.5;
 const POLY_STEP = 0.004;
 const POLY_HALVINGS = 30;
@@ -282,6 +284,13 @@ function solidSection(physics: Physics, inside: Interior, warmth: Warmth | null)
     zones = zones.map((each) => (each.stuff === "rock" ? { ...each, stirred: stirring } : each));
     if (stirring) {
       zones = split(zones, floor, (each) => ({ stirred: each.stuff !== "rock" && each.stirred }));
+    }
+    if (moltenOf(physics) >= MOLTEN) {
+      zones = zones.map((each) =>
+        each.stuff === "rock" && each.inner >= floor - 1e-6 * rock.radius
+          ? { ...each, solid: false, stirred: true }
+          : each,
+      );
     }
   }
   const sea = warmth?.sea ?? null;

@@ -65,6 +65,7 @@ export interface Physics {
   rock: number;
   ice: number;
   gas: number;
+  lost: number;
   heat: number;
   coldest: number;
   hottest: number;

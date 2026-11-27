@@ -430,8 +430,16 @@ function factsOf(body: Body): Fact[] {
     facts.push(
       [
         "Made of",
-        `iron ${share(physics.iron)} · rock ${share(physics.rock)} · ice ${share(physics.ice)} · gas ${share(physics.gas)}`,
+        `iron ${share(physics.iron)} · rock ${share(physics.rock)} · water ${share(physics.ice)} · gas ${share(physics.gas)}`,
       ],
+      ...(physics.lost > 0
+        ? ([
+            [
+              "Water lost",
+              `${figure(physics.lost)} kg · ${share(physics.lost / (physics.mass + physics.lost))} of the mass it was laid with`,
+            ],
+          ] as [string, string][])
+        : []),
       ...(inside === null
         ? []
         : ([

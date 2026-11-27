@@ -14,6 +14,7 @@ const face = (physics: Physics) => 4 * Math.PI * physics.radius ** 2;
 function made(mass: number, iron: number, ice: number, heat: number, age = AGE): Physics {
   const shares = { iron, rock: 1 - iron - ice, ice, gas: 0 };
   return {
+    lost: 0,
     mass,
     radius: radiusOf(mass, shares),
     ...shares,

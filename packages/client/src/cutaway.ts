@@ -42,6 +42,7 @@ const TINTS: Record<string, number> = {
   "rock transition": 0xa65f3c,
   "rock lower": 0xb4523a,
   "rock still": 0x6d5a4b,
+  "rock molten": 0xd9481e,
   blend: 0x8b7b69,
   "ice Ih": 0xe6f2fc,
   "ice II": 0xcde3f4,
@@ -92,6 +93,9 @@ const keyOf = (zone: Zone, stirredRock: boolean): string => {
     case "iron":
       return zone.solid ? "iron solid" : "iron";
     case "rock":
+      if (!zone.solid) {
+        return "rock molten";
+      }
       return !zone.stirred && stirredRock ? "rock still" : `rock ${zone.form ?? "upper"}`;
     case "ice":
       return `ice ${zone.form ?? "Ih"}`;
@@ -269,6 +273,9 @@ function nameOf(zone: Zone, section: Section, wrapped: boolean): string {
       if (wrapped) {
         return "Rock core";
       }
+      if (!zone.solid) {
+        return "Magma ocean";
+      }
       if (!zone.stirred && has(({ stuff, stirred }) => stuff === "rock" && stirred)) {
         return "Lithosphere";
       }
@@ -329,6 +336,9 @@ function matterOf(zone: Zone, wrapped: boolean, dwarf: boolean): string {
     case "rock":
       if (wrapped) {
         return "rock under the weight of the gas";
+      }
+      if (!zone.solid) {
+        return "molten rock, stirred";
       }
       return zone.stirred ? "rock that turns over" : "rock that holds still";
     case "blend":

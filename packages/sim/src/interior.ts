@@ -1,5 +1,6 @@
 import { HYDROGEN_ADIABATS, WATER_ADIABATS } from "./adiabats.ts";
 import {
+  aloftOf,
   GRAVITY,
   gasAlbedo,
   JUPITER_MASS,
@@ -8,6 +9,7 @@ import {
   ROUND_ROCK,
   SPIN_MOST,
   STAR_LEAST,
+  seaCover,
   smooth,
   starborn,
   starHeat,
@@ -171,6 +173,8 @@ const RUNG = 1.15;
 const RUNGS = 40;
 const HALVINGS = 16;
 const KEPT = 512;
+const ROUNDED = 1e-3;
+const THAWED = 273.16;
 const POROUS_MOST = 0.4;
 const POROUS_SPAN = [18.5, 20.5];
 const TURNING_FLUID = 0.25;
@@ -753,17 +757,47 @@ export function radiusOf(mass: number, shares: Shares, inner = 0, lit = 0): numb
   return bodyOf(mass, shares, inner, lit).radius;
 }
 
-type Made = Pick<Physics, "mass" | "radius" | "heat" | "glow"> & Shares;
+type Made = Pick<Physics, "mass" | "radius" | "heat" | "glow"> &
+  Partial<Pick<Physics, "air" | "gases">> &
+  Shares;
+
+function groundedShares(physics: Made): { mass: number; shares: Shares } {
+  const found = aloftOf(physics);
+  const aloft = physics.ice - found < ROUNDED * physics.ice ? physics.ice : found;
+  const { air, gases } = physics;
+  const soaked =
+    air !== undefined &&
+    gases !== undefined &&
+    physics.heat > THAWED &&
+    !(seaCover({ ...physics, air, gases }) > 0);
+  if (!(aloft > 0) && !soaked) {
+    return { mass: physics.mass, shares: physics };
+  }
+  const left = 1 - aloft;
+  const lying = (physics.ice - aloft) / left;
+  return {
+    mass: physics.mass * left,
+    shares: {
+      iron: physics.iron / left,
+      rock: physics.rock / left + (soaked ? lying : 0),
+      ice: soaked ? 0 : lying,
+      gas: physics.gas / left,
+    },
+  };
+}
 
 export function interiorOf(physics: Made): Interior | null {
   if (starborn(physics) && physics.mass >= STAR_LEAST) {
     return null;
   }
-  const { mass, radius } = physics;
+  const { radius } = physics;
   const fluid = wrapped(physics);
   const inner = fluid ? starHeat(physics.glow, radius) : 0;
   const lit = fluid ? Math.max(0, physics.heat ** 4 - inner ** 4) ** 0.25 : 0;
-  const found = bodyOf(mass, physics, inner, lit);
+  const { mass, shares } = fluid
+    ? { mass: physics.mass, shares: physics }
+    : groundedShares(physics);
+  const found = bodyOf(mass, shares, inner, lit);
   const scale = radius / found.radius;
   return {
     radius,

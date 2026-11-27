@@ -38,12 +38,13 @@ test("neighbors keep six Hill radii apart and moons stay well inside the hold of
         const sun = system.bodies[host.parent];
         const fed = sun.passages.some(({ kind }) => kind === "took");
         const growing = sun.physics.age < GROWN_MOST;
-        const most = fed ? 0.491 : growing ? 0.361 / Math.cbrt(0.6) : 0.361;
+        const dried = Math.cbrt((host.physics.mass + host.physics.lost) / host.physics.mass);
+        const most = (fed ? 0.491 : growing ? 0.361 / Math.cbrt(0.6) : 0.361) * dried;
         assert.ok(
           hold < most || (id === parent + 1 && parent === system.home),
           `${label}: ${hold}`,
         );
-        assert.ok(led || gap > 4.99, `${label}: ${gap}`);
+        assert.ok(led || gap > 4.99 / dried, `${label}: ${gap}`);
         if (laplace > 1.05) {
           level += lean < 1e-3 ? 1 : 0;
           assert.ok(fed || lean < LEAN[0] + 1e-3 || lean > LEAN[1] - 1e-3, `${label}: ${lean}`);
