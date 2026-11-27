@@ -129,7 +129,7 @@ export interface Plane {
   node: number;
 }
 
-export type Bend = "disk" | "neighbors" | "near" | "inside" | "scattering";
+export type Bend = "disk" | "neighbors" | "near" | "inside" | "scattering" | "cycles";
 
 export type Skew = "birth" | "companion" | "locked";
 
@@ -145,6 +145,8 @@ export interface Slanted {
   by: Bend;
   of: string | null;
   lean: number;
+  period: number | null;
+  widest: number | null;
 }
 
 export interface Shell {

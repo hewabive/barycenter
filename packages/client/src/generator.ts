@@ -252,7 +252,7 @@ const massOf = (mass: number) =>
       ? `${figure(mass / EARTH_MASS)} earths · ${figure(mass / JUPITER_MASS)} jupiters`
       : `${figure(mass / EARTH_MASS)} earths`;
 const degrees = (angle: number) => `${figure((angle * 180) / Math.PI)}°`;
-const slantedOf = ({ by, of, lean }: Slanted) => {
+const slantedOf = ({ by, of, lean, period, widest }: Slanted) => {
   if (by === "disk") {
     return "in the plane of the disk it formed in";
   }
@@ -263,7 +263,9 @@ const slantedOf = ({ by, of, lean }: Slanted) => {
         ? "so near its star that it leans more, as the nearest planets do"
         : by === "inside"
           ? `tilted together with the other planets inside ${of}, whose orbit keeps the plane`
-          : "thrown out of it when the giants of its zone scattered one another";
+          : by === "cycles"
+            ? `${of} swings it, trading its lean for a stretch of up to ${figure(widest ?? 0)}${period === null ? "" : ` and back once every ${span(period)}`}`
+            : "thrown out of it when the giants of its zone scattered one another";
   return `${degrees(lean)} to the plane its planets share · ${why}`;
 };
 const skewedOf = ({ by, of, lean, born, period }: Skewed) => {

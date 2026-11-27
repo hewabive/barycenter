@@ -84,7 +84,7 @@ import {
   yearOf,
 } from "../src/physics.ts";
 import { sidesOf } from "../src/sphere.ts";
-import { kindled } from "../src/system.ts";
+import { kindled, swung } from "../src/system.ts";
 import { lockOf, PLUNGE, syncOf, tornAt } from "../src/tides.ts";
 
 const SEEDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
@@ -1214,7 +1214,7 @@ test("bodies balance about shared centres, and stars stand in nested groups that
     }
     for (const host of born) {
       const planets = system.bodies.filter(
-        (body) => body.parent === host.id && body.slanted !== null,
+        (body) => body.parent === host.id && body.slanted !== null && body.slanted.by !== "cycles",
       );
       const kin = born.filter((other) => other.parent === host.id);
       const inside = (body: Body) =>
@@ -1267,12 +1267,22 @@ test("bodies balance about shared centres, and stars stand in nested groups that
   assert.ok(swayed > 0, `stars swayed by a brown dwarf ${swayed}`);
 });
 
+const leaning: Sketch[] = [];
+const leaningSample = () => {
+  if (leaning.length === 0) {
+    for (let seed = 1; seed <= 160; seed++) {
+      leaning.push(sketchSystem(seed, { settled: seed % 3 === 0, star: null }));
+    }
+  }
+  return leaning;
+};
+
 test("a star leans against its disk as it was born, and its companion turns it further", () => {
   const leans = { cool: [] as number[], hot: [] as number[] };
   let turned = 0;
   let locked = 0;
-  for (let seed = 1; seed <= 160; seed++) {
-    const system = sketchSystem(seed, { settled: seed % 3 === 0, star: null });
+  for (const [at, system] of leaningSample().entries()) {
+    const seed = at + 1;
     for (const body of system.bodies) {
       const { skewed, midplane } = body;
       if (!starborn(body.physics) || skewed === null || midplane === null) {
@@ -1313,6 +1323,71 @@ test("a star leans against its disk as it was born, and its companion turns it f
   assert.ok(middle(leans.cool) < tenth, "most cool stars stand nearly upright on their disks");
   assert.ok(middle(leans.hot) > Math.PI / 3, `hot ${middle(leans.hot)}`);
   assert.ok(turned > 10 && locked > 2, `turned ${turned}, locked ${locked}`);
+});
+
+test("the cycles of Kozai and Lidov trade the lean of an orbit for its stretch", () => {
+  const axis = { x: 0, y: 0, z: 1 };
+  const from = (degrees: number, relativity = 0) => {
+    const lean = (degrees * Math.PI) / 180;
+    const start = {
+      j: {
+        x: 0,
+        y: -Math.sin(lean) * Math.sqrt(1 - 1e-6),
+        z: Math.cos(lean) * Math.sqrt(1 - 1e-6),
+      },
+      e: { x: 1e-3, y: 0, z: 0 },
+    };
+    return swung(start, axis, relativity, 300, 0.999);
+  };
+  for (const degrees of [45, 60, 75, 85]) {
+    const most = Math.sqrt(1 - (5 / 3) * Math.cos((degrees * Math.PI) / 180) ** 2);
+    assert.ok(Math.abs(from(degrees).widest - most) < 1e-3, `${degrees}°`);
+  }
+  assert.ok(from(35).widest < 0.01, "no cycle below 39.2 degrees");
+  const quenched = (relativity: number) => {
+    const x = (4 / 3) * relativity;
+    return Math.sqrt(1 - (Math.sqrt(0.25 + (2 / 3) * x) - 0.5) ** 2);
+  };
+  assert.ok(Math.abs(from(89.9, 1).widest - quenched(1)) < 2e-3, "relativity holds it back");
+  assert.ok(from(89.9, 3).widest < 0.01, "and stops it");
+  let cycled = 0;
+  let triples = 0;
+  for (const [at, system] of leaningSample().entries()) {
+    const seed = at + 1;
+    const named = new Map(system.bodies.map((body) => [body.name, body]));
+    for (const body of system.bodies) {
+      const host = body.parent === null ? null : system.bodies[body.parent];
+      if (host !== null && starborn(body.physics) && starborn(host.physics)) {
+        const inner = system.bodies.find(
+          (other) =>
+            other.parent === host.id &&
+            starborn(other.physics) &&
+            other.physics.orbit < body.physics.orbit,
+        );
+        const pair = inner ?? (host.parent === null ? null : host);
+        if (pair !== null) {
+          triples += 1;
+          const between = angleBetween(planeOf(body), planeOf(pair));
+          assert.ok(
+            between < 0.685 || between > Math.PI - 0.685,
+            `seed ${seed}, ${body.name}: a triple keeps out of the cycles`,
+          );
+        }
+      }
+      if (body.slanted?.by !== "cycles" || host === null) {
+        continue;
+      }
+      cycled += 1;
+      const puller = named.get(body.slanted.of ?? "");
+      assert.ok(puller !== undefined, `seed ${seed}, ${body.name}`);
+      const axis = puller.id === host.parent ? planeOf(host) : planeOf(puller);
+      const stretch = body.physics.stretch;
+      const level = Math.sqrt(1 - stretch ** 2) * Math.cos(angleBetween(planeOf(body), axis));
+      assert.ok(level ** 2 < 0.6 + 1e-3, `seed ${seed}, ${body.name}: inside the window`);
+      assert.ok(stretch <= (body.slanted.widest ?? 0) + 1e-3, `seed ${seed}, ${body.name}`);
+    }
+  }
+  assert.ok(cycled > 5 && triples > 5, `cycled ${cycled}, triples ${triples}`);
 });
 
 test("bodies that share an orbit keep apart and trade places", () => {
@@ -1880,9 +1955,22 @@ test("a system is the same at every age, less what its star and its tides took",
     const old = at(seed, 9.9);
     const fallen = (system: ReturnType<typeof at>) =>
       new Set(system.bodies[0].swallowed.map((taken) => taken.name));
+    const cycled = (system: ReturnType<typeof at>) =>
+      new Set(
+        system.bodies.filter((body) => body.slanted?.by === "cycles").map(({ name }) => name),
+      );
+    const thrown =
+      (system: ReturnType<typeof at>, later: ReturnType<typeof at>) => (name: string) =>
+        cycled(system).has(name) && !names(later).includes(name);
     const since = (system: ReturnType<typeof at>, before: ReturnType<typeof at>) =>
-      circling(before, false).filter((name) => !fallen(system).has(name));
-    assert.deepEqual(circling(young, false), since(young, prime), `seed ${seed} when young`);
+      circling(before, false).filter(
+        (name) => !fallen(system).has(name) && !thrown(before, system)(name),
+      );
+    assert.deepEqual(
+      circling(young, false).filter((name) => !thrown(young, prime)(name)),
+      since(young, prime),
+      `seed ${seed} when young`,
+    );
     assert.deepEqual(circling(old, false), since(old, prime), `seed ${seed} when old`);
     const then = circling(prime, true);
     const last = circling(old, true);
