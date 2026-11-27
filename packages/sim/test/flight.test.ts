@@ -567,7 +567,7 @@ test("a forecast follows a ship out of the hold of a moon and round its planet",
     rails,
     fly,
     createFlight(0, [...state, 1]),
-    [{ time: 600, along: 0.6 * swift, north: 0, out: 0, about: null }],
+    [{ time: 300, along: 0.6 * swift, north: 0, out: 0, about: null }],
     null,
     6000,
   );

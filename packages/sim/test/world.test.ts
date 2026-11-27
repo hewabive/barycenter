@@ -31,6 +31,7 @@ import {
   moltenOf,
   nestOf,
   type Physics,
+  planeOf,
   poleOf,
   poseOf,
   positionOf,
@@ -1092,7 +1093,7 @@ test("an orbit is an oval in a plane of its own, swept as the pull of its centre
     }
     if (system.home !== null) {
       const home = system.bodies[system.home];
-      assert.ok(home.physics.stretch <= 0.03 && home.slant === 0, `seed ${seed}`);
+      assert.ok(home.physics.stretch <= 0.03, `seed ${seed}`);
       assert.notEqual(home.physics.day, home.physics.year);
     }
   }
@@ -1208,11 +1209,39 @@ test("bodies balance about shared centres, and stars stand in nested groups that
           far(body) < 0.83 * holdOf(1 - swayOf(system, host.id), stretch) * orbit,
           `${label}: a planet stays in the hold of its star`,
         );
-        const plane =
-          host.tilt === 0 ||
-          body.slant === host.tilt ||
-          kin.some((other) => other.slant === body.slant || other.slant === 0);
-        assert.ok(plane, `${label}: it lies in the plane of its star or of the pair it circles`);
+      }
+    }
+    for (const host of born) {
+      const planets = system.bodies.filter(
+        (body) => body.parent === host.id && body.slanted !== null,
+      );
+      const kin = born.filter((other) => other.parent === host.id);
+      const inside = (body: Body) =>
+        kin
+          .filter((other) => other.physics.orbit < body.physics.orbit)
+          .reduce<Body | null>(
+            (last, other) =>
+              last === null || other.physics.orbit > last.physics.orbit ? other : last,
+            null,
+          );
+      for (const lead of new Set(planets.map(inside))) {
+        const zone = planets.filter((body) => inside(body) === lead);
+        const base = lead !== null ? planeOf(lead) : poleOf(host);
+        const spin = zone.reduce(
+          (sum, body) => {
+            const { mass, orbit, stretch } = body.physics;
+            const moment = mass * Math.sqrt(orbit * (1 - stretch ** 2));
+            const up = planeOf(body);
+            return { x: sum.x + moment * up.x, y: sum.y + moment * up.y, z: sum.z + moment * up.z };
+          },
+          { x: 0, y: 0, z: 0 },
+        );
+        const size = Math.hypot(spin.x, spin.y, spin.z);
+        const along = (spin.x * base.x + spin.y * base.y + spin.z * base.z) / size;
+        assert.ok(
+          along > 1 - 1e-6,
+          `seed ${seed}, ${host.name}: the planets of a zone turn about its plane as a whole`,
+        );
       }
     }
     if (system.home !== null) {

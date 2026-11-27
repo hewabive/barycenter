@@ -37,6 +37,7 @@ import {
   rocheOf,
   roughOf,
   type Shown,
+  type Slanted,
   SUN_GLOW,
   SUN_MASS,
   SUN_RADIUS,
@@ -250,6 +251,18 @@ const massOf = (mass: number) =>
       ? `${figure(mass / EARTH_MASS)} earths · ${figure(mass / JUPITER_MASS)} jupiters`
       : `${figure(mass / EARTH_MASS)} earths`;
 const degrees = (angle: number) => `${figure((angle * 180) / Math.PI)}°`;
+const slantedOf = ({ by, of, lean }: Slanted) => {
+  if (by === "disk") {
+    return "in the plane of the disk it formed in";
+  }
+  const why =
+    by === "neighbors"
+      ? "stirred by its neighbors within the room their orbits leave"
+      : by === "inside"
+        ? `tilted together with the other planets inside ${of}, whose orbit keeps the plane`
+        : "thrown out of it when the giants of its zone scattered one another";
+  return `${degrees(lean)} to the plane its planets share · ${why}`;
+};
 const lengthOf = (meters: number) =>
   meters >= 0.01 * ASTRONOMICAL_UNIT
     ? `${figure(meters / ASTRONOMICAL_UNIT)} AU`
@@ -659,6 +672,9 @@ function factsOf(body: Body): Fact[] {
           ? `that of the equator of ${parent.name}`
           : `${degrees(body.slant)} to the plane of the system${body.slant > Math.PI / 2 ? ", backward" : ""}`,
       ],
+      ...(body.slanted === null
+        ? []
+        : [["Why it lies so", slantedOf(body.slanted)] satisfies Fact]),
       ...(shared === null
         ? []
         : [

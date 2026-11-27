@@ -119,6 +119,15 @@ export interface Body {
   lobe: number;
   passages: Passage[];
   shell: Shell | null;
+  slanted: Slanted | null;
+}
+
+export type Bend = "disk" | "neighbors" | "inside" | "scattering";
+
+export interface Slanted {
+  by: Bend;
+  of: string | null;
+  lean: number;
 }
 
 export interface Shell {

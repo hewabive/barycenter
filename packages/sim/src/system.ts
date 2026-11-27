@@ -101,6 +101,7 @@ import {
   yieldOf,
 } from "./tides.ts";
 import {
+  type Bend,
   type Body,
   type Disk,
   GASES,
@@ -114,7 +115,7 @@ import {
   type Survey,
   type Vector,
 } from "./types.ts";
-import { slerp } from "./vector.ts";
+import { angleBetween, cross, dot, normalize, slerp } from "./vector.ts";
 import { BARE_ICE, type Course, grownShare, pastOf, type Shine, steadyCourse } from "./water.ts";
 
 export interface Past {
@@ -187,6 +188,15 @@ interface Draft {
   loose: ((age: number) => void) | null;
   freed: { from: number; at: number } | null;
   aboard: ((time: number) => boolean) | null;
+  pitch: number | null;
+}
+
+interface Bent {
+  lean: number;
+  turn: number;
+  base: Zone["plane"];
+  by: Bend;
+  of: number | null;
 }
 
 interface Sinking {
@@ -239,6 +249,7 @@ interface Span {
 }
 
 interface Zone {
+  scattered: boolean;
   centre: Physics;
   around: number;
   inner: number;
@@ -366,9 +377,11 @@ const SCATTERED_KEPT = 0.5;
 const SCATTERED_STIRRED = 0.6;
 const HOME_STRETCH = 0.03;
 const ROOM_SHARE = 0.8;
-const TILTED_SHARE = 0.05;
-const TILTED_SLANT = [0.15, 0.8];
-const CALM_SLANT = 0.08;
+const PLANE_SALT = 0x9b05688c;
+const PLANE_BUDGET = 2;
+const DEFICIT_STEPS = 60;
+const BLOCK_SPREAD = 0.206;
+const SCATTERED_SLANT = [0.087, 1.08];
 const MOON_STRETCH = 0.02;
 const PAIRED_STEP = 2 ** (2 / 3);
 const PAIRED_NEAR = 0.02;
@@ -1506,6 +1519,54 @@ function tipped(
   };
 }
 
+function poleAt(slant: number, node: number): Vector {
+  return {
+    x: Math.sin(slant) * Math.sin(node),
+    y: Math.cos(slant),
+    z: Math.sin(slant) * Math.cos(node),
+  };
+}
+
+function turnedBy(vector: Vector, from: Vector, to: Vector): Vector {
+  const angle = angleBetween(from, to);
+  if (Math.sin(angle) < 1e-12) {
+    return vector;
+  }
+  const axis = normalize(cross(from, to));
+  const across = cross(axis, vector);
+  const along = dot(axis, vector) * (1 - Math.cos(angle));
+  return {
+    x: vector.x * Math.cos(angle) + across.x * Math.sin(angle) + axis.x * along,
+    y: vector.y * Math.cos(angle) + across.y * Math.sin(angle) + axis.y * along,
+    z: vector.z * Math.cos(angle) + across.z * Math.sin(angle) + axis.z * along,
+  };
+}
+
+function touching(inner: Physics, outer: Physics): number {
+  const ratio = inner.orbit / outer.orbit;
+  const weight = inner.mass / outer.mass;
+  const outward = (stretch: number) => 1 - ratio - ratio * stretch;
+  const balance = (stretch: number) =>
+    (weight * stretch) / Math.sqrt(ratio * (1 - stretch ** 2)) -
+    outward(stretch) / Math.sqrt(1 - outward(stretch) ** 2);
+  let low = 0;
+  let high = Math.min(1 - 1e-12, (1 - ratio) / ratio);
+  for (let step = 0; step < DEFICIT_STEPS; step++) {
+    const middle = (low + high) / 2;
+    if (balance(middle) > 0) {
+      high = middle;
+    } else {
+      low = middle;
+    }
+  }
+  const stretch = (low + high) / 2;
+  const share =
+    weight * Math.sqrt(ratio) * (1 - Math.sqrt(1 - stretch ** 2)) +
+    1 -
+    Math.sqrt(1 - outward(stretch) ** 2);
+  return share * outer.mass * Math.sqrt(outer.orbit);
+}
+
 function stirOf(physics: Physics): [small: number, lively: number] {
   const small = 1 - smooth(-2, 0, Math.log10(physics.mass / EARTH_MASS));
   return [small, physics.vigor * (1 - small)];
@@ -2436,6 +2497,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
         const freed = lead === undefined ? null : drafts[lead].freed;
         return time >= sprung && (freed === null || freed.at > time) && !left(course(time));
       },
+      pitch: null,
     };
     draft.aged = (age) => {
       const host = drafts[parent];
@@ -2697,6 +2759,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
     const top = planets.indexOf(Math.max(...planets));
     const scattered =
       !plan.settled && planets[top] >= GIANT_LEAST && turns.next() < SCATTERED_SHARE;
+    zone.scattered = scattered;
     const roomOf = (rung: number, inside: number, outside: number) =>
       ROOM_SHARE *
       Math.min(
@@ -2809,7 +2872,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       );
       const stirred = turns.next() < (scattered ? SCATTERED_STIRRED : STIRRED_SHARE);
       const oval = turns.next();
-      const tilted = turns.next() < TILTED_SHARE;
+      const pitch = turns.next();
       const leaning = turns.next();
       const drawn = masses[index] ?? massOf(rung);
       const inward = homeOrbit !== null && rung < homeOrbit;
@@ -2838,11 +2901,6 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
         wished <= fit.most ? wished : Math.max(0, Math.min(wished, fit.eased));
       const wished = Math.max(0, Math.min(room, wide));
       const stretch = settledHere ? HOME_STRETCH * oval : eased(wished * (tied ? 0.1 : 1));
-      const slant = settledHere
-        ? 0
-        : tilted
-          ? TILTED_SLANT[0] + (TILTED_SLANT[1] - TILTED_SLANT[0]) * leaning
-          : CALM_SLANT * leaning ** 2;
       const distance = orbit * (1 - stretch ** 2) ** 0.25;
       const site: Site = {
         star,
@@ -2892,7 +2950,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
         physics: made,
         parent: zone.around,
         tilt: tied ? null : tilt,
-        slant: zone.plane === "equator" ? null : zone.plane === "system" ? slant : 0,
+        slant: zone.plane === "equator" ? null : 0,
         plane: typeof zone.plane === "number" ? zone.plane : null,
         lean: null,
         beat: beatOf(planet, star, distance),
@@ -2913,6 +2971,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
         loose: null,
         freed: null,
         aboard: null,
+        pitch,
       };
       const turned: {
         by: ((age: number) => Tide | undefined) | null;
@@ -3048,7 +3107,6 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
           draft.share = share;
           draft.tilt = bound ? null : tilt;
           draft.upright = airborne ? 1 - stirred : 0;
-          draft.slant = zone.plane === "system" ? slant * stirred : draft.slant;
           draft.beat = beatOf(draft.physics, ground.centre, far);
           draft.setting = setting;
         };
@@ -3212,6 +3270,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
           loose: null,
           freed: null,
           aboard: (time) => parked(cycles(time).moon) !== null,
+          pitch: null,
         };
         const sun = zone.sun;
         if (sinking !== null && sun !== null) {
@@ -3363,6 +3422,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       loose: null,
       freed: null,
       aboard: null,
+      pitch: null,
     };
     drafts.push({ physics, parent, tilt, slant, ...alone, ...there, ...stood, ...made });
     const post: Post = { id, zones: [], belts: [], rows: [] };
@@ -3380,6 +3440,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
             ? "system"
             : inside;
       const zone: Zone = {
+        scattered: false,
         centre: span.centre,
         around: id,
         inner: span.inner,
@@ -3788,6 +3849,90 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
     }));
   paced(present);
   const home = moved(seat.home);
+  const tilts = createRandom(world ^ PLANE_SALT);
+  const bents = new Map<number, Bent>();
+  const index = new Map(drafts.map((draft, at) => [draft, at]));
+  const bend = (zone: Zone, kept: Draft[]) => {
+    const grown = smooth(zone.airy, GROWN_MOST, age);
+    const ids = kept.map((draft) => index.get(draft) ?? -1);
+    if (kept.length < 2 || grown === 0) {
+      for (const id of ids) {
+        bents.set(id, { lean: 0, turn: 0, base: zone.plane, by: "disk", of: null });
+      }
+      return;
+    }
+    const heft = kept.reduce((sum, { physics }) => sum + physics.mass, 0);
+    const budget =
+      PLANE_BUDGET *
+      Math.min(...kept.slice(1).map((outer, at) => touching(kept[at].physics, outer.physics)));
+    const giant = kept.findIndex(({ physics }) => physics.mass >= GIANT_LEAST);
+    const block = zone.scattered || giant < 1 ? null : { slant: 0, node: 0 };
+    if (block !== null) {
+      block.slant = grown * BLOCK_SPREAD * Math.sqrt(-2 * Math.log(1 - tilts.next()));
+      block.node = 2 * Math.PI * tilts.next();
+    }
+    const poles = kept.map(({ physics, pitch }, at) => {
+      const turn = 2 * Math.PI * tilts.next();
+      const scatter = zone.scattered
+        ? Math.sqrt(-2 * Math.log(1 - tilts.next())) * Math.cos(2 * Math.PI * tilts.next())
+        : 0;
+      const lean = zone.scattered
+        ? SCATTERED_SLANT[0] * Math.exp(SCATTERED_SLANT[1] * scatter)
+        : Math.acos(
+            Math.max(
+              -1,
+              1 - ((1 - Math.sqrt(pitch ?? 0)) * budget) / (heft * Math.sqrt(physics.orbit)),
+            ),
+          );
+      const inside = block !== null && at < giant ? block : { slant: 0, node: 0 };
+      const own = tipped(inside, grown * lean, turn);
+      return poleAt(own.slant, own.node);
+    });
+    const spin = normalize(
+      poles.reduce(
+        (sum, pole, at) => {
+          const { mass, orbit, stretch } = kept[at].physics;
+          const moment = mass * Math.sqrt(orbit * (1 - stretch ** 2));
+          return {
+            x: sum.x + moment * pole.x,
+            y: sum.y + moment * pole.y,
+            z: sum.z + moment * pole.z,
+          };
+        },
+        { x: 0, y: 0, z: 0 },
+      ),
+    );
+    const up = { x: 0, y: 1, z: 0 };
+    for (const [at, id] of ids.entries()) {
+      const pole = turnedBy(poles[at], spin, up);
+      const by: Bend = zone.scattered
+        ? "scattering"
+        : block !== null && at < giant
+          ? "inside"
+          : "neighbors";
+      bents.set(id, {
+        lean: Math.acos(Math.max(-1, Math.min(1, pole.y))),
+        turn: Math.atan2(-pole.z, pole.x),
+        base: zone.plane,
+        by,
+        of: by === "inside" ? ids[giant] : null,
+      });
+    }
+  };
+  for (const post of posts.values()) {
+    for (const [level, zone] of post.zones.entries()) {
+      bend(
+        zone,
+        post.rows[level]
+          .map(({ draft }) => draft)
+          .filter(
+            ({ gone, absent, shared, pitch }) =>
+              !gone && !absent && shared === null && pitch !== null,
+          )
+          .sort((left, right) => left.physics.orbit - right.physics.orbit),
+      );
+    }
+  }
 
   const bodies: Body[] = [];
   const lies: Pick<Body, "phase" | "slant" | "node" | "apse" | "tilt" | "swing">[] = [];
@@ -3838,24 +3983,27 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       lead === null && flat !== null && draft.lean !== null && draft.lean > 0
         ? tipped(flat, draft.lean, node)
         : null;
-    const slant =
-      askew !== null
-        ? askew.slant
-        : flat !== null
-          ? flat.slant
-          : level
-            ? around.tilt
-            : (draft.slant ?? 0);
-    const turned =
-      askew !== null
-        ? askew.node
-        : flat !== null
-          ? flat.node
-          : level
-            ? around.swing
-            : around === null || at === seat.home
-              ? 0
-              : node;
+    const bent = bents.get(at);
+    const base =
+      bent === undefined || around === null
+        ? null
+        : bent.base === "system"
+          ? { slant: 0, node: 0 }
+          : bent.base === "equator"
+            ? { slant: around.tilt, node: around.swing }
+            : lies[bent.base];
+    const plane =
+      bent !== undefined && base !== null
+        ? tipped(base, bent.lean, bent.turn)
+        : askew !== null
+          ? askew
+          : flat !== null
+            ? { slant: flat.slant, node: flat.node }
+            : level
+              ? { slant: around.tilt, node: around.swing }
+              : { slant: draft.slant ?? 0, node: around === null ? 0 : node };
+    const slant = plane.slant;
+    const turned = plane.node;
     const beside = draft.shared === null ? null : trim(2 * Math.PI * rare.next());
     const axis = (tilt: number, about: number): Vector => ({
       x: Math.sin(tilt) * Math.sin(about),
@@ -3932,6 +4080,7 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
       lobe: 0,
       passages: [],
       shell: null,
+      slanted: null,
     });
   }
 
@@ -3957,6 +4106,12 @@ function laid(world: number, plan: Plan): { home: number | null; bodies: Body[];
     }
     if (called !== null && seats[at] >= 0) {
       bodies[seats[at]] = { ...bodies[seats[at]], name: called };
+    }
+  }
+  for (const [at, { by, of, lean }] of bents) {
+    if (seats[at] >= 0) {
+      const slanted = { by, of: of === null ? null : names[of], lean: trim(lean) };
+      bodies[seats[at]] = { ...bodies[seats[at]], slanted };
     }
   }
   for (const [at, draft] of drafts.entries()) {

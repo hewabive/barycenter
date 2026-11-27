@@ -271,6 +271,7 @@ export {
 } from "./transfer.ts";
 export { retune } from "./tune.ts";
 export {
+  type Bend,
   type Body,
   BRANCHES,
   type Branch,
@@ -303,6 +304,7 @@ export {
   type Relief,
   type Shell,
   type Sketch,
+  type Slanted,
   type StarSystem,
   type State,
   type StepResult,
