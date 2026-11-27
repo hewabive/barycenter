@@ -238,3 +238,23 @@ test("every solid body of a made system has a heat that can be reckoned", () => 
     }
   }
 });
+
+test("rock gives off its gas while its melt reaches the ground, and a heavy lid stops it", () => {
+  const wet = (physics: Physics): Physics => ({
+    ...physics,
+    air: 1e5,
+    gases: [0, 0, 0, 0, 0.01, 0.79, 0.2, 0],
+    ice: 2.3e-4,
+    rock: 1 - physics.iron - 2.3e-4,
+  });
+  const earth = warmthOf(wet(made(EARTH_MASS, 0.325, 0, 288)), null)?.degassed ?? 0;
+  assert.ok(between(earth, 0.2, 0.3), `the Earth gives off ${earth}`);
+  const young = warmthOf(wet(made(EARTH_MASS, 0.325, 0, 288, 0.1 * GIGAYEAR)), null)?.degassed ?? 1;
+  assert.ok(young < 0.1 * earth, `a young Earth gives off ${young}`);
+  const dry = warmthOf(made(EARTH_MASS, 0.325, 0, 288), null)?.degassed ?? 1;
+  assert.ok(dry < 0.5 * earth, `under one lid the Earth gives off ${dry}`);
+  const mars = warmthOf(made(0.107 * EARTH_MASS, 0.24, 0, 210), null)?.degassed ?? 0;
+  assert.ok(mars > 0.3 * earth && mars < earth, `Mars gives off ${mars}`);
+  const heavy = warmthOf(made(5 * EARTH_MASS, 0.325, 0, 300), null)?.degassed ?? 1;
+  assert.equal(heavy, 0);
+});

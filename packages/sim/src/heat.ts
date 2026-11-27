@@ -18,6 +18,7 @@ export interface Core {
 }
 
 export interface Warmth {
+  degassed: number;
   decay: number;
   tide: number;
   flow: number;
@@ -76,6 +77,11 @@ const SHELLS = 32;
 const STEPS = 150;
 const PACE = 0.02;
 const STEPS_MOST = 4000;
+const SOLIDUS = [1120.661 + 273.15, 132.899e-9, -5.104e-18];
+const SOLIDUS_MOST = 10e9;
+const MELT_SPAN = 500;
+const UPWELLING = 1.16;
+const ERUPTED = 0.2;
 
 export function decayOf(age: number): number {
   return DECAYS.reduce(
@@ -144,6 +150,7 @@ interface Stone {
 }
 
 interface Cooked {
+  degassed: number;
   mantle: number;
   lid: number;
   lost: number;
@@ -222,6 +229,8 @@ function cooked(stone: Stone, cold: number, age: number, moving: boolean, tide: 
   let melt = 0;
   let passed = 0;
   let drop = 0;
+  let processed = 0;
+  const top = denseAt("rock", 0);
   for (let step = 0; step < STEPS_MOST && time < age; step++) {
     drop = Math.max(rock - cold, 1e-3);
     const stir = ((ROCK_SWELL * pull) / (ROCK_SPREAD * thick(rock))) ** (1 / 3);
@@ -249,6 +258,12 @@ function cooked(stone: Stone, cold: number, age: number, moving: boolean, tide: 
       PACE * Math.abs(rock / (warming || 1e-30)),
       cored ? PACE * Math.abs((core * held * state.top) / (passed || 1e-30)) : age,
     );
+    const lid = Math.min(deep, (ROCK_CONDUCT * drop * face) / lost);
+    const under = Math.min(SOLIDUS_MOST, top * pull * lid);
+    const solidus = SOLIDUS[0] + SOLIDUS[1] * under + SOLIDUS[2] * under * under;
+    if (rockHeatAt(rock, under) > solidus) {
+      processed += (ERUPTED * UPWELLING * ROCK_SPREAD * face * top * span) / lid;
+    }
     const next = rock + warming * span;
     melt = next > ROCK_MOLTEN ? gained - lost : 0;
     rock = Math.min(ROCK_MOLTEN, next);
@@ -267,6 +282,7 @@ function cooked(stone: Stone, cold: number, age: number, moving: boolean, tide: 
       : (IRON_SWELL * sunk * (flux - steep)) / (dense * IRON_HEAT) +
         sunk * IRON_LIGHTER * state.frozen ** 3 * growth;
   return {
+    degassed: 1 - Math.exp(-processed / mantle),
     mantle: rock,
     lid: lost > 0 ? Math.min(deep, (ROCK_CONDUCT * drop * face) / lost) : deep,
     lost: lost + melt,
@@ -325,6 +341,7 @@ export function warmthOf(physics: Physics, host: Physics | null): Warmth | null 
   const flow = (stone?.lost ?? decay + tide) / face;
   const sea = at < 0 ? null : seaOf(physics, layers[at], layers[at - 1]?.radius ?? 0, flow);
   return {
+    degassed: stone?.degassed ?? 1,
     decay,
     tide,
     flow,

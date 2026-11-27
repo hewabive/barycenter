@@ -13,7 +13,7 @@ import {
   wearOf,
 } from "./disks.ts";
 import { fallOf } from "./field.ts";
-import { forcedBy } from "./heat.ts";
+import { forcedBy, warmthOf } from "./heat.ts";
 import {
   type Drift,
   type Mark,
@@ -478,6 +478,7 @@ const ICE_LOST = 200;
 const HELIUM_SHARE = 0.14;
 const steamAt = GASES.indexOf("water");
 const WIDTH_LOST = 1e-3;
+const EARTH_DEGASSED = 0.25;
 const RING_SHARE_FLUID = 0.45;
 const RING_SHARE_SOLID = 0.05;
 const RING_HEAT = 1200;
@@ -927,14 +928,14 @@ function shaped(lot: Lot, site: Site, share = 1, fed = 0): Physics {
       );
   const water = framing.ice * born;
   const parts = Object.values(lot.blend).reduce((sum, part) => sum + part, 0);
-  const keptFrom = (lost: number) => {
+  const keptFrom = (lost: number, given = 1) => {
     const mass = born - lost;
     const after = (share: number) => (share * born) / mass;
     const iron = after(framing.iron);
     const rock = after(framing.rock);
     const gas = after(drawn);
     const ice = water - lost > WIDTH_LOST * 1e-9 * born ? (water - lost) / mass : 0;
-    const outgassed = (EARTH_AIR * mass * lot.vent) / EARTH_MASS;
+    const outgassed = (given * EARTH_AIR * mass * lot.vent) / EARTH_MASS;
     const frozen = ice > ICY_SHARE && bare < 1.3 * ICE_HEAT;
     const airOf = (radius: number): Climate => {
       const column = columnOf(mass, radius);
@@ -983,7 +984,34 @@ function shaped(lot: Lot, site: Site, share = 1, fed = 0): Physics {
     first.climate.air === 0 &&
     first.climate.heat > BARE_ICE &&
     !holdsSteam(first.mass, first.radius, first.climate.heat);
-  const { mass, iron, rock, ice, gas, radius, climate } = bared ? keptFrom(water) : first;
+  const lostNow = bared ? water : Math.min(water, past?.lost ?? 0);
+  const settledOnce = bared ? keptFrom(lostNow) : first;
+  const given =
+    past === null || lot.beyond || !kept
+      ? 1
+      : (warmthOf(
+          {
+            ...settledOnce,
+            lost: born - settledOnce.mass,
+            heat: settledOnce.climate.heat,
+            coldest: settledOnce.climate.heat,
+            hottest: settledOnce.climate.heat,
+            glow: 0,
+            light,
+            air: settledOnce.climate.air,
+            gases: settledOnce.climate.gases,
+            life: 0,
+            vigor: lot.vigor,
+            age: site.star.age,
+            orbit: site.orbit,
+            stretch: site.stretch,
+            year: yearOf(site.orbit, site.around.mass + settledOnce.mass),
+            day: lot.free ?? yearOf(site.orbit, site.around.mass + settledOnce.mass),
+            disks: [],
+          },
+          site.around,
+        )?.degassed ?? EARTH_DEGASSED) / EARTH_DEGASSED;
+  const { mass, iron, rock, ice, gas, radius, climate } = keptFrom(lostNow, given);
   const year = yearOf(site.orbit, site.around.mass + mass);
   const physics: Physics = {
     mass,
